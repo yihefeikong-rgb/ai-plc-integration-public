@@ -3,7 +3,10 @@
 """
 import json, re, subprocess, tempfile, os, sys
 
-API_KEY = 'sk-REPLACED_FOR_SECURITY'
+API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
+if not API_KEY:
+    print("❌ 请设置环境变量 DEEPSEEK_API_KEY（或在 .env 文件中定义）")
+    sys.exit(1)
 
 def main():
     prompt = """你是一个西门子 PLC 梯形图 (LAD) 专家。请根据以下描述生成 LadderSpec JSON。

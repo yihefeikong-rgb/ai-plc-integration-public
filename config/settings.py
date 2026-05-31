@@ -23,11 +23,11 @@ class Settings:
     modbus_host = _env("MODBUS_HOST", "localhost")
     modbus_port = int(_env("MODBUS_PORT", "502"))
 
-    melsec_host = _env("MELSEC_HOST", "192.168.0.20")
+    melsec_host = _env("MELSEC_HOST", "")
     melsec_port = int(_env("MELSEC_PORT", "5001"))
 
     influxdb_url = _env("INFLUXDB_URL", "http://localhost:8086")
-    influxdb_token = _env("INFLUXDB_TOKEN", "dev-token")
+    influxdb_token = _env("INFLUXDB_TOKEN", "")
     influxdb_org = _env("INFLUXDB_ORG", "ai-plc")
     influxdb_bucket = _env("INFLUXDB_BUCKET", "plc-data")
 

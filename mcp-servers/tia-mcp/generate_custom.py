@@ -3,7 +3,10 @@
 """
 import json, re, subprocess, tempfile, os, sys
 
-API_KEY = 'sk-REPLACED_FOR_SECURITY'
+API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
+if not API_KEY:
+    print("❌ 请设置环境变量 DEEPSEEK_API_KEY（或在 .env 文件中定义）")
+    sys.exit(1)
 
 # ═════ 改这里就行 ═════
 DESCRIPTION = "水泵自动控制，高液位启动，低液位停止，带手动/自动切换和过载保护"

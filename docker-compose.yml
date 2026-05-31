@@ -8,10 +8,10 @@ services:
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=admin123
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:?请设置 INFLUXDB_PASSWORD 环境变量}
       - DOCKER_INFLUXDB_INIT_ORG=ai-plc
       - DOCKER_INFLUXDB_INIT_BUCKET=plc-data
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=dev-token
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:?请设置 INFLUXDB_TOKEN 环境变量}
     volumes:
       - influxdb-data:/var/lib/influxdb2
     networks:
@@ -40,7 +40,7 @@ services:
     environment:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=dev-token
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?请设置 INFLUXDB_TOKEN 环境变量}
       - INFLUXDB_ORG=ai-plc
       - INFLUXDB_BUCKET=plc-data
       - MODBUS_HOST=openplc
