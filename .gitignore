@@ -1,0 +1,43 @@
+# 环境变量（含 API Key）
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+
+# Reasonix 内部配置
+.reasonix/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 构建产物
+**/bin/
+**/obj/
+**/out/
+
+# TIA Portal 项目文件（大型二进制，版本控制外部）
+*.ap17
+*.ap18
+*.ap19
+*.bak
+
+# Docker 持久化数据
+**/data/
+!**/data/*.md
+!**/data/*.yml
+
+# 操作系统
+Thumbs.db
+.DS_Store
+
+# 日志
+*.log
+logs/

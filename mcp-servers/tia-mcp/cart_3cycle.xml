@@ -1,0 +1,788 @@
+<?xml version="1.0" ?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0201" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.plcopen.org/xml/tc6_0201 http://www.plcopen.org/xml/tc6_0201">
+  <fileHeader companyName="AI-PLC-Integration" productName="AI SCL→LAD Generator" productVersion="1.0" creationDateTime="2026-05-30T11:56:26.933728"/>
+  <contentHeader name="MaterialCartControl" modificationDateTime="2026-05-30T11:56:26.933728">
+    <coordinateInfo>
+      <fbd>
+        <scaling x="1" y="1"/>
+      </fbd>
+      <ld>
+        <scaling x="2" y="2"/>
+      </ld>
+      <sfc>
+        <scaling x="1" y="1"/>
+      </sfc>
+    </coordinateInfo>
+  </contentHeader>
+  <types>
+    <pous>
+      <pou name="MaterialCartControl" pouType="functionBlock">
+        <interface>
+          <inputVars>
+            <variable name="bStart">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.0</address>
+              <documentation>
+                <xhtml>启动</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bStop">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.1</address>
+              <documentation>
+                <xhtml>停止</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bReset">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.2</address>
+              <documentation>
+                <xhtml>复位</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bEmergencyStop">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.3</address>
+              <documentation>
+                <xhtml>急停（常闭）</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bForwardLimit">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.4</address>
+              <documentation>
+                <xhtml>前限位</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bReverseLimit">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.5</address>
+              <documentation>
+                <xhtml>后限位</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bOverload">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.6</address>
+              <documentation>
+                <xhtml>过载（常闭）</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bManualMode">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.7</address>
+              <documentation>
+                <xhtml>手动模式</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bManualForward">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I1.0</address>
+              <documentation>
+                <xhtml>手动正转</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bManualReverse">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I1.1</address>
+              <documentation>
+                <xhtml>手动反转</xhtml>
+              </documentation>
+            </variable>
+          </inputVars>
+          <outputVars>
+            <variable name="bForwardOut">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%Q0.0</address>
+              <documentation>
+                <xhtml>正转输出</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bReverseOut">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%Q0.1</address>
+              <documentation>
+                <xhtml>反转输出</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bRunning">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%Q0.2</address>
+              <documentation>
+                <xhtml>运行中</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bFault">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%Q0.3</address>
+              <documentation>
+                <xhtml>故障</xhtml>
+              </documentation>
+            </variable>
+          </outputVars>
+          <localVars>
+            <variable name="bSafetyOK">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>安全链正常</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bFaultLatch">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>故障锁存</xhtml>
+              </documentation>
+            </variable>
+            <variable name="iState1">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>状态=前进</xhtml>
+              </documentation>
+            </variable>
+            <variable name="iState2">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>状态=卸载</xhtml>
+              </documentation>
+            </variable>
+            <variable name="iState3">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>状态=后退</xhtml>
+              </documentation>
+            </variable>
+            <variable name="iState4">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>状态=装载</xhtml>
+              </documentation>
+            </variable>
+            <variable name="iState5">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>状态=故障</xhtml>
+              </documentation>
+            </variable>
+          </localVars>
+          <tempVars>
+            <variable name="tmrUnload">
+              <type>
+                <TON/>
+              </type>
+              <documentation>
+                <xhtml>卸载延时 T#5S</xhtml>
+              </documentation>
+            </variable>
+            <variable name="tmrLoad">
+              <type>
+                <TON/>
+              </type>
+              <documentation>
+                <xhtml>装载延时 T#3S</xhtml>
+              </documentation>
+            </variable>
+          </tempVars>
+        </interface>
+        <body>
+          <LD>
+            <ladderNetwork networkNumber="1" networkTitle="安全链" networkComment="急停 AND 过载 → bSafetyOK">
+              <element type="contact" localId="1" width="50" height="40">
+                <position x="100" y="50"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bEmergencyStop</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="contact" localId="2" width="50" height="40">
+                <position x="200" y="50"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bOverload</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="coil" localId="3" width="50" height="40">
+                <position x="350" y="50"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bSafetyOK</variable>
+                <coilType>normal</coilType>
+              </element>
+              <connection localId="1000" refLocalId="1">
+                <position x="175" y="70"/>
+                <connectionPoint refLocalId="2" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="2">
+                <position x="300" y="70"/>
+                <connectionPoint refLocalId="3" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="2" networkTitle="故障锁存" networkComment="安全链断开 + NOT bReset → 锁存故障">
+              <element type="contact" localId="4" width="50" height="40">
+                <position x="100" y="130"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bSafetyOK</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="coil" localId="5" width="50" height="40">
+                <position x="250" y="130"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <coilType>set</coilType>
+              </element>
+              <connection localId="1000" refLocalId="4">
+                <position x="200" y="150"/>
+                <connectionPoint refLocalId="5" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="3" networkTitle="故障复位" networkComment="复位按钮 + 故障锁存 → 清除锁存">
+              <element type="contact" localId="6" width="50" height="40">
+                <position x="100" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bReset</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="7" width="50" height="40">
+                <position x="200" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="8" width="50" height="40">
+                <position x="350" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <coilType>reset</coilType>
+              </element>
+              <connection localId="1000" refLocalId="6">
+                <position x="175" y="230"/>
+                <connectionPoint refLocalId="7" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="7">
+                <position x="300" y="230"/>
+                <connectionPoint refLocalId="8" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="4" networkTitle="启动 → 前进 (State=1)" networkComment="bStart + NOT bFaultLatch → 进入前进状态">
+              <element type="contact" localId="9" width="50" height="40">
+                <position x="100" y="290"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bStart</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="10" width="50" height="40">
+                <position x="200" y="290"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="coil" localId="11" width="50" height="40">
+                <position x="350" y="290"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState1</variable>
+                <coilType>set</coilType>
+              </element>
+              <connection localId="1000" refLocalId="9">
+                <position x="175" y="310"/>
+                <connectionPoint refLocalId="10" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="10">
+                <position x="300" y="310"/>
+                <connectionPoint refLocalId="11" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="5" networkTitle="前进运行 + 到达前限位" networkComment="State=1 → 正转输出 + 运行指示；前限位到达 → 转卸载 State=2">
+              <element type="contact" localId="12" width="50" height="40">
+                <position x="100" y="370"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState1</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="13" width="50" height="40">
+                <position x="200" y="370"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bForwardOut</variable>
+                <coilType>normal</coilType>
+              </element>
+              <element type="coil" localId="14" width="50" height="40">
+                <position x="350" y="370"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bRunning</variable>
+                <coilType>normal</coilType>
+              </element>
+              <connection localId="1000" refLocalId="12">
+                <position x="175" y="390"/>
+                <connectionPoint refLocalId="13" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="13">
+                <position x="300" y="390"/>
+                <connectionPoint refLocalId="14" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="5" networkTitle="前进→前限位到达" networkComment="State=1 + ForwardLimit → 转入 State=2 卸载">
+              <element type="contact" localId="15" width="50" height="40">
+                <position x="100" y="450"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState1</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="16" width="50" height="40">
+                <position x="200" y="450"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bForwardLimit</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="17" width="50" height="40">
+                <position x="350" y="450"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState1</variable>
+                <coilType>reset</coilType>
+              </element>
+              <element type="coil" localId="18" width="50" height="40">
+                <position x="500" y="450"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState2</variable>
+                <coilType>set</coilType>
+              </element>
+              <connection localId="1000" refLocalId="15">
+                <position x="175" y="470"/>
+                <connectionPoint refLocalId="16" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="16">
+                <position x="300" y="470"/>
+                <connectionPoint refLocalId="17" formalParameter=""/>
+              </connection>
+              <connection localId="1002" refLocalId="17">
+                <position x="450" y="470"/>
+                <connectionPoint refLocalId="18" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="6" networkTitle="卸载 (State=2) — TON T#5S" networkComment="到达前限位 → 等待 5 秒卸载时间">
+              <element type="contact" localId="19" width="50" height="40">
+                <position x="100" y="530"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState2</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="blockInstance" localId="20" width="120" height="60">
+                <position x="250" y="520"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="30"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="120" y="30"/>
+                </connectionPointOut>
+                <blockType>TON</blockType>
+                <instanceName>tmrUnload</instanceName>
+                <inputVariable formalParameter="IN">
+                  <variable>iState2</variable>
+                </inputVariable>
+                <inputVariable formalParameter="PT">
+                  <variable>T#5S</variable>
+                </inputVariable>
+                <outputVariable formalParameter="Q">
+                  <variable>tmrUnloadDone</variable>
+                </outputVariable>
+                <outputVariable formalParameter="ET">
+                  <variable>tmrUnloadET</variable>
+                </outputVariable>
+              </element>
+              <connection localId="1000" refLocalId="19">
+                <position x="200" y="550"/>
+                <connectionPoint refLocalId="20" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="7" networkTitle="卸载完成 → 后退 (State=3)" networkComment="Timer 超时 → 转入后退状态">
+              <element type="contact" localId="21" width="50" height="40">
+                <position x="100" y="610"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>tmrUnloadDone</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="22" width="50" height="40">
+                <position x="250" y="610"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState2</variable>
+                <coilType>reset</coilType>
+              </element>
+              <element type="coil" localId="23" width="50" height="40">
+                <position x="400" y="610"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState3</variable>
+                <coilType>set</coilType>
+              </element>
+              <connection localId="1000" refLocalId="21">
+                <position x="200" y="630"/>
+                <connectionPoint refLocalId="22" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="22">
+                <position x="350" y="630"/>
+                <connectionPoint refLocalId="23" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="8" networkTitle="后退运行 + 到达后限位" networkComment="State=3 → 反转输出；后限位到达 → 转装载">
+              <element type="contact" localId="24" width="50" height="40">
+                <position x="100" y="690"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState3</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="25" width="50" height="40">
+                <position x="200" y="690"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bReverseOut</variable>
+                <coilType>normal</coilType>
+              </element>
+              <element type="coil" localId="26" width="50" height="40">
+                <position x="350" y="690"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bRunning</variable>
+                <coilType>normal</coilType>
+              </element>
+              <connection localId="1000" refLocalId="24">
+                <position x="175" y="710"/>
+                <connectionPoint refLocalId="25" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="25">
+                <position x="300" y="710"/>
+                <connectionPoint refLocalId="26" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="8" networkTitle="后退→后限位到达" networkComment="State=3 + ReverseLimit → 转入 State=4 装载">
+              <element type="contact" localId="27" width="50" height="40">
+                <position x="100" y="770"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState3</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="28" width="50" height="40">
+                <position x="200" y="770"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bReverseLimit</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="29" width="50" height="40">
+                <position x="350" y="770"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState3</variable>
+                <coilType>reset</coilType>
+              </element>
+              <element type="coil" localId="30" width="50" height="40">
+                <position x="500" y="770"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState4</variable>
+                <coilType>set</coilType>
+              </element>
+              <connection localId="1000" refLocalId="27">
+                <position x="175" y="790"/>
+                <connectionPoint refLocalId="28" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="28">
+                <position x="300" y="790"/>
+                <connectionPoint refLocalId="29" formalParameter=""/>
+              </connection>
+              <connection localId="1002" refLocalId="29">
+                <position x="450" y="790"/>
+                <connectionPoint refLocalId="30" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="9" networkTitle="装载 (State=4) — TON T#3S" networkComment="到达后限位 → 等待 3 秒装载时间">
+              <element type="contact" localId="31" width="50" height="40">
+                <position x="100" y="850"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState4</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="blockInstance" localId="32" width="120" height="60">
+                <position x="250" y="840"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="30"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="120" y="30"/>
+                </connectionPointOut>
+                <blockType>TON</blockType>
+                <instanceName>tmrLoad</instanceName>
+                <inputVariable formalParameter="IN">
+                  <variable>iState4</variable>
+                </inputVariable>
+                <inputVariable formalParameter="PT">
+                  <variable>T#3S</variable>
+                </inputVariable>
+                <outputVariable formalParameter="Q">
+                  <variable>tmrLoadDone</variable>
+                </outputVariable>
+                <outputVariable formalParameter="ET">
+                  <variable>tmrLoadET</variable>
+                </outputVariable>
+              </element>
+              <connection localId="1000" refLocalId="31">
+                <position x="200" y="870"/>
+                <connectionPoint refLocalId="32" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="10" networkTitle="装载完成 → 下一轮/停止" networkComment="Timer 超时 → 状态回 State=1（前进）继续循环，或停止">
+              <element type="contact" localId="33" width="50" height="40">
+                <position x="100" y="930"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>tmrLoadDone</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="34" width="50" height="40">
+                <position x="250" y="930"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState4</variable>
+                <coilType>reset</coilType>
+              </element>
+              <element type="coil" localId="35" width="50" height="40">
+                <position x="400" y="930"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>iState1</variable>
+                <coilType>set</coilType>
+              </element>
+              <connection localId="1000" refLocalId="33">
+                <position x="200" y="950"/>
+                <connectionPoint refLocalId="34" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="34">
+                <position x="350" y="950"/>
+                <connectionPoint refLocalId="35" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="11" networkTitle="故障输出" networkComment="bFaultLatch → 故障指示灯">
+              <element type="contact" localId="36" width="50" height="40">
+                <position x="100" y="1010"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="37" width="50" height="40">
+                <position x="250" y="1010"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFault</variable>
+                <coilType>normal</coilType>
+              </element>
+              <connection localId="1000" refLocalId="36">
+                <position x="200" y="1030"/>
+                <connectionPoint refLocalId="37" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+          </LD>
+        </body>
+      </pou>
+    </pous>
+  </types>
+</project>

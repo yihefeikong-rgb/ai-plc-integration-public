@@ -1,0 +1,535 @@
+{
+  "blockName": "QuizBuzzer8",
+  "blockNumber": 500,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iBtn1",
+        "type": "Bool",
+        "comment": "选手1",
+        "address": "%I1.0"
+      },
+      {
+        "name": "iBtn2",
+        "type": "Bool",
+        "comment": "选手2",
+        "address": "%I1.1"
+      },
+      {
+        "name": "iBtn3",
+        "type": "Bool",
+        "comment": "选手3",
+        "address": "%I1.2"
+      },
+      {
+        "name": "iBtn4",
+        "type": "Bool",
+        "comment": "选手4",
+        "address": "%I1.3"
+      },
+      {
+        "name": "iBtn5",
+        "type": "Bool",
+        "comment": "选手5",
+        "address": "%I1.4"
+      },
+      {
+        "name": "iBtn6",
+        "type": "Bool",
+        "comment": "选手6",
+        "address": "%I1.5"
+      },
+      {
+        "name": "iBtn7",
+        "type": "Bool",
+        "comment": "选手7",
+        "address": "%I1.6"
+      },
+      {
+        "name": "iBtn8",
+        "type": "Bool",
+        "comment": "选手8",
+        "address": "%I1.7"
+      },
+      {
+        "name": "iReset",
+        "type": "Bool",
+        "comment": "主持人复位",
+        "address": "%I2.0"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oLight1",
+        "type": "Bool",
+        "comment": "选手1灯",
+        "address": "%Q1.0"
+      },
+      {
+        "name": "oLight2",
+        "type": "Bool",
+        "comment": "选手2灯",
+        "address": "%Q1.1"
+      },
+      {
+        "name": "oLight3",
+        "type": "Bool",
+        "comment": "选手3灯",
+        "address": "%Q1.2"
+      },
+      {
+        "name": "oLight4",
+        "type": "Bool",
+        "comment": "选手4灯",
+        "address": "%Q1.3"
+      },
+      {
+        "name": "oLight5",
+        "type": "Bool",
+        "comment": "选手5灯",
+        "address": "%Q1.4"
+      },
+      {
+        "name": "oLight6",
+        "type": "Bool",
+        "comment": "选手6灯",
+        "address": "%Q1.5"
+      },
+      {
+        "name": "oLight7",
+        "type": "Bool",
+        "comment": "选手7灯",
+        "address": "%Q1.6"
+      },
+      {
+        "name": "oLight8",
+        "type": "Bool",
+        "comment": "选手8灯",
+        "address": "%Q1.7"
+      },
+      {
+        "name": "oBuzzer",
+        "type": "Bool",
+        "comment": "蜂鸣器",
+        "address": "%Q2.0"
+      },
+      {
+        "name": "oLocked",
+        "type": "Bool",
+        "comment": "锁定指示",
+        "address": "%Q2.1"
+      }
+    ],
+    "local": [
+      {
+        "name": "mLatch1",
+        "type": "Bool",
+        "comment": "锁存1"
+      },
+      {
+        "name": "mLatch2",
+        "type": "Bool",
+        "comment": "锁存2"
+      },
+      {
+        "name": "mLatch3",
+        "type": "Bool",
+        "comment": "锁存3"
+      },
+      {
+        "name": "mLatch4",
+        "type": "Bool",
+        "comment": "锁存4"
+      },
+      {
+        "name": "mLatch5",
+        "type": "Bool",
+        "comment": "锁存5"
+      },
+      {
+        "name": "mLatch6",
+        "type": "Bool",
+        "comment": "锁存6"
+      },
+      {
+        "name": "mLatch7",
+        "type": "Bool",
+        "comment": "锁存7"
+      },
+      {
+        "name": "mLatch8",
+        "type": "Bool",
+        "comment": "锁存8"
+      },
+      {
+        "name": "mLocked",
+        "type": "Bool",
+        "comment": "系统锁定"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "选手1",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn1"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLatch1"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLocked"
+        }
+      ]
+    },
+    {
+      "title": "选手2",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn2"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLatch2"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLocked"
+        }
+      ]
+    },
+    {
+      "title": "选手3",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn3"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLatch3"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLocked"
+        }
+      ]
+    },
+    {
+      "title": "选手4",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn4"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLatch4"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLocked"
+        }
+      ]
+    },
+    {
+      "title": "选手5",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn5"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLatch5"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLocked"
+        }
+      ]
+    },
+    {
+      "title": "选手6",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn6"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLatch6"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLocked"
+        }
+      ]
+    },
+    {
+      "title": "选手7",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn7"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLatch7"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLocked"
+        }
+      ]
+    },
+    {
+      "title": "选手8",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn8"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLatch8"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mLocked"
+        }
+      ]
+    },
+    {
+      "title": "锁定指示",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil",
+          "operand": "oLocked"
+        }
+      ]
+    },
+    {
+      "title": "蜂鸣器",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLocked"
+        },
+        {
+          "type": "coil",
+          "operand": "oBuzzer"
+        }
+      ]
+    },
+    {
+      "title": "选手1灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLatch1"
+        },
+        {
+          "type": "coil",
+          "operand": "oLight1"
+        }
+      ]
+    },
+    {
+      "title": "选手2灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLatch2"
+        },
+        {
+          "type": "coil",
+          "operand": "oLight2"
+        }
+      ]
+    },
+    {
+      "title": "选手3灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLatch3"
+        },
+        {
+          "type": "coil",
+          "operand": "oLight3"
+        }
+      ]
+    },
+    {
+      "title": "选手4灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLatch4"
+        },
+        {
+          "type": "coil",
+          "operand": "oLight4"
+        }
+      ]
+    },
+    {
+      "title": "选手5灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLatch5"
+        },
+        {
+          "type": "coil",
+          "operand": "oLight5"
+        }
+      ]
+    },
+    {
+      "title": "选手6灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLatch6"
+        },
+        {
+          "type": "coil",
+          "operand": "oLight6"
+        }
+      ]
+    },
+    {
+      "title": "选手7灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLatch7"
+        },
+        {
+          "type": "coil",
+          "operand": "oLight7"
+        }
+      ]
+    },
+    {
+      "title": "选手8灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mLatch8"
+        },
+        {
+          "type": "coil",
+          "operand": "oLight8"
+        }
+      ]
+    },
+    {
+      "title": "总复位",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iReset"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLatch1"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLatch2"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLatch3"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLatch4"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLatch5"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLatch6"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLatch7"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLatch8"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mLocked"
+        }
+      ]
+    }
+  ]
+}

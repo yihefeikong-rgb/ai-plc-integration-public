@@ -1,0 +1,94 @@
+FUNCTION_BLOCK "MixerControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bStart : Bool;           // 启动循环
+    bStop : Bool;            // 停止
+    bEmergencyStop : Bool;   // 急停
+    bHighLevel : Bool;       // 高液位（满）
+    bLowLevel : Bool;        // 低液位（空）
+    bEmpty : Bool;           // 排空完成
+    bOverload : Bool;        // 搅拌电机过载
+END_VAR
+
+VAR_OUTPUT
+    bInletValve : Bool;      // 进料阀
+    bOutletValve : Bool;     // 排料阀
+    bAgitator : Bool;        // 搅拌电机
+    bRunning : Bool;         // 运行中
+    bCycleDone : Bool;       // 循环完成
+    bFault : Bool;           // 故障
+END_VAR
+
+VAR
+    iState : Int := 0;       // 0=待机 1=进料 2=搅拌 3=排料 4=完成
+    tFill : TON;             // 进料延时 10s
+    tMix : TON;              // 搅拌延时 30s
+    tDrain : TON;            // 排料延时 15s
+END_VAR
+
+BEGIN
+    // ── 安全链 ──
+    IF NOT bEmergencyStop OR bOverload THEN
+        bInletValve := FALSE; bOutletValve := FALSE;
+        bAgitator := FALSE; bRunning := FALSE;
+        bFault := TRUE; iState := 0;
+        RETURN;
+    END_IF;
+
+    // ── 故障复位 ──
+    IF bFault AND NOT bOverload AND bEmergencyStop THEN
+        bFault := FALSE;
+    END_IF;
+
+    IF bFault THEN RETURN; END_IF;
+
+    // ── 停止 ──
+    IF bStop THEN
+        bInletValve := FALSE; bOutletValve := FALSE;
+        bAgitator := FALSE; bRunning := FALSE;
+        iState := 0; bCycleDone := FALSE;
+    END_IF;
+
+    // ── 启动 ──
+    IF bStart AND iState = 0 AND NOT bCycleDone THEN
+        iState := 1;
+    END_IF;
+
+    // ── 状态机 ──
+    CASE iState OF
+        1:  // 进料
+            bInletValve := TRUE; bRunning := TRUE;
+            tFill(IN := TRUE, PT := T#10S);
+            IF tFill.Q OR bHighLevel THEN
+                tFill(IN := FALSE);
+                bInletValve := FALSE;
+                iState := 2;
+            END_IF;
+
+        2:  // 搅拌
+            bAgitator := TRUE; bRunning := TRUE;
+            tMix(IN := TRUE, PT := T#30S);
+            IF tMix.Q THEN
+                tMix(IN := FALSE);
+                bAgitator := FALSE;
+                iState := 3;
+            END_IF;
+
+        3:  // 排料
+            bOutletValve := TRUE; bRunning := TRUE;
+            tDrain(IN := TRUE, PT := T#15S);
+            IF tDrain.Q OR bEmpty THEN
+                tDrain(IN := FALSE);
+                bOutletValve := FALSE;
+                bRunning := FALSE;
+                iState := 4;
+            END_IF;
+
+        4:  // 循环完成
+            bCycleDone := TRUE;
+            iState := 0;
+    END_CASE;
+END_FUNCTION_BLOCK

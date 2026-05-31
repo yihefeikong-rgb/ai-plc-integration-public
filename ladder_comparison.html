@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SCL → 梯形图 渲染对比</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #f0f2f5; font-family: -apple-system, 'Segoe UI', sans-serif; padding: 20px; }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 8px; color: #1a1a2e; }
+  h2 { font-size: 16px; margin: 20px 0 10px; color: #333; }
+  .subtitle { color: #666; font-size: 14px; margin-bottom: 20px; }
+  .card { background: white; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+           padding: 20px; margin-bottom: 20px; overflow: auto; }
+  .card-title { font-size: 15px; font-weight: bold; margin-bottom: 12px; color: #2563eb; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px;
+            font-weight: bold; margin-right: 6px; }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-orange { background: #fef3c7; color: #b45309; }
+  .two-col { display: flex; gap: 16px; }
+  .two-col > div { flex: 1; min-width: 0; }
+  pre { font-size: 12px; line-height: 1.5; overflow-x: auto; background: #f8fafc;
+         border-radius: 6px; padding: 12px; border: 1px solid #e2e8f0; }
+  .ladder-svg { display: block; margin: 0 auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0; font-size: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .dot-green { background: #27ae60; }
+  .dot-red { background: #e74c3c; }
+  .dot-gray { background: #94a3b8; }
+  footer { text-align: center; color: #94a3b8; font-size: 12px; padding: 20px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📐 SCL → 梯形图 渲染对比</h1>
+  <p class="subtitle">AI 双生生成：同一功能描述 → 同时输出 SCL + LAD</p>
+
+  <div class="legend">
+    <span class="legend-item"><span class="dot dot-green"></span> 导通（ON）</span>
+    <span class="legend-item"><span class="dot dot-red"></span> 断开（OFF）</span>
+    <span class="legend-item"><span class="dot dot-gray"></span> 常规状态</span>
+    <span class="badge badge-blue">NC</span> 常闭触点
+    <span class="badge badge-green">NO</span> 常开触点
+    <span class="badge badge-orange">(S)/(R)</span> 置位/复位线圈
+  </div>
+
+  <h2>🔷 示例1：电机正反转控制</h2>
+  <div class="card">
+    <div class="two-col">
+      <div>
+        <div class="card-title">梯形图 (LAD)</div>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 546" width="900" height="546" style="background:#ffffff">
+<rect x="0" y="0" width="900" height="546" fill="#ffffff"/>
+<text x="450.0" y="22" font-size="16" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">FB "MotorControl"  V0.1</text>
+<text x="450.0" y="42" font-size="11" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">Author: AI Generated</text>
+<line x1="60" y1="50" x2="60" y2="486" stroke="#1a1a2e" stroke-width="3"/>
+<line x1="860" y1="50" x2="860" y2="486" stroke="#1a1a2e" stroke-width="3"/>
+<rect x="60" y="60" width="800" height="52" fill="#eef2f7"/>
+<circle cx="30" cy="86.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="86.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">1</text>
+<text x="875" y="86.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">急停互锁</text>
+<line x1="60" y1="86.0" x2="84.0" y2="86.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="86.0" x2="105" y2="86.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="86.0" x2="118" y2="86.0" stroke="#333" stroke-width="2"/>
+<line x1="104" y1="80.0" x2="112" y2="92.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="108" cy="86.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="68.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bEmergencyStop</text>
+<text x="108" y="104.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.0</text>
+<ellipse cx="156" cy="86.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="86.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bSafetyOK</text>
+<text x="156" y="104.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.0</text>
+<line x1="220.0" y1="86.0" x2="860" y2="86.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="102.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">急停信号为 FALSE 时切断所有输出</text>
+<circle cx="30" cy="138.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="138.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">2</text>
+<text x="875" y="138.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">正转控制（自保持电路）</text>
+<line x1="60" y1="138.0" x2="84.0" y2="138.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="138.0" x2="105" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="138.0" x2="118" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="133.0" x2="105" y2="143.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="133.0" x2="111" y2="143.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="120.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bStartForward</text>
+<text x="108" y="156.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.1</text>
+<line x1="146" y1="138.0" x2="153" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="138.0" x2="166" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="152" y1="132.0" x2="160" y2="144.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="156" cy="138.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="120.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bStop</text>
+<text x="156" y="156.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.3</text>
+<line x1="194" y1="138.0" x2="201" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="207" y1="138.0" x2="214" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="201" y1="133.0" x2="201" y2="143.0" stroke="#333" stroke-width="1.5"/>
+<line x1="207" y1="133.0" x2="207" y2="143.0" stroke="#333" stroke-width="1.5"/>
+<text x="204" y="120.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bSafetyOK</text>
+<text x="204" y="156.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.0</text>
+<line x1="242" y1="138.0" x2="249" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="255" y1="138.0" x2="262" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="248" y1="132.0" x2="256" y2="144.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="252" cy="138.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="252" y="120.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bRunReverse</text>
+<text x="252" y="156.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.2</text>
+<ellipse cx="300" cy="138.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="300" y="138.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bForwardOut</text>
+<text x="300" y="156.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.0</text>
+<line x1="98" y1="152.0" x2="105" y2="152.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="152.0" x2="118" y2="152.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="147.0" x2="105" y2="157.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="147.0" x2="111" y2="157.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="134.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bForwardOut</text>
+<text x="108" y="170.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.0</text>
+<line x1="364.0" y1="138.0" x2="860" y2="138.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="154.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">启动自保持，互锁反转，受急停保护</text>
+<rect x="60" y="164" width="800" height="52" fill="#eef2f7"/>
+<circle cx="30" cy="190.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="190.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">3</text>
+<text x="875" y="190.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">反转控制（自保持电路）</text>
+<line x1="60" y1="190.0" x2="84.0" y2="190.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="190.0" x2="105" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="190.0" x2="118" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="185.0" x2="105" y2="195.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="185.0" x2="111" y2="195.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="172.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bStartReverse</text>
+<text x="108" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.2</text>
+<line x1="146" y1="190.0" x2="153" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="190.0" x2="166" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="152" y1="184.0" x2="160" y2="196.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="156" cy="190.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="172.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bStop</text>
+<text x="156" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.3</text>
+<line x1="194" y1="190.0" x2="201" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="207" y1="190.0" x2="214" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="201" y1="185.0" x2="201" y2="195.0" stroke="#333" stroke-width="1.5"/>
+<line x1="207" y1="185.0" x2="207" y2="195.0" stroke="#333" stroke-width="1.5"/>
+<text x="204" y="172.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bSafetyOK</text>
+<text x="204" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.0</text>
+<line x1="242" y1="190.0" x2="249" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="255" y1="190.0" x2="262" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="248" y1="184.0" x2="256" y2="196.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="252" cy="190.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="252" y="172.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bForwardOut</text>
+<text x="252" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.0</text>
+<ellipse cx="300" cy="190.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="300" y="190.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bReverseOut</text>
+<text x="300" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.1</text>
+<line x1="98" y1="204.0" x2="105" y2="204.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="204.0" x2="118" y2="204.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="199.0" x2="105" y2="209.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="199.0" x2="111" y2="209.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="186.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bReverseOut</text>
+<text x="108" y="222.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.1</text>
+<line x1="364.0" y1="190.0" x2="860" y2="190.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="206.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">启动自保持，互锁正转，受急停保护</text>
+<circle cx="30" cy="242.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="242.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">4</text>
+<text x="875" y="242.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">正反转互锁保护</text>
+<line x1="60" y1="242.0" x2="84.0" y2="242.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="242.0" x2="105" y2="242.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="242.0" x2="118" y2="242.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="237.0" x2="105" y2="247.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="237.0" x2="111" y2="247.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="224.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bForwardOut</text>
+<text x="108" y="260.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.0</text>
+<line x1="146" y1="242.0" x2="153" y2="242.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="242.0" x2="166" y2="242.0" stroke="#333" stroke-width="2"/>
+<line x1="152" y1="236.0" x2="160" y2="248.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="156" cy="242.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="224.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bReverseOut</text>
+<text x="156" y="260.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.1</text>
+<ellipse cx="204" cy="242.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="242.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bForwardSafe</text>
+<text x="204" y="260.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.1</text>
+<line x1="268.0" y1="242.0" x2="860" y2="242.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="258.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">防止正反转同时导通</text>
+<rect x="60" y="268" width="800" height="52" fill="#eef2f7"/>
+<circle cx="30" cy="294.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="294.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">5</text>
+<text x="875" y="294.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">故障检测与锁定</text>
+<line x1="60" y1="294.0" x2="84.0" y2="294.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="294.0" x2="105" y2="294.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="294.0" x2="118" y2="294.0" stroke="#333" stroke-width="2"/>
+<line x1="104" y1="288.0" x2="112" y2="300.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="108" cy="294.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="276.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bOverload</text>
+<text x="108" y="312.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.4</text>
+<line x1="146" y1="294.0" x2="153" y2="294.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="294.0" x2="166" y2="294.0" stroke="#333" stroke-width="2"/>
+<line x1="153" y1="289.0" x2="153" y2="299.0" stroke="#333" stroke-width="1.5"/>
+<line x1="159" y1="289.0" x2="159" y2="299.0" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="276.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bFaultLatch</text>
+<text x="156" y="312.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.3</text>
+<ellipse cx="204" cy="294.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="294.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bFault</text>
+<text x="204" y="312.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.2</text>
+<line x1="268.0" y1="294.0" x2="860" y2="294.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="310.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">过载触发故障，需手动复位</text>
+<circle cx="30" cy="346.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="346.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">6</text>
+<text x="875" y="346.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">故障复位</text>
+<line x1="60" y1="346.0" x2="84.0" y2="346.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="346.0" x2="105" y2="346.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="346.0" x2="118" y2="346.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="341.0" x2="105" y2="351.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="341.0" x2="111" y2="351.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="328.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bReset</text>
+<text x="108" y="364.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.5</text>
+<line x1="146" y1="346.0" x2="153" y2="346.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="346.0" x2="166" y2="346.0" stroke="#333" stroke-width="2"/>
+<line x1="153" y1="341.0" x2="153" y2="351.0" stroke="#333" stroke-width="1.5"/>
+<line x1="159" y1="341.0" x2="159" y2="351.0" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="328.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bFault</text>
+<text x="156" y="364.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.2</text>
+<ellipse cx="204" cy="346.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="346.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bFaultLatch (S)</text>
+<text x="204" y="364.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.3</text>
+<line x1="268.0" y1="346.0" x2="860" y2="346.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="362.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">复位按钮清除故障锁定</text>
+<rect x="60" y="372" width="800" height="52" fill="#eef2f7"/>
+<circle cx="30" cy="398.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="398.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">7</text>
+<text x="875" y="398.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">运行反馈超时定时器</text>
+<line x1="60" y1="398.0" x2="84.0" y2="398.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="398.0" x2="105" y2="398.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="398.0" x2="118" y2="398.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="393.0" x2="105" y2="403.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="393.0" x2="111" y2="403.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="380.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bForwardOut</text>
+<text x="108" y="416.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.0</text>
+<line x1="146" y1="398.0" x2="153" y2="398.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="398.0" x2="166" y2="398.0" stroke="#333" stroke-width="2"/>
+<line x1="152" y1="392.0" x2="160" y2="404.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="156" cy="398.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="380.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bRunFeedback</text>
+<text x="156" y="416.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.6</text>
+<rect x="154.0" y="376.0" width="100" height="44" fill="#f0f4f8" stroke="#4a5568" stroke-width="1" rx="3"/>
+<text x="204" y="388.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">timer_on: tmrFeedback</text>
+<text x="204" y="406.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">PT=T#5S</text>
+<line x1="268.0" y1="398.0" x2="860" y2="398.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="414.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">启动后 5s 内无反馈则报故障</text>
+<circle cx="30" cy="450.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="450.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">8</text>
+<text x="875" y="450.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">故障触发（定时器输出）</text>
+<line x1="60" y1="450.0" x2="84.0" y2="450.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="450.0" x2="105" y2="450.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="450.0" x2="118" y2="450.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="445.0" x2="105" y2="455.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="445.0" x2="111" y2="455.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="432.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">tmrFeedback.Q</text>
+<text x="108" y="468.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%T0</text>
+<ellipse cx="156" cy="450.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="450.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bFaultLatch (S)</text>
+<text x="156" y="468.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.3</text>
+<line x1="220.0" y1="450.0" x2="860" y2="450.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="466.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">反馈超时触发故障锁定</text>
+</svg>
+      </div>
+      <div>
+        <div class="card-title">SCL 代码（等价的 AI 生成输出）</div>
+        <pre>// 与梯形图等价的功能：
+// - 急停互锁（网络1）
+// - 正转自保持+反转互锁（网络2）
+// - 反转自保持+正转互锁（网络3）
+// - 过载保护（网络4）
+// - 故障复位（网络5）
+// - 物理输出映射（网络6）
+
+FUNCTION_BLOCK "MotorControl"
+VERSION : 0.1
+VAR_INPUT
+    bEmergencyStop : Bool;
+    bStartForward : Bool;
+    bStartReverse : Bool;
+    bStop : Bool;
+    bOverload : Bool;
+END_VAR
+VAR_OUTPUT
+    bForwardOut : Bool;
+    bReverseOut : Bool;
+    bFault : Bool;
+END_VAR
+VAR
+    bSafetyOK : Bool;
+    bFaultLatch : Bool;
+END_VAR
+BEGIN
+    // 急停互锁
+    bSafetyOK := bEmergencyStop;
+
+    // 正转自保持 + 反转互锁
+    bForwardOut := (bStartForward OR bForwardOut)
+                   AND bStop AND bSafetyOK
+                   AND NOT bReverseOut;
+
+    // 反转自保持 + 正转互锁
+    bReverseOut := (bStartReverse OR bReverseOut)
+                   AND bStop AND bSafetyOK
+                   AND NOT bForwardOut;
+
+    // 过载保护
+    IF NOT bOverload THEN
+        bFault := TRUE;
+    END_IF;
+END_FUNCTION_BLOCK</pre>
+      </div>
+    </div>
+  </div>
+
+  <h2>🔷 示例2：材料小车控制（含状态机展开）</h2>
+  <div class="card">
+    <div class="card-title">梯形图 — 含 CASE 状态机展开</div>
+    <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
+      原 SCL 中的 <code>CASE iState OF</code> 被展开为 8 个独立网络，
+      每个网络等价于一个状态分支。定时器（TON）直接转化为功能块。
+    </div>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 546" width="900" height="546" style="background:#ffffff">
+<rect x="0" y="0" width="900" height="546" fill="#ffffff"/>
+<text x="450.0" y="22" font-size="16" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">FB "MaterialCartControl"  V0.1</text>
+<text x="450.0" y="42" font-size="11" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">Author: AI Generated (SCL→LAD)</text>
+<line x1="60" y1="50" x2="60" y2="486" stroke="#1a1a2e" stroke-width="3"/>
+<line x1="860" y1="50" x2="860" y2="486" stroke="#1a1a2e" stroke-width="3"/>
+<rect x="60" y="60" width="800" height="52" fill="#eef2f7"/>
+<circle cx="30" cy="86.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="86.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">1</text>
+<text x="875" y="86.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">急停+过载安全链</text>
+<line x1="60" y1="86.0" x2="84.0" y2="86.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="86.0" x2="105" y2="86.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="86.0" x2="118" y2="86.0" stroke="#333" stroke-width="2"/>
+<line x1="104" y1="80.0" x2="112" y2="92.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="108" cy="86.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="68.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bEmergencyStop</text>
+<text x="108" y="104.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.3</text>
+<ellipse cx="156" cy="86.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="86.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bSafetyOK</text>
+<text x="156" y="104.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.0</text>
+<line x1="98" y1="100.0" x2="105" y2="100.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="100.0" x2="118" y2="100.0" stroke="#333" stroke-width="2"/>
+<line x1="104" y1="94.0" x2="112" y2="106.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="108" cy="100.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="82.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bOverload</text>
+<text x="108" y="118.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.6</text>
+<ellipse cx="156" cy="100.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="100.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bSafeLoad</text>
+<text x="156" y="118.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.1</text>
+<line x1="220.0" y1="86.0" x2="860" y2="86.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="102.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">急停或过载触发时，切断所有输出，锁存故障</text>
+<circle cx="30" cy="138.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="138.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">2</text>
+<text x="875" y="138.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">故障锁存与复位</text>
+<line x1="60" y1="138.0" x2="84.0" y2="138.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="138.0" x2="105" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="138.0" x2="118" y2="138.0" stroke="#333" stroke-width="2"/>
+<line x1="104" y1="132.0" x2="112" y2="144.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="108" cy="138.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="120.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bSafetyOK</text>
+<text x="108" y="156.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.0</text>
+<ellipse cx="156" cy="138.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="138.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bFaultLatch (S)</text>
+<text x="156" y="156.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.2</text>
+<line x1="98" y1="152.0" x2="105" y2="152.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="152.0" x2="118" y2="152.0" stroke="#333" stroke-width="2"/>
+<line x1="104" y1="146.0" x2="112" y2="158.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="108" cy="152.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="134.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bSafeLoad</text>
+<text x="108" y="170.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.1</text>
+<ellipse cx="156" cy="152.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="152.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bFaultLatch (S)</text>
+<text x="156" y="170.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.2</text>
+<line x1="98" y1="166.0" x2="105" y2="166.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="166.0" x2="118" y2="166.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="161.0" x2="105" y2="171.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="161.0" x2="111" y2="171.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="148.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bReset</text>
+<text x="108" y="184.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.2</text>
+<line x1="146" y1="166.0" x2="153" y2="166.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="166.0" x2="166" y2="166.0" stroke="#333" stroke-width="2"/>
+<line x1="153" y1="161.0" x2="153" y2="171.0" stroke="#333" stroke-width="1.5"/>
+<line x1="159" y1="161.0" x2="159" y2="171.0" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="148.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bFaultLatch</text>
+<text x="156" y="184.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.2</text>
+<ellipse cx="204" cy="166.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="166.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bFaultLatch (R)</text>
+<text x="204" y="184.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.2</text>
+<line x1="220.0" y1="138.0" x2="860" y2="138.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="154.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">安全链熔断 → 锁存故障；复位按钮解除</text>
+<rect x="60" y="164" width="800" height="52" fill="#eef2f7"/>
+<circle cx="30" cy="190.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="190.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">3</text>
+<text x="875" y="190.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">手动模式</text>
+<line x1="60" y1="190.0" x2="84.0" y2="190.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="190.0" x2="105" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="190.0" x2="118" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="185.0" x2="105" y2="195.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="185.0" x2="111" y2="195.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="172.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bManualMode</text>
+<text x="108" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.7</text>
+<line x1="146" y1="190.0" x2="153" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="190.0" x2="166" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="153" y1="185.0" x2="153" y2="195.0" stroke="#333" stroke-width="1.5"/>
+<line x1="159" y1="185.0" x2="159" y2="195.0" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="172.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bManualForward</text>
+<text x="156" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I1.0</text>
+<line x1="194" y1="190.0" x2="201" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="207" y1="190.0" x2="214" y2="190.0" stroke="#333" stroke-width="2"/>
+<line x1="200" y1="184.0" x2="208" y2="196.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="204" cy="190.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="204" y="172.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bManualReverse</text>
+<text x="204" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I1.1</text>
+<ellipse cx="252" cy="190.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="252" y="190.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bForwardOut</text>
+<text x="252" y="208.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.0</text>
+<line x1="98" y1="204.0" x2="105" y2="204.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="204.0" x2="118" y2="204.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="199.0" x2="105" y2="209.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="199.0" x2="111" y2="209.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="186.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bManualMode</text>
+<text x="108" y="222.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.7</text>
+<line x1="146" y1="204.0" x2="153" y2="204.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="204.0" x2="166" y2="204.0" stroke="#333" stroke-width="2"/>
+<line x1="153" y1="199.0" x2="153" y2="209.0" stroke="#333" stroke-width="1.5"/>
+<line x1="159" y1="199.0" x2="159" y2="209.0" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="186.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bManualReverse</text>
+<text x="156" y="222.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I1.1</text>
+<line x1="194" y1="204.0" x2="201" y2="204.0" stroke="#333" stroke-width="2"/>
+<line x1="207" y1="204.0" x2="214" y2="204.0" stroke="#333" stroke-width="2"/>
+<line x1="200" y1="198.0" x2="208" y2="210.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="204" cy="204.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="204" y="186.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bManualForward</text>
+<text x="204" y="222.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I1.0</text>
+<ellipse cx="252" cy="204.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="252" y="204.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bReverseOut</text>
+<text x="252" y="222.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.1</text>
+<line x1="316.0" y1="190.0" x2="860" y2="190.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="206.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">手动模式下，正反转直接由按钮控制+互锁</text>
+<circle cx="30" cy="242.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="242.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">4</text>
+<text x="875" y="242.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">状态机 — 前进（State=1）</text>
+<line x1="60" y1="242.0" x2="84.0" y2="242.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="242.0" x2="105" y2="242.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="242.0" x2="118" y2="242.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="237.0" x2="105" y2="247.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="237.0" x2="111" y2="247.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="224.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bStart</text>
+<text x="108" y="260.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.0</text>
+<line x1="146" y1="242.0" x2="153" y2="242.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="242.0" x2="166" y2="242.0" stroke="#333" stroke-width="2"/>
+<line x1="152" y1="236.0" x2="160" y2="248.0" stroke="#333" stroke-width="2.5"/>
+<circle cx="156" cy="242.0" r="3" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="224.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bFaultLatch</text>
+<text x="156" y="260.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M0.2</text>
+<ellipse cx="204" cy="242.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="242.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=1 (S)</text>
+<text x="204" y="260.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.1</text>
+<line x1="98" y1="256.0" x2="105" y2="256.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="256.0" x2="118" y2="256.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="251.0" x2="105" y2="261.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="251.0" x2="111" y2="261.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="238.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">iState=1</text>
+<text x="108" y="274.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.1</text>
+<ellipse cx="156" cy="256.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="256.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bForwardOut</text>
+<text x="156" y="274.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.0</text>
+<ellipse cx="204" cy="256.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="256.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bRunning</text>
+<text x="204" y="274.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.2</text>
+<line x1="98" y1="270.0" x2="105" y2="270.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="270.0" x2="118" y2="270.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="265.0" x2="105" y2="275.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="265.0" x2="111" y2="275.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="252.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">iState=1</text>
+<text x="108" y="288.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.1</text>
+<line x1="146" y1="270.0" x2="153" y2="270.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="270.0" x2="166" y2="270.0" stroke="#333" stroke-width="2"/>
+<line x1="153" y1="265.0" x2="153" y2="275.0" stroke="#333" stroke-width="1.5"/>
+<line x1="159" y1="265.0" x2="159" y2="275.0" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="252.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bForwardLimit</text>
+<text x="156" y="288.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.4</text>
+<ellipse cx="204" cy="270.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="270.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=2 (S)</text>
+<text x="204" y="288.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.2</text>
+<ellipse cx="252" cy="270.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="252" y="270.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=1 (R)</text>
+<text x="252" y="288.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.1</text>
+<line x1="268.0" y1="242.0" x2="860" y2="242.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="258.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">启动触发前进，到达前限位后转入卸载</text>
+<rect x="60" y="268" width="800" height="52" fill="#eef2f7"/>
+<circle cx="30" cy="294.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="294.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">5</text>
+<text x="875" y="294.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">状态机 — 卸载（State=2）</text>
+<line x1="60" y1="294.0" x2="84.0" y2="294.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="294.0" x2="105" y2="294.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="294.0" x2="118" y2="294.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="289.0" x2="105" y2="299.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="289.0" x2="111" y2="299.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="276.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">iState=2</text>
+<text x="108" y="312.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.2</text>
+<rect x="106.0" y="272.0" width="100" height="44" fill="#f0f4f8" stroke="#4a5568" stroke-width="1" rx="3"/>
+<text x="156" y="284.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">timer_on: tmrUnload</text>
+<text x="156" y="302.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">PT=T#5S</text>
+<line x1="98" y1="308.0" x2="105" y2="308.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="308.0" x2="118" y2="308.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="303.0" x2="105" y2="313.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="303.0" x2="111" y2="313.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="290.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">tmrUnload.Q</text>
+<text x="108" y="326.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">T1</text>
+<ellipse cx="156" cy="308.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="308.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=3 (S)</text>
+<text x="156" y="326.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.3</text>
+<ellipse cx="204" cy="308.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="308.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=2 (R)</text>
+<text x="204" y="326.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.2</text>
+<line x1="220.0" y1="294.0" x2="860" y2="294.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="310.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">到达前端位，等待卸载时间后转入后退</text>
+<circle cx="30" cy="346.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="346.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">6</text>
+<text x="875" y="346.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">状态机 — 后退（State=3）</text>
+<line x1="60" y1="346.0" x2="84.0" y2="346.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="346.0" x2="105" y2="346.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="346.0" x2="118" y2="346.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="341.0" x2="105" y2="351.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="341.0" x2="111" y2="351.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="328.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">iState=3</text>
+<text x="108" y="364.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.3</text>
+<ellipse cx="156" cy="346.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="346.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bReverseOut</text>
+<text x="156" y="364.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.1</text>
+<ellipse cx="204" cy="346.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="346.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bRunning</text>
+<text x="204" y="364.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.2</text>
+<line x1="98" y1="360.0" x2="105" y2="360.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="360.0" x2="118" y2="360.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="355.0" x2="105" y2="365.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="355.0" x2="111" y2="365.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="342.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">iState=3</text>
+<text x="108" y="378.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.3</text>
+<line x1="146" y1="360.0" x2="153" y2="360.0" stroke="#333" stroke-width="2"/>
+<line x1="159" y1="360.0" x2="166" y2="360.0" stroke="#333" stroke-width="2"/>
+<line x1="153" y1="355.0" x2="153" y2="365.0" stroke="#333" stroke-width="1.5"/>
+<line x1="159" y1="355.0" x2="159" y2="365.0" stroke="#333" stroke-width="1.5"/>
+<text x="156" y="342.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">bReverseLimit</text>
+<text x="156" y="378.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%I0.5</text>
+<ellipse cx="204" cy="360.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="360.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=4 (S)</text>
+<text x="204" y="378.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.4</text>
+<ellipse cx="252" cy="360.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="252" y="360.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=3 (R)</text>
+<text x="252" y="378.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.3</text>
+<line x1="268.0" y1="346.0" x2="860" y2="346.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="362.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">后退到后限位，转入装载</text>
+<rect x="60" y="372" width="800" height="52" fill="#eef2f7"/>
+<circle cx="30" cy="398.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="398.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">7</text>
+<text x="875" y="398.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">状态机 — 装载完成→下一轮（State=4→1/0）</text>
+<line x1="60" y1="398.0" x2="84.0" y2="398.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="398.0" x2="105" y2="398.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="398.0" x2="118" y2="398.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="393.0" x2="105" y2="403.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="393.0" x2="111" y2="403.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="380.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">iState=4</text>
+<text x="108" y="416.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.4</text>
+<rect x="106.0" y="376.0" width="100" height="44" fill="#f0f4f8" stroke="#4a5568" stroke-width="1" rx="3"/>
+<text x="156" y="388.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">timer_on: tmrLoad</text>
+<text x="156" y="406.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">PT=T#3S</text>
+<line x1="98" y1="412.0" x2="105" y2="412.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="412.0" x2="118" y2="412.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="407.0" x2="105" y2="417.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="407.0" x2="111" y2="417.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="394.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">tmrLoad.Q</text>
+<text x="108" y="430.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">T2</text>
+<ellipse cx="156" cy="412.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="412.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bForwardOut</text>
+<text x="156" y="430.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.0</text>
+<ellipse cx="204" cy="412.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="204" y="412.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=4 (R)</text>
+<text x="204" y="430.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.4</text>
+<ellipse cx="252" cy="412.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="252" y="412.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">iState=1 (S)</text>
+<text x="252" y="430.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.1</text>
+<line x1="220.0" y1="398.0" x2="860" y2="398.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="414.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">装载定时到后自增计数，决定继续循环还是停止</text>
+<circle cx="30" cy="450.0" r="10" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+<text x="30" y="450.0" font-size="11" fill="#475569" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">8</text>
+<text x="875" y="450.0" font-size="12" fill="#1a1a2e" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">故障状态输出</text>
+<line x1="60" y1="450.0" x2="84.0" y2="450.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="98" y1="450.0" x2="105" y2="450.0" stroke="#333" stroke-width="2"/>
+<line x1="111" y1="450.0" x2="118" y2="450.0" stroke="#333" stroke-width="2"/>
+<line x1="105" y1="445.0" x2="105" y2="455.0" stroke="#333" stroke-width="1.5"/>
+<line x1="111" y1="445.0" x2="111" y2="455.0" stroke="#333" stroke-width="1.5"/>
+<text x="108" y="432.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">iState=5</text>
+<text x="108" y="468.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%M2.5</text>
+<ellipse cx="156" cy="450.0" rx="11" ry="9" fill="none" stroke="#333" stroke-width="1.8"/>
+<text x="156" y="450.0" font-size="10" fill="#333" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">bFault</text>
+<text x="156" y="468.0" font-size="9" fill="#666666" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">%Q0.3</text>
+<line x1="220.0" y1="450.0" x2="860" y2="450.0" stroke="#333333" stroke-width="1.5"/>
+<text x="875" y="466.0" font-size="11" fill="#666666" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">状态机 State=5 时，输出故障信号</text>
+</svg>
+  </div>
+
+  <h2>🔷 示例3：原始 SCL 代码（MaterialCartControl）</h2>
+  <div class="card">
+    <pre>FUNCTION_BLOCK "MaterialCartControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bStart : Bool;
+    bStop : Bool;
+    bReset : Bool;
+    bEmergencyStop : Bool;
+    bForwardLimit : Bool;
+    bReverseLimit : Bool;
+    bOverload : Bool;
+    bManualMode : Bool;
+    bManualForward : Bool;
+    bManualReverse : Bool;
+    iCycleSetpoint : Int;
+    tiUnloadTime : Time := T#5S;
+    tiLoadTime : Time := T#3S;
+END_VAR
+
+VAR_OUTPUT
+    bForwardOut : Bool;
+    bReverseOut : Bool;
+    bRunning : Bool;
+    bFault : Bool;
+    iFaultCode : Int;
+    iCycleCount : Int;
+    iStateDisplay : Int;
+    bAtForwardEnd : Bool;
+    bAtReverseEnd : Bool;
+END_VAR
+
+VAR
+    iState : Int := 0;
+    tStartTimer : Time;
+    bHoldStop : Bool;
+    bFaultLatch : Bool;
+END_VAR
+
+BEGIN
+    bForwardOut := FALSE;
+    bReverseOut := FALSE;
+    bRunning := FALSE;
+    bFault := FALSE;
+    bAtForwardEnd := FALSE;
+    bAtReverseEnd := FALSE;
+    iStateDisplay := iState;
+
+    IF NOT bEmergencyStop THEN
+        bForwardOut := FALSE; bReverseOut := FALSE; bRunning := FALSE;
+        bFault := TRUE; bFaultLatch := TRUE; iFaultCode := 1; iState := 5;
+        RETURN;
+    END_IF;
+
+    IF NOT bOverload THEN
+        bForwardOut := FALSE; bReverseOut := FALSE; bRunning := FALSE;
+        bFault := TRUE; bFaultLatch := TRUE; iFaultCode := 2; iState := 5;
+        RETURN;
+    END_IF;
+
+    IF bManualMode THEN
+        IF bManualForward AND NOT bManualReverse THEN bForwardOut := TRUE; bReverseOut := FALSE;
+        ELSIF bManualReverse AND NOT bManualForward THEN bForwardOut := FALSE; bReverseOut := TRUE;
+        ELSE bForwardOut := FALSE; bReverseOut := FALSE; END_IF;
+        RETURN;
+    END_IF;
+
+    IF bFaultLatch AND bReset THEN
+        bFaultLatch := FALSE; bHoldStop := FALSE; iFaultCode := 0; iState := 0;
+    END_IF;
+    IF bFaultLatch THEN bForwardOut := FALSE; bReverseOut := FALSE; bFault := TRUE; RETURN; END_IF;
+
+    CASE iState OF
+        0:
+            IF bStart THEN bHoldStop := FALSE; iCycleCount := 0; iState := 1; END_IF;
+        1:
+            bForwardOut := TRUE; bRunning := TRUE;
+            IF bForwardLimit THEN bForwardOut := FALSE; tStartTimer := T#0S; iState := 2;
+            ELSIF bReverseLimit THEN bForwardOut := FALSE; iFaultCode := 4; bFaultLatch := TRUE; iState := 5; END_IF;
+        2:
+            bAtForwardEnd := TRUE; bRunning := TRUE;
+            tStartTimer := tStartTimer + T#1S;
+            IF tStartTimer >= tiUnloadTime THEN bAtForwardEnd := FALSE; tStartTimer := T#0S; iState := 3; END_IF;
+        3:
+            bReverseOut := TRUE; bRunning := TRUE;
+            IF bReverseLimit THEN bReverseOut := FALSE; tStartTimer := T#0S; iState := 4;
+            ELSIF bForwardLimit THEN bReverseOut := FALSE; iFaultCode := 4; bFaultLatch := TRUE; iState := 5; END_IF;
+        4:
+            bAtReverseEnd := TRUE; bRunning := TRUE;
+            tStartTimer := tStartTimer + T#1S;
+            IF tStartTimer >= tiLoadTime THEN
+                bAtReverseEnd := FALSE; iCycleCount := iCycleCount + 1; tStartTimer := T#0S;
+                IF bHoldStop THEN iState := 0;
+                ELSIF iCycleSetpoint > 0 AND iCycleCount >= iCycleSetpoint THEN iState := 0;
+                ELSE iState := 1; END_IF;
+            END_IF;
+        5:
+            bFault := TRUE;
+            IF bReset THEN bFaultLatch := FALSE; iFaultCode := 0; iState := 0; END_IF;
+    END_CASE;
+
+    IF bStop AND iState >= 1 AND iState <= 4 THEN bHoldStop := TRUE; END_IF;
+END_FUNCTION_BLOCK
+</pre>
+  </div>
+
+</div>
+<footer>
+  AI + PLC 集成项目 · 阶段3：西门子工程态 · SCL ↔ LAD 双生生成
+</footer>
+</body>
+</html>

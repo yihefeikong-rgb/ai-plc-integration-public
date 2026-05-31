@@ -1,0 +1,304 @@
+{
+  "blockName": "ConveyorSorter",
+  "blockNumber": 710,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStart",
+        "type": "Bool",
+        "comment": "启动",
+        "address": "%I17.0"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "停止",
+        "address": "%I17.1"
+      },
+      {
+        "name": "iStopBtn",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I17.2"
+      },
+      {
+        "name": "iOverload",
+        "type": "Bool",
+        "comment": "过载（常闭）",
+        "address": "%I17.3"
+      },
+      {
+        "name": "iProductDetect",
+        "type": "Bool",
+        "comment": "产品检测传感器",
+        "address": "%I17.4"
+      },
+      {
+        "name": "iSizeBig",
+        "type": "Bool",
+        "comment": "大号产品检测",
+        "address": "%I17.5"
+      },
+      {
+        "name": "iSizeSmall",
+        "type": "Bool",
+        "comment": "小号产品检测",
+        "address": "%I17.6"
+      },
+      {
+        "name": "iRejectConfirm",
+        "type": "Bool",
+        "comment": "剔除确认传感器",
+        "address": "%I17.7"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oConveyor",
+        "type": "Bool",
+        "comment": "主传送带",
+        "address": "%Q17.0"
+      },
+      {
+        "name": "oSorterBig",
+        "type": "Bool",
+        "comment": "大号推杆",
+        "address": "%Q17.1"
+      },
+      {
+        "name": "oSorterSmall",
+        "type": "Bool",
+        "comment": "小号推杆",
+        "address": "%Q17.2"
+      },
+      {
+        "name": "oRejectOut",
+        "type": "Bool",
+        "comment": "剔除推杆",
+        "address": "%Q17.3"
+      },
+      {
+        "name": "oRunning",
+        "type": "Bool",
+        "comment": "运行指示",
+        "address": "%Q17.4"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障指示",
+        "address": "%Q17.5"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mRunCmd",
+        "type": "Bool",
+        "comment": "运行指令"
+      },
+      {
+        "name": "mProductLatched",
+        "type": "Bool",
+        "comment": "产品已锁存"
+      },
+      {
+        "name": "mSortDone",
+        "type": "Bool",
+        "comment": "分拣完成"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "急停和过载正常",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStopBtn"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "启停",
+      "comment": "启动/停止控制",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "停止",
+      "comment": "停止或安全链断开",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "传送带运行",
+      "comment": "运行指令驱动传送带",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oConveyor"
+        },
+        {
+          "type": "coil",
+          "operand": "oRunning"
+        }
+      ]
+    },
+    {
+      "title": "产品检测锁存",
+      "comment": "检测到产品后锁存",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iProductDetect"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mSortDone"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mProductLatched"
+        }
+      ]
+    },
+    {
+      "title": "大号分拣",
+      "comment": "检测到大号产品推入大号料道",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mProductLatched"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iSizeBig"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oSorterBig"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mSortDone"
+        }
+      ]
+    },
+    {
+      "title": "小号分拣",
+      "comment": "检测到小号产品推入小号料道",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mProductLatched"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iSizeSmall"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oSorterSmall"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mSortDone"
+        }
+      ]
+    },
+    {
+      "title": "复位锁存",
+      "comment": "剔除确认后复位",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mSortDone"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iRejectConfirm"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mProductLatched"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mSortDone"
+        }
+      ]
+    },
+    {
+      "title": "故障输出",
+      "comment": "安全链断开报警",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

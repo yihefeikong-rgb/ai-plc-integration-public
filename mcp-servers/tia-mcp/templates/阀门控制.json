@@ -1,0 +1,225 @@
+{
+  "blockName": "ValveControl",
+  "blockNumber": 200,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iOpen",
+        "type": "Bool",
+        "comment": "开阀按钮",
+        "address": "%I18.0"
+      },
+      {
+        "name": "iClose",
+        "type": "Bool",
+        "comment": "关阀按钮",
+        "address": "%I18.1"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I18.2"
+      },
+      {
+        "name": "iOpenFeedback",
+        "type": "Bool",
+        "comment": "开到位反馈",
+        "address": "%I18.3"
+      },
+      {
+        "name": "iCloseFeedback",
+        "type": "Bool",
+        "comment": "关到位反馈",
+        "address": "%I18.4"
+      },
+      {
+        "name": "iOverload",
+        "type": "Bool",
+        "comment": "过载（常闭）",
+        "address": "%I18.5"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oOpenValve",
+        "type": "Bool",
+        "comment": "开阀输出",
+        "address": "%Q18.0"
+      },
+      {
+        "name": "oCloseValve",
+        "type": "Bool",
+        "comment": "关阀输出",
+        "address": "%Q18.1"
+      },
+      {
+        "name": "oOpenLight",
+        "type": "Bool",
+        "comment": "开到位灯",
+        "address": "%Q18.2"
+      },
+      {
+        "name": "oCloseLight",
+        "type": "Bool",
+        "comment": "关到位灯",
+        "address": "%Q18.3"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障指示",
+        "address": "%Q18.4"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "急停和过载正常",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "开阀 Set",
+      "comment": "开阀按钮触发",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iOpen"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oCloseValve"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOpenFeedback"
+        },
+        {
+          "type": "coil_set",
+          "operand": "oOpenValve"
+        }
+      ]
+    },
+    {
+      "title": "开阀 Reset",
+      "comment": "开到位停",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iOpenFeedback"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "oOpenValve"
+        }
+      ]
+    },
+    {
+      "title": "关阀 Set",
+      "comment": "关阀按钮触发",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iClose"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oOpenValve"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iCloseFeedback"
+        },
+        {
+          "type": "coil_set",
+          "operand": "oCloseValve"
+        }
+      ]
+    },
+    {
+      "title": "关阀 Reset",
+      "comment": "关到位停",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iCloseFeedback"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "oCloseValve"
+        }
+      ]
+    },
+    {
+      "title": "开到位灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iOpenFeedback"
+        },
+        {
+          "type": "coil",
+          "operand": "oOpenLight"
+        }
+      ]
+    },
+    {
+      "title": "关到位灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iCloseFeedback"
+        },
+        {
+          "type": "coil",
+          "operand": "oCloseLight"
+        }
+      ]
+    },
+    {
+      "title": "故障输出",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

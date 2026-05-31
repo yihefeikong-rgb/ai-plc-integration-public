@@ -1,0 +1,262 @@
+{
+  "blockName": "WaterPump",
+  "blockNumber": 640,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStart",
+        "type": "Bool",
+        "comment": "手动启动",
+        "address": "%I13.0"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "手动停止",
+        "address": "%I13.1"
+      },
+      {
+        "name": "iAutoMode",
+        "type": "Bool",
+        "comment": "自动模式",
+        "address": "%I13.2"
+      },
+      {
+        "name": "iHighLevel",
+        "type": "Bool",
+        "comment": "高液位",
+        "address": "%I13.3"
+      },
+      {
+        "name": "iLowLevel",
+        "type": "Bool",
+        "comment": "低液位",
+        "address": "%I13.4"
+      },
+      {
+        "name": "iDryRun",
+        "type": "Bool",
+        "comment": "干转保护（常闭）",
+        "address": "%I13.5"
+      },
+      {
+        "name": "iOverload",
+        "type": "Bool",
+        "comment": "过载（常闭）",
+        "address": "%I13.6"
+      },
+      {
+        "name": "iStopBtn",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I13.7"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oPumpRun",
+        "type": "Bool",
+        "comment": "水泵运行",
+        "address": "%Q13.0"
+      },
+      {
+        "name": "oRunLight",
+        "type": "Bool",
+        "comment": "运行灯",
+        "address": "%Q13.1"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障",
+        "address": "%Q13.2"
+      },
+      {
+        "name": "oAutoActive",
+        "type": "Bool",
+        "comment": "自动模式灯",
+        "address": "%Q13.3"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mPumpCmd",
+        "type": "Bool",
+        "comment": "泵指令"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStopBtn"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iDryRun"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "自动模式灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAutoMode"
+        },
+        {
+          "type": "coil",
+          "operand": "oAutoActive"
+        }
+      ]
+    },
+    {
+      "title": "手动启动",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iAutoMode"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mPumpCmd"
+        }
+      ]
+    },
+    {
+      "title": "手动停止",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iAutoMode"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iStop"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mPumpCmd"
+        }
+      ]
+    },
+    {
+      "title": "自动启泵",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAutoMode"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iHighLevel"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mPumpCmd"
+        }
+      ]
+    },
+    {
+      "title": "自动停泵",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAutoMode"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iLowLevel"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mPumpCmd"
+        }
+      ]
+    },
+    {
+      "title": "安全链停泵",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mPumpCmd"
+        }
+      ]
+    },
+    {
+      "title": "水泵输出",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mPumpCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oPumpRun"
+        },
+        {
+          "type": "coil",
+          "operand": "oRunLight"
+        }
+      ]
+    },
+    {
+      "title": "故障",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

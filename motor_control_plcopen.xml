@@ -1,0 +1,491 @@
+<?xml version="1.0" ?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0201" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.plcopen.org/xml/tc6_0201 http://www.plcopen.org/xml/tc6_0201">
+  <fileHeader companyName="AI-PLC-Integration" productName="AI SCL→LAD Generator" productVersion="1.0" creationDateTime="2026-05-29T19:04:20.735391"/>
+  <contentHeader name="MotorControl" modificationDateTime="2026-05-29T19:04:20.735391">
+    <coordinateInfo>
+      <fbd>
+        <scaling x="1" y="1"/>
+      </fbd>
+      <ld>
+        <scaling x="2" y="2"/>
+      </ld>
+      <sfc>
+        <scaling x="1" y="1"/>
+      </sfc>
+    </coordinateInfo>
+  </contentHeader>
+  <types>
+    <pous>
+      <pou name="MotorControl" pouType="functionBlock">
+        <interface>
+          <inputVars>
+            <variable name="bEmergencyStop">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.0</address>
+              <documentation>
+                <xhtml>急停（常闭触点）</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bStartForward">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.1</address>
+              <documentation>
+                <xhtml>正转启动按钮</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bStop">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.2</address>
+              <documentation>
+                <xhtml>停止按钮（常闭）</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bStartReverse">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.3</address>
+              <documentation>
+                <xhtml>反转启动按钮</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bOverload">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.4</address>
+              <documentation>
+                <xhtml>过载信号（常闭）</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bReset">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.5</address>
+              <documentation>
+                <xhtml>故障复位按钮</xhtml>
+              </documentation>
+            </variable>
+          </inputVars>
+          <outputVars>
+            <variable name="bForwardOut">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%Q0.0</address>
+              <documentation>
+                <xhtml>正转输出</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bReverseOut">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%Q0.1</address>
+              <documentation>
+                <xhtml>反转输出</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bFault">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%Q0.2</address>
+              <documentation>
+                <xhtml>故障指示</xhtml>
+              </documentation>
+            </variable>
+          </outputVars>
+          <localVars>
+            <variable name="bSafetyOK">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>安全状态位（急停正常时=ON）</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bFaultLatch">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>故障锁存位</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bRunForward">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>正转运行中间位</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bRunReverse">
+              <type>
+                <BOOL/>
+              </type>
+              <documentation>
+                <xhtml>反转运行中间位</xhtml>
+              </documentation>
+            </variable>
+          </localVars>
+          <tempVars>
+            <variable name="tmrFeedback">
+              <type>
+                <TON/>
+              </type>
+              <documentation>
+                <xhtml>运行反馈超时定时器</xhtml>
+              </documentation>
+            </variable>
+          </tempVars>
+        </interface>
+        <body>
+          <LD>
+            <ladderNetwork networkNumber="1" networkTitle="急停互锁" networkComment="急停按钮为常闭触点，按下时切断 bSafetyOK">
+              <element type="contact" localId="1" width="50" height="40">
+                <position x="100" y="50"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bEmergencyStop</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="coil" localId="2" width="50" height="40">
+                <position x="250" y="50"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bSafetyOK</variable>
+                <coilType>normal</coilType>
+              </element>
+              <connection localId="1000" refLocalId="1">
+                <position x="200" y="70"/>
+                <connectionPoint refLocalId="2" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="2" networkTitle="正转自保持 + 反转互锁" networkComment="bStartForward 或 bRunForward → bStop → bSafetyOK → NOT bReverseOut → 输出">
+              <element type="contact" localId="3" width="50" height="40">
+                <position x="100" y="130"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bStartForward</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="4" width="50" height="40">
+                <position x="200" y="130"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bRunForward</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="5" width="50" height="40">
+                <position x="350" y="130"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bStop</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="contact" localId="6" width="50" height="40">
+                <position x="450" y="130"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bSafetyOK</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="7" width="50" height="40">
+                <position x="550" y="130"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bReverseOut</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="coil" localId="8" width="50" height="40">
+                <position x="650" y="130"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bForwardOut</variable>
+                <coilType>normal</coilType>
+              </element>
+              <connection localId="1000" refLocalId="3">
+                <position x="175" y="150"/>
+                <connectionPoint refLocalId="4" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="4">
+                <position x="300" y="150"/>
+                <connectionPoint refLocalId="5" formalParameter=""/>
+              </connection>
+              <connection localId="1002" refLocalId="5">
+                <position x="425" y="150"/>
+                <connectionPoint refLocalId="6" formalParameter=""/>
+              </connection>
+              <connection localId="1003" refLocalId="6">
+                <position x="525" y="150"/>
+                <connectionPoint refLocalId="7" formalParameter=""/>
+              </connection>
+              <connection localId="1004" refLocalId="7">
+                <position x="625" y="150"/>
+                <connectionPoint refLocalId="8" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="3" networkTitle="反转自保持 + 正转互锁" networkComment="bStartReverse 或 bRunReverse → bStop → bSafetyOK → NOT bForwardOut → 输出">
+              <element type="contact" localId="9" width="50" height="40">
+                <position x="100" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bStartReverse</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="10" width="50" height="40">
+                <position x="200" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bRunReverse</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="11" width="50" height="40">
+                <position x="350" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bStop</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="contact" localId="12" width="50" height="40">
+                <position x="450" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bSafetyOK</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="13" width="50" height="40">
+                <position x="550" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bForwardOut</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="coil" localId="14" width="50" height="40">
+                <position x="650" y="210"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bReverseOut</variable>
+                <coilType>normal</coilType>
+              </element>
+              <connection localId="1000" refLocalId="9">
+                <position x="175" y="230"/>
+                <connectionPoint refLocalId="10" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="10">
+                <position x="300" y="230"/>
+                <connectionPoint refLocalId="11" formalParameter=""/>
+              </connection>
+              <connection localId="1002" refLocalId="11">
+                <position x="425" y="230"/>
+                <connectionPoint refLocalId="12" formalParameter=""/>
+              </connection>
+              <connection localId="1003" refLocalId="12">
+                <position x="525" y="230"/>
+                <connectionPoint refLocalId="13" formalParameter=""/>
+              </connection>
+              <connection localId="1004" refLocalId="13">
+                <position x="625" y="230"/>
+                <connectionPoint refLocalId="14" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="4" networkTitle="过载保护 + 故障锁存" networkComment="过载断开时置位 bFault，复位按钮+bFault 时复位">
+              <element type="contact" localId="15" width="50" height="40">
+                <position x="100" y="290"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bOverload</variable>
+                <contactType>normallyClosed</contactType>
+              </element>
+              <element type="contact" localId="16" width="50" height="40">
+                <position x="200" y="290"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="17" width="50" height="40">
+                <position x="350" y="290"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <coilType>set</coilType>
+              </element>
+              <connection localId="1000" refLocalId="15">
+                <position x="175" y="310"/>
+                <connectionPoint refLocalId="16" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="16">
+                <position x="300" y="310"/>
+                <connectionPoint refLocalId="17" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="5" networkTitle="故障复位" networkComment="复位按钮 + 故障锁存 → 复位线圈">
+              <element type="contact" localId="18" width="50" height="40">
+                <position x="100" y="370"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bReset</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="contact" localId="19" width="50" height="40">
+                <position x="200" y="370"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="20" width="50" height="40">
+                <position x="350" y="370"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <coilType>reset</coilType>
+              </element>
+              <connection localId="1000" refLocalId="18">
+                <position x="175" y="390"/>
+                <connectionPoint refLocalId="19" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="19">
+                <position x="300" y="390"/>
+                <connectionPoint refLocalId="20" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+            <ladderNetwork networkNumber="6" networkTitle="故障 → 输出灯" networkComment="bFaultLatch 驱动故障指示灯">
+              <element type="contact" localId="21" width="50" height="40">
+                <position x="100" y="450"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <contactType>normallyOpen</contactType>
+              </element>
+              <element type="coil" localId="22" width="50" height="40">
+                <position x="250" y="450"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFault</variable>
+                <coilType>normal</coilType>
+              </element>
+              <element type="coil" localId="23" width="50" height="40">
+                <position x="400" y="450"/>
+                <connectionPointIn>
+                  <relPosition x="0" y="20"/>
+                </connectionPointIn>
+                <connectionPointOut>
+                  <relPosition x="50" y="20"/>
+                </connectionPointOut>
+                <variable>bFaultLatch</variable>
+                <coilType>normal</coilType>
+              </element>
+              <connection localId="1000" refLocalId="21">
+                <position x="200" y="470"/>
+                <connectionPoint refLocalId="22" formalParameter=""/>
+              </connection>
+              <connection localId="1001" refLocalId="22">
+                <position x="350" y="470"/>
+                <connectionPoint refLocalId="23" formalParameter=""/>
+              </connection>
+            </ladderNetwork>
+          </LD>
+        </body>
+      </pou>
+    </pous>
+  </types>
+</project>

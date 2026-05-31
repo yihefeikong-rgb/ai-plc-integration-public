@@ -1,0 +1,305 @@
+{
+  "blockName": "Elevator2F",
+  "blockNumber": 610,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iCall1Up",
+        "type": "Bool",
+        "comment": "1楼上行",
+        "address": "%I0.0"
+      },
+      {
+        "name": "iCall2Down",
+        "type": "Bool",
+        "comment": "2楼下行",
+        "address": "%I0.1"
+      },
+      {
+        "name": "iAtFloor1",
+        "type": "Bool",
+        "comment": "1楼到位",
+        "address": "%I0.2"
+      },
+      {
+        "name": "iAtFloor2",
+        "type": "Bool",
+        "comment": "2楼到位",
+        "address": "%I0.3"
+      },
+      {
+        "name": "iDoorClosed",
+        "type": "Bool",
+        "comment": "门关好",
+        "address": "%I0.4"
+      },
+      {
+        "name": "iOverload",
+        "type": "Bool",
+        "comment": "超载（常闭）",
+        "address": "%I0.5"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I0.6"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oMotorUp",
+        "type": "Bool",
+        "comment": "上行",
+        "address": "%Q0.0"
+      },
+      {
+        "name": "oMotorDown",
+        "type": "Bool",
+        "comment": "下行",
+        "address": "%Q0.1"
+      },
+      {
+        "name": "oOpenDoor",
+        "type": "Bool",
+        "comment": "开门",
+        "address": "%Q0.2"
+      },
+      {
+        "name": "oFloor1Light",
+        "type": "Bool",
+        "comment": "1楼灯",
+        "address": "%Q0.3"
+      },
+      {
+        "name": "oFloor2Light",
+        "type": "Bool",
+        "comment": "2楼灯",
+        "address": "%Q0.4"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障",
+        "address": "%Q0.5"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mTarget1",
+        "type": "Bool",
+        "comment": "目标1楼"
+      },
+      {
+        "name": "mTarget2",
+        "type": "Bool",
+        "comment": "目标2楼"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iDoorClosed"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "呼1楼",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iCall1Up"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iAtFloor1"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mTarget1"
+        }
+      ]
+    },
+    {
+      "title": "呼2楼",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iCall2Down"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iAtFloor2"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mTarget2"
+        }
+      ]
+    },
+    {
+      "title": "到1楼清目标",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAtFloor1"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mTarget1"
+        }
+      ]
+    },
+    {
+      "title": "到2楼清目标",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAtFloor2"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mTarget2"
+        }
+      ]
+    },
+    {
+      "title": "上行",
+      "comment": "2楼有目标上行",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mTarget2"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iAtFloor2"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oMotorDown"
+        },
+        {
+          "type": "coil",
+          "operand": "oMotorUp"
+        }
+      ]
+    },
+    {
+      "title": "下行",
+      "comment": "1楼有目标下行",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mTarget1"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iAtFloor1"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oMotorUp"
+        },
+        {
+          "type": "coil",
+          "operand": "oMotorDown"
+        }
+      ]
+    },
+    {
+      "title": "开门",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAtFloor1"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mTarget1"
+        },
+        {
+          "type": "coil",
+          "operand": "oOpenDoor"
+        }
+      ]
+    },
+    {
+      "title": "1楼灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAtFloor1"
+        },
+        {
+          "type": "coil",
+          "operand": "oFloor1Light"
+        }
+      ]
+    },
+    {
+      "title": "2楼灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAtFloor2"
+        },
+        {
+          "type": "coil",
+          "operand": "oFloor2Light"
+        }
+      ]
+    },
+    {
+      "title": "故障",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

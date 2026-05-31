@@ -1,0 +1,260 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Web.Script.Serialization;
+using Siemens.Engineering;
+using Siemens.Engineering.HW;
+using Siemens.Engineering.HW.Features;
+using Siemens.Engineering.SW;
+using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.ExternalSources;
+using Siemens.Engineering.Compiler;
+using Siemens.Engineering.Download;
+
+namespace TiaWorker
+{
+    class Program
+    {
+        static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
+
+        static int Main(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                Console.WriteLine(JsonError("Usage: TiaWorker.exe <command> <jsonFile>"));
+                return 1;
+            }
+
+            var command = args[0];
+            var jsonFile = args[1];
+
+            if (!File.Exists(jsonFile))
+            {
+                Console.WriteLine(JsonError($"File not found: {jsonFile}"));
+                return 1;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(jsonFile);
+                switch (command)
+                {
+                    case "import-scl":
+                        return ImportScl(json);
+                    case "create-lad":
+                        Console.WriteLine(LadderBuilder.Execute(json));
+                        return 0;
+                    case "compile":
+                        return Compile(json);
+                    case "download":
+                        return Download(json);
+                    case "list-devices":
+                        return ListDevices(json);
+                    default:
+                        Console.WriteLine(JsonError($"Unknown command: {command}"));
+                        return 1;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(JsonError(ex.ToString()));
+                return 1;
+            }
+        }
+
+        static int ImportScl(string json)
+        {
+            var input = Json.Deserialize<ImportSclInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) ||
+                string.IsNullOrEmpty(input?.SclFilePath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or SclFilePath"));
+                return 1;
+            }
+
+            var sclFile = new FileInfo(input.SclFilePath);
+            if (!sclFile.Exists)
+            {
+                Console.WriteLine(JsonError($"SCL file not found: {input.SclFilePath}"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var projectPath = new FileInfo(input.ProjectPath);
+                if (!projectPath.Exists)
+                {
+                    Console.WriteLine(JsonError($"Project not found: {input.ProjectPath}"));
+                    return 1;
+                }
+
+                var project = tia.Projects.Open(projectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found in project"));
+                    return 1;
+                }
+
+                // Import external source file
+                var extGroup = plcSoftware.ExternalSourceGroup;
+                var extSources = extGroup.ExternalSources;
+                var extSource = extSources.CreateFromFile(sclFile.Name, sclFile.FullName);
+
+                // Generate blocks from source
+                var generated = extSource.GenerateBlocksFromSource(GenerateBlockOption.None);
+
+                project.Save();
+
+                Console.WriteLine(JsonOk(new
+                {
+                    fileName = sclFile.Name,
+                    generated = generated.Count,
+                    blocks = generated.OfType<PlcBlock>().Select(b => b.Name).ToArray()
+                }));
+                return 0;
+            }
+        }
+
+        static int Compile(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var compiler = plcSoftware.GetService<ICompilable>();
+                var result = compiler.Compile();
+
+                project.Save();
+
+                Console.WriteLine(JsonOk(new
+                {
+                    success = result.State == CompilerResultState.Success,
+                    errors = result.ErrorCount,
+                    warnings = result.WarningCount
+                }));
+                return result.State == CompilerResultState.Success ? 0 : 1;
+            }
+        }
+
+        static int Download(string json)
+        {
+            var input = Json.Deserialize<DownloadInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
+                var device = FindDevice(project, input?.DeviceName);
+
+                if (device == null)
+                {
+                    Console.WriteLine(JsonError("Device not found"));
+                    return 1;
+                }
+
+                var downloadProvider = device.GetService<DownloadProvider>();
+                if (downloadProvider == null)
+                {
+                    Console.WriteLine(JsonOk(new
+                    {
+                        message = "Download requires TIA Portal GUI configuration. " +
+                                  "Open TIA Portal -> select device -> Download to device -> PLCSIM."
+                    }));
+                    return 0;
+                }
+
+                Console.WriteLine(JsonOk(new
+                {
+                    message = "Download provider found. Use TIA Portal GUI to complete download."
+                }));
+                return 0;
+            }
+        }
+
+        static int ListDevices(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
+                var devices = project.Devices
+                    .Select(d => new { name = d.Name, type = d.TypeIdentifier })
+                    .ToArray();
+
+                Console.WriteLine(JsonOk(new { devices }));
+                return 0;
+            }
+        }
+
+        internal static PlcSoftware GetPlcSoftware(Project project)
+        {
+            foreach (var device in project.Devices)
+            {
+                foreach (var deviceItem in device.DeviceItems)
+                {
+                    try
+                    {
+                        var container = deviceItem.GetService<SoftwareContainer>();
+                        if (container?.Software is PlcSoftware plc)
+                            return plc;
+                    }
+                    catch { }
+                }
+            }
+            return null;
+        }
+
+        static Device FindDevice(Project project, string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return project.Devices.FirstOrDefault();
+            return project.Devices.FirstOrDefault(d =>
+                d.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        static string JsonOk(object data) =>
+            Json.Serialize(new { status = "ok", data });
+
+        static string JsonError(string msg) =>
+            Json.Serialize(new { status = "error", error = msg });
+    }
+
+    class ProjectInput
+    {
+        public string ProjectPath { get; set; }
+    }
+
+    class ImportSclInput : ProjectInput
+    {
+        public string SclFilePath { get; set; }
+    }
+
+    class DownloadInput : ProjectInput
+    {
+        public string DeviceName { get; set; }
+    }
+}

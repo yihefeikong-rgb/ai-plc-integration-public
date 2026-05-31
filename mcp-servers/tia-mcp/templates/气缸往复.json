@@ -1,0 +1,188 @@
+{
+  "blockName": "CylinderRecip",
+  "blockNumber": 630,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStart",
+        "type": "Bool",
+        "comment": "启动",
+        "address": "%I12.0"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "停止",
+        "address": "%I12.1"
+      },
+      {
+        "name": "iStopBtn",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I12.2"
+      },
+      {
+        "name": "iExtendLimit",
+        "type": "Bool",
+        "comment": "伸出限位",
+        "address": "%I12.3"
+      },
+      {
+        "name": "iRetractLimit",
+        "type": "Bool",
+        "comment": "缩回限位",
+        "address": "%I12.4"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oExtend",
+        "type": "Bool",
+        "comment": "伸出电磁阀",
+        "address": "%Q12.0"
+      },
+      {
+        "name": "oRetract",
+        "type": "Bool",
+        "comment": "缩回电磁阀",
+        "address": "%Q12.1"
+      },
+      {
+        "name": "oRunning",
+        "type": "Bool",
+        "comment": "运行中",
+        "address": "%Q12.2"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mRunCmd",
+        "type": "Bool",
+        "comment": "运行指令"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStopBtn"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "启动",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "停止",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "伸出",
+      "comment": "缩回位→伸出",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iRetractLimit"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iExtendLimit"
+        },
+        {
+          "type": "coil",
+          "operand": "oExtend"
+        }
+      ]
+    },
+    {
+      "title": "缩回",
+      "comment": "伸出位→缩回",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iExtendLimit"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iRetractLimit"
+        },
+        {
+          "type": "coil",
+          "operand": "oRetract"
+        }
+      ]
+    },
+    {
+      "title": "运行指示",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "coil",
+          "operand": "oRunning"
+        }
+      ]
+    }
+  ]
+}

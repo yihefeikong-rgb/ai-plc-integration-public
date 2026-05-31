@@ -1,0 +1,292 @@
+{
+  "blockName": "SeqMotorStart",
+  "blockNumber": 660,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStart",
+        "type": "Bool",
+        "comment": "顺序启动按钮",
+        "address": "%I6.0"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "全部停止",
+        "address": "%I6.1"
+      },
+      {
+        "name": "iStopBtn",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I6.2"
+      },
+      {
+        "name": "iOverload1",
+        "type": "Bool",
+        "comment": "电机1过载（常闭）",
+        "address": "%I6.3"
+      },
+      {
+        "name": "iOverload2",
+        "type": "Bool",
+        "comment": "电机2过载（常闭）",
+        "address": "%I6.4"
+      },
+      {
+        "name": "iOverload3",
+        "type": "Bool",
+        "comment": "电机3过载（常闭）",
+        "address": "%I6.5"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oMotor1",
+        "type": "Bool",
+        "comment": "电机1运行",
+        "address": "%Q6.0"
+      },
+      {
+        "name": "oMotor2",
+        "type": "Bool",
+        "comment": "电机2运行",
+        "address": "%Q6.1"
+      },
+      {
+        "name": "oMotor3",
+        "type": "Bool",
+        "comment": "电机3运行",
+        "address": "%Q6.2"
+      },
+      {
+        "name": "oReady",
+        "type": "Bool",
+        "comment": "全部启动完成",
+        "address": "%Q6.3"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障指示",
+        "address": "%Q6.4"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mSeqStart",
+        "type": "Bool",
+        "comment": "顺序启动中"
+      },
+      {
+        "name": "mStep1Done",
+        "type": "Bool",
+        "comment": "电机1启动完成"
+      },
+      {
+        "name": "mStep2Done",
+        "type": "Bool",
+        "comment": "电机2启动完成"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "总安全链",
+      "comment": "所有电机过载和急停都正常",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStopBtn"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload1"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload2"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload3"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "顺序启动",
+      "comment": "启动按钮触发顺序启动",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oReady"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mSeqStart"
+        }
+      ]
+    },
+    {
+      "title": "停止",
+      "comment": "停止按钮或急停复位所有",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mSeqStart"
+        }
+      ]
+    },
+    {
+      "title": "电机1启动",
+      "comment": "顺序启动第一步",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mSeqStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload1"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oMotor2"
+        },
+        {
+          "type": "coil",
+          "operand": "oMotor1"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mStep1Done"
+        }
+      ]
+    },
+    {
+      "title": "电机2启动",
+      "comment": "电机1启动完成后延时启动电机2",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mStep1Done"
+        },
+        {
+          "type": "normally_open",
+          "operand": "oMotor1"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload2"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oMotor3"
+        },
+        {
+          "type": "coil",
+          "operand": "oMotor2"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mStep2Done"
+        }
+      ]
+    },
+    {
+      "title": "电机3启动",
+      "comment": "电机2启动完成后启动电机3",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mStep2Done"
+        },
+        {
+          "type": "normally_open",
+          "operand": "oMotor2"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload3"
+        },
+        {
+          "type": "coil",
+          "operand": "oMotor3"
+        }
+      ]
+    },
+    {
+      "title": "全部启动完成",
+      "comment": "三台电机都运行",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "oMotor1"
+        },
+        {
+          "type": "normally_open",
+          "operand": "oMotor2"
+        },
+        {
+          "type": "normally_open",
+          "operand": "oMotor3"
+        },
+        {
+          "type": "coil",
+          "operand": "oReady"
+        }
+      ]
+    },
+    {
+      "title": "故障输出",
+      "comment": "安全链断开即报警",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

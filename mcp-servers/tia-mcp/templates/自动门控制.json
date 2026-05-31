@@ -1,0 +1,308 @@
+{
+  "blockName": "AutoDoorControl",
+  "blockNumber": 650,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iSensorNear",
+        "type": "Bool",
+        "comment": "接近传感器（有人）",
+        "address": "%I16.0"
+      },
+      {
+        "name": "iOpenLimit",
+        "type": "Bool",
+        "comment": "开门上限位",
+        "address": "%I16.1"
+      },
+      {
+        "name": "iCloseLimit",
+        "type": "Bool",
+        "comment": "关门下限位",
+        "address": "%I16.2"
+      },
+      {
+        "name": "iSafetyEdge",
+        "type": "Bool",
+        "comment": "防夹安全边（常闭）",
+        "address": "%I16.3"
+      },
+      {
+        "name": "iManualOpen",
+        "type": "Bool",
+        "comment": "手动开门按钮",
+        "address": "%I16.4"
+      },
+      {
+        "name": "iManualClose",
+        "type": "Bool",
+        "comment": "手动关门按钮",
+        "address": "%I16.5"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I16.6"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oMotorOpen",
+        "type": "Bool",
+        "comment": "开门电机",
+        "address": "%Q16.0"
+      },
+      {
+        "name": "oMotorClose",
+        "type": "Bool",
+        "comment": "关门电机",
+        "address": "%Q16.1"
+      },
+      {
+        "name": "oOpeningLight",
+        "type": "Bool",
+        "comment": "开门状态灯",
+        "address": "%Q16.2"
+      },
+      {
+        "name": "oClosingLight",
+        "type": "Bool",
+        "comment": "关门状态灯",
+        "address": "%Q16.3"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障指示",
+        "address": "%Q16.4"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mAutoOpen",
+        "type": "Bool",
+        "comment": "自动开门指令"
+      },
+      {
+        "name": "mOpenCmd",
+        "type": "Bool",
+        "comment": "开门指令"
+      },
+      {
+        "name": "mCloseCmd",
+        "type": "Bool",
+        "comment": "关门指令"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "急停和防夹都正常才允许运行",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iSafetyEdge"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "自动开门触发",
+      "comment": "传感器检测到人时自动开门",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iSensorNear"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOpenLimit"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mAutoOpen"
+        }
+      ]
+    },
+    {
+      "title": "自动开门复位",
+      "comment": "门开到位后清除自动开门指令",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iOpenLimit"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mAutoOpen"
+        }
+      ]
+    },
+    {
+      "title": "开门指令",
+      "comment": "自动触发或手动按钮",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mAutoOpen"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iManualOpen"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOpenLimit"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oMotorClose"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mOpenCmd"
+        }
+      ]
+    },
+    {
+      "title": "关门指令",
+      "comment": "人离开或手动按钮关门",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iSensorNear"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mAutoOpen"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iManualClose"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iCloseLimit"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oMotorOpen"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mCloseCmd"
+        }
+      ]
+    },
+    {
+      "title": "开门输出",
+      "comment": "开门指令执行",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mOpenCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOpenLimit"
+        },
+        {
+          "type": "coil",
+          "operand": "oMotorOpen"
+        },
+        {
+          "type": "coil",
+          "operand": "oOpeningLight"
+        }
+      ]
+    },
+    {
+      "title": "关门输出",
+      "comment": "关门指令执行",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mCloseCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iCloseLimit"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iSafetyEdge"
+        },
+        {
+          "type": "coil",
+          "operand": "oMotorClose"
+        },
+        {
+          "type": "coil",
+          "operand": "oClosingLight"
+        }
+      ]
+    },
+    {
+      "title": "到限位清除指令",
+      "comment": "到达限位后清除对应指令",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iOpenLimit"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mOpenCmd"
+        }
+      ]
+    },
+    {
+      "title": "故障输出",
+      "comment": "安全链断开报警",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

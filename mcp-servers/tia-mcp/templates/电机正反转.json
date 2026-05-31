@@ -1,0 +1,165 @@
+{
+  "blockName": "MotorForwardReverse",
+  "blockNumber": 100,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStartFwd",
+        "type": "Bool",
+        "comment": "正转启动",
+        "address": "%I15.0"
+      },
+      {
+        "name": "iStartRev",
+        "type": "Bool",
+        "comment": "反转启动",
+        "address": "%I15.1"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "停止/急停（常闭）",
+        "address": "%I15.2"
+      },
+      {
+        "name": "iOverload",
+        "type": "Bool",
+        "comment": "过载（常闭）",
+        "address": "%I15.3"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oRunFwd",
+        "type": "Bool",
+        "comment": "正转输出",
+        "address": "%Q15.0"
+      },
+      {
+        "name": "oRunRev",
+        "type": "Bool",
+        "comment": "反转输出",
+        "address": "%Q15.1"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障指示",
+        "address": "%Q15.2"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全中间位"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "急停互锁",
+      "comment": "急停和过载信号切断所有输出",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "正转 Set",
+      "comment": "正转启动（自保持通过 Set 实现）",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStartFwd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oRunRev"
+        },
+        {
+          "type": "coil_set",
+          "operand": "oRunFwd"
+        }
+      ]
+    },
+    {
+      "title": "正转 Reset",
+      "comment": "停止或过载时清除正转",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "oRunFwd"
+        }
+      ]
+    },
+    {
+      "title": "反转 Set",
+      "comment": "反转启动（自保持通过 Set 实现）",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStartRev"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oRunFwd"
+        },
+        {
+          "type": "coil_set",
+          "operand": "oRunRev"
+        }
+      ]
+    },
+    {
+      "title": "反转 Reset",
+      "comment": "停止或过载时清除反转",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "oRunRev"
+        }
+      ]
+    },
+    {
+      "title": "故障输出",
+      "comment": "安全链断开触发故障",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

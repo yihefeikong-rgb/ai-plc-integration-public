@@ -1,0 +1,204 @@
+{
+  "blockName": "StarDeltaStarter",
+  "blockNumber": 600,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStart",
+        "type": "Bool",
+        "comment": "启动",
+        "address": "%I10.0"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I10.1"
+      },
+      {
+        "name": "iOverload",
+        "type": "Bool",
+        "comment": "过载（常闭）",
+        "address": "%I10.2"
+      },
+      {
+        "name": "iTimerDone",
+        "type": "Bool",
+        "comment": "星三角切换定时到",
+        "address": "%I10.3"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oMainContact",
+        "type": "Bool",
+        "comment": "主接触器",
+        "address": "%Q10.0"
+      },
+      {
+        "name": "oStarContact",
+        "type": "Bool",
+        "comment": "星型接触器",
+        "address": "%Q10.1"
+      },
+      {
+        "name": "oDeltaContact",
+        "type": "Bool",
+        "comment": "三角接触器",
+        "address": "%Q10.2"
+      },
+      {
+        "name": "oRunning",
+        "type": "Bool",
+        "comment": "运行指示",
+        "address": "%Q10.3"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障",
+        "address": "%Q10.4"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mRunCmd",
+        "type": "Bool",
+        "comment": "运行指令"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "运行Set",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "运行Reset",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "主接触器",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "coil",
+          "operand": "oMainContact"
+        },
+        {
+          "type": "coil",
+          "operand": "oRunning"
+        }
+      ]
+    },
+    {
+      "title": "星型",
+      "comment": "运行先星接",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iTimerDone"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oDeltaContact"
+        },
+        {
+          "type": "coil",
+          "operand": "oStarContact"
+        }
+      ]
+    },
+    {
+      "title": "三角",
+      "comment": "定时到切换三角",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iTimerDone"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oStarContact"
+        },
+        {
+          "type": "coil",
+          "operand": "oDeltaContact"
+        }
+      ]
+    },
+    {
+      "title": "故障",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

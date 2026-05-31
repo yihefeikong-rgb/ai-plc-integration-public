@@ -1,0 +1,50 @@
+FUNCTION_BLOCK "BatchCounter"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bSensor : Bool;          // 产品检测传感器（上升沿计数）
+    bReset : Bool;           // 计数器复位
+    bEnable : Bool;          // 计数使能
+    iTargetCount : Int;      // 目标数量设定
+END_VAR
+
+VAR_OUTPUT
+    iCurrentCount : Int;     // 当前计数
+    bTargetReached : Bool;   // 达到目标
+    bOverflow : Bool;        // 计数溢出
+END_VAR
+
+VAR
+    bSensorOld : Bool;       // 传感器上一周期状态
+    bRisingEdge : Bool;      // 上升沿检测
+END_VAR
+
+BEGIN
+    // ── 边沿检测 ──
+    bRisingEdge := bSensor AND NOT bSensorOld;
+    bSensorOld := bSensor;
+
+    // ── 复位 ──
+    IF bReset THEN
+        iCurrentCount := 0;
+        bTargetReached := FALSE;
+        bOverflow := FALSE;
+    END_IF;
+
+    // ── 计数 ──
+    IF bEnable AND bRisingEdge AND NOT bReset THEN
+        IF iCurrentCount < 32767 THEN
+            iCurrentCount := iCurrentCount + 1;
+        ELSE
+            bOverflow := TRUE;
+        END_IF;
+    END_IF;
+
+    // ── 目标检测 ──
+    IF iCurrentCount >= iTargetCount AND iTargetCount > 0 THEN
+        bTargetReached := TRUE;
+    END_IF;
+
+END_FUNCTION_BLOCK

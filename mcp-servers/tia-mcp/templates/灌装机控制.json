@@ -1,0 +1,289 @@
+{
+  "blockName": "FillingMachine",
+  "blockNumber": 670,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStart",
+        "type": "Bool",
+        "comment": "启动",
+        "address": "%I14.0"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "停止",
+        "address": "%I14.1"
+      },
+      {
+        "name": "iStopBtn",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I14.2"
+      },
+      {
+        "name": "iBottleDetect",
+        "type": "Bool",
+        "comment": "瓶子检测到位",
+        "address": "%I14.3"
+      },
+      {
+        "name": "iFillLevel",
+        "type": "Bool",
+        "comment": "液位到（灌满）",
+        "address": "%I14.4"
+      },
+      {
+        "name": "iCapDetect",
+        "type": "Bool",
+        "comment": "盖子就位",
+        "address": "%I14.5"
+      },
+      {
+        "name": "iConveyorRun",
+        "type": "Bool",
+        "comment": "传送带运行反馈",
+        "address": "%I14.6"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oConveyor",
+        "type": "Bool",
+        "comment": "传送带电机",
+        "address": "%Q14.0"
+      },
+      {
+        "name": "oFillValve",
+        "type": "Bool",
+        "comment": "灌装阀",
+        "address": "%Q14.1"
+      },
+      {
+        "name": "oCapper",
+        "type": "Bool",
+        "comment": "旋盖机",
+        "address": "%Q14.2"
+      },
+      {
+        "name": "oRunning",
+        "type": "Bool",
+        "comment": "运行指示",
+        "address": "%Q14.3"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障指示",
+        "address": "%Q14.4"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mBottleReady",
+        "type": "Bool",
+        "comment": "瓶子就绪"
+      },
+      {
+        "name": "mFillDone",
+        "type": "Bool",
+        "comment": "灌装完成"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "急停正常",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStopBtn"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "系统启停",
+      "comment": "启动/停止主运行指令",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mBottleReady"
+        }
+      ]
+    },
+    {
+      "title": "停止",
+      "comment": "停止按钮复位",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStop"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mBottleReady"
+        }
+      ]
+    },
+    {
+      "title": "传送带运行",
+      "comment": "有瓶子检测时传送",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mBottleReady"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mFillDone"
+        },
+        {
+          "type": "coil",
+          "operand": "oConveyor"
+        },
+        {
+          "type": "coil",
+          "operand": "oRunning"
+        }
+      ]
+    },
+    {
+      "title": "瓶子到位锁存",
+      "comment": "瓶子检测到位后停止传送",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBottleDetect"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mFillDone"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mBottleReady"
+        }
+      ]
+    },
+    {
+      "title": "灌装阀",
+      "comment": "瓶子到位开阀灌装",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mBottleReady"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iFillLevel"
+        },
+        {
+          "type": "coil",
+          "operand": "oFillValve"
+        }
+      ]
+    },
+    {
+      "title": "灌装完成",
+      "comment": "液位到完成灌装",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iFillLevel"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mFillDone"
+        }
+      ]
+    },
+    {
+      "title": "旋盖",
+      "comment": "灌装完成旋盖",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mFillDone"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iCapDetect"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oCapper"
+        }
+      ]
+    },
+    {
+      "title": "复位灌装状态",
+      "comment": "旋盖完成复位",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mFillDone"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iBottleDetect"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mBottleReady"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mFillDone"
+        }
+      ]
+    },
+    {
+      "title": "故障输出",
+      "comment": "安全链断开报警",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

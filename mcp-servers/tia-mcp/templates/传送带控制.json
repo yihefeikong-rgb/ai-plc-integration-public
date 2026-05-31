@@ -1,0 +1,184 @@
+{
+  "blockName": "ConveyorControl",
+  "blockNumber": 300,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStart",
+        "type": "Bool",
+        "comment": "启动",
+        "address": "%I3.0"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "停止",
+        "address": "%I3.1"
+      },
+      {
+        "name": "iEmergencyStop",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I3.2"
+      },
+      {
+        "name": "iOverload",
+        "type": "Bool",
+        "comment": "过载（常闭）",
+        "address": "%I3.3"
+      },
+      {
+        "name": "iSensorEntry",
+        "type": "Bool",
+        "comment": "入口传感器",
+        "address": "%I3.4"
+      },
+      {
+        "name": "iSensorExit",
+        "type": "Bool",
+        "comment": "出口传感器",
+        "address": "%I3.5"
+      },
+      {
+        "name": "iSpeedSelect",
+        "type": "Bool",
+        "comment": "高速选择",
+        "address": "%I3.6"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oMotorRun",
+        "type": "Bool",
+        "comment": "电机运行",
+        "address": "%Q3.0"
+      },
+      {
+        "name": "oSpeedHigh",
+        "type": "Bool",
+        "comment": "高速指示",
+        "address": "%Q3.1"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障指示",
+        "address": "%Q3.2"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mRunCmd",
+        "type": "Bool",
+        "comment": "运行指令"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "急停和过载都正常",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iEmergencyStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "运行 Set",
+      "comment": "启动按钮置位",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "运行 Reset",
+      "comment": "停止或安全链断开复位",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iStop"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "电机输出",
+      "comment": "运行指令驱动电机",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "coil",
+          "operand": "oMotorRun"
+        }
+      ]
+    },
+    {
+      "title": "高速选择",
+      "comment": "高速开关",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "oMotorRun"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iSpeedSelect"
+        },
+        {
+          "type": "coil",
+          "operand": "oSpeedHigh"
+        }
+      ]
+    },
+    {
+      "title": "故障输出",
+      "comment": "安全链断开报警",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFault"
+        }
+      ]
+    }
+  ]
+}

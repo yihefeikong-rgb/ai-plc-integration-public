@@ -1,0 +1,93 @@
+FUNCTION_BLOCK "TrafficLight"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bStart : Bool;           // 启动（自动循环）
+    bStop : Bool;            // 停止（全部熄灭）
+    bEmergencyStop : Bool;   // 急停
+END_VAR
+
+VAR_OUTPUT
+    bRed1 : Bool;            // 主路红灯
+    bYellow1 : Bool;         // 主路黄灯
+    bGreen1 : Bool;          // 主路绿灯
+    bRed2 : Bool;            // 支路红灯
+    bYellow2 : Bool;         // 支路黄灯
+    bGreen2 : Bool;          // 支路绿灯
+END_VAR
+
+VAR
+    iState : Int := 0;       // 0=停止 1=主路绿 2=主路黄 3=支路绿 4=支路黄
+    tGreen1 : TON;           // 主路绿灯时长 30s
+    tYellow1 : TON;          // 主路黄灯时长 3s
+    tGreen2 : TON;           // 支路绿灯时长 20s
+    tYellow2 : TON;          // 支路黄灯时长 3s
+END_VAR
+
+BEGIN
+    // ── 急停 ──
+    IF NOT bEmergencyStop THEN
+        bRed1 := FALSE; bYellow1 := FALSE; bGreen1 := FALSE;
+        bRed2 := FALSE; bYellow2 := FALSE; bGreen2 := FALSE;
+        iState := 0;
+        RETURN;
+    END_IF;
+
+    // ── 停止 ──
+    IF bStop THEN
+        bRed1 := FALSE; bYellow1 := FALSE; bGreen1 := FALSE;
+        bRed2 := FALSE; bYellow2 := FALSE; bGreen2 := FALSE;
+        iState := 0;
+        RETURN;
+    END_IF;
+
+    // ── 启动 ──
+    IF bStart AND iState = 0 THEN
+        iState := 1;
+    END_IF;
+
+    // ── 状态机 ──
+    CASE iState OF
+        1:  // 主路绿灯 + 支路红灯
+            bGreen1 := TRUE; bRed2 := TRUE;
+            bYellow1 := FALSE; bRed1 := FALSE; bGreen2 := FALSE; bYellow2 := FALSE;
+            tGreen1(IN := TRUE, PT := T#30S);
+            IF tGreen1.Q THEN
+                tGreen1(IN := FALSE);
+                bGreen1 := FALSE; bRed2 := FALSE;
+                iState := 2;
+            END_IF;
+
+        2:  // 主路黄灯
+            bYellow1 := TRUE; bRed2 := TRUE;
+            bGreen1 := FALSE; bRed1 := FALSE; bGreen2 := FALSE; bYellow2 := FALSE;
+            tYellow1(IN := TRUE, PT := T#3S);
+            IF tYellow1.Q THEN
+                tYellow1(IN := FALSE);
+                bYellow1 := FALSE; bRed2 := FALSE;
+                iState := 3;
+            END_IF;
+
+        3:  // 支路绿灯 + 主路红灯
+            bRed1 := TRUE; bGreen2 := TRUE;
+            bGreen1 := FALSE; bYellow1 := FALSE; bRed2 := FALSE; bYellow2 := FALSE;
+            tGreen2(IN := TRUE, PT := T#20S);
+            IF tGreen2.Q THEN
+                tGreen2(IN := FALSE);
+                bRed1 := FALSE; bGreen2 := FALSE;
+                iState := 4;
+            END_IF;
+
+        4:  // 支路黄灯
+            bYellow2 := TRUE; bRed1 := TRUE;
+            bGreen1 := FALSE; bYellow1 := FALSE; bRed2 := FALSE; bGreen2 := FALSE;
+            tYellow2(IN := TRUE, PT := T#3S);
+            IF tYellow2.Q THEN
+                tYellow2(IN := FALSE);
+                bYellow2 := FALSE; bRed1 := FALSE;
+                iState := 1;  // 回到主路绿灯，循环
+            END_IF;
+    END_CASE;
+END_FUNCTION_BLOCK

@@ -1,0 +1,211 @@
+{
+  "blockName": "AlarmLightControl",
+  "blockNumber": 400,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iFault1",
+        "type": "Bool",
+        "comment": "故障1",
+        "address": "%I9.0"
+      },
+      {
+        "name": "iFault2",
+        "type": "Bool",
+        "comment": "故障2",
+        "address": "%I9.1"
+      },
+      {
+        "name": "iFault3",
+        "type": "Bool",
+        "comment": "故障3",
+        "address": "%I9.2"
+      },
+      {
+        "name": "iAck",
+        "type": "Bool",
+        "comment": "消音确认",
+        "address": "%I9.3"
+      },
+      {
+        "name": "iTest",
+        "type": "Bool",
+        "comment": "测试按钮",
+        "address": "%I9.4"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oRedLight",
+        "type": "Bool",
+        "comment": "红色报警灯",
+        "address": "%Q9.0"
+      },
+      {
+        "name": "oAmberLight",
+        "type": "Bool",
+        "comment": "黄色预警灯",
+        "address": "%Q9.1"
+      },
+      {
+        "name": "oGreenLight",
+        "type": "Bool",
+        "comment": "绿色正常灯",
+        "address": "%Q9.2"
+      },
+      {
+        "name": "oBuzzer",
+        "type": "Bool",
+        "comment": "蜂鸣器",
+        "address": "%Q9.3"
+      }
+    ],
+    "local": [
+      {
+        "name": "mAlarmLatch",
+        "type": "Bool",
+        "comment": "报警锁存"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "报警锁存 Set",
+      "comment": "任一故障触发",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iFault1"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iFault2"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iFault3"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mAlarmLatch"
+        }
+      ]
+    },
+    {
+      "title": "报警锁存保持",
+      "comment": "故障保持锁存",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iFault1"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iFault2"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iFault3"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mAlarmLatch"
+        },
+        {
+          "type": "coil",
+          "operand": "mAlarmLatch"
+        }
+      ]
+    },
+    {
+      "title": "消音确认",
+      "comment": "确认后清除",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iAck"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iFault1"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iFault2"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iFault3"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mAlarmLatch"
+        }
+      ]
+    },
+    {
+      "title": "红色报警灯",
+      "comment": "报警未确认时亮红灯",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mAlarmLatch"
+        },
+        {
+          "type": "coil",
+          "operand": "oRedLight"
+        }
+      ]
+    },
+    {
+      "title": "蜂鸣器",
+      "comment": "报警时响，消音停",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mAlarmLatch"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iAck"
+        },
+        {
+          "type": "coil",
+          "operand": "oBuzzer"
+        }
+      ]
+    },
+    {
+      "title": "绿色正常灯",
+      "comment": "无故障时绿灯亮",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mAlarmLatch"
+        },
+        {
+          "type": "coil",
+          "operand": "oGreenLight"
+        }
+      ]
+    },
+    {
+      "title": "测试模式",
+      "comment": "测试按键亮所有灯",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iTest"
+        },
+        {
+          "type": "coil",
+          "operand": "oRedLight"
+        },
+        {
+          "type": "coil",
+          "operand": "oBuzzer"
+        }
+      ]
+    }
+  ]
+}

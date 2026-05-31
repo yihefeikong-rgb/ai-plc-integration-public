@@ -1,0 +1,95 @@
+FUNCTION_BLOCK "TankLevelControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bStart : Bool;           // 启动
+    bStop : Bool;            // 停止
+    bEmergencyStop : Bool;   // 急停
+    bHighLevel : Bool;       // 高液位开关
+    bLowLevel : Bool;        // 低液位开关
+    bOverflow : Bool;        // 溢流保护
+    bDryRun : Bool;          // 干转保护
+END_VAR
+
+VAR_OUTPUT
+    bInletValve : Bool;      // 进水阀
+    bOutletValve : Bool;     // 出水阀/泵
+    bPumpRun : Bool;         // 水泵运行
+    bHighAlarm : Bool;       // 高液位报警
+    bLowAlarm : Bool;        // 低液位报警
+    bOverflowAlarm : Bool;   // 溢流报警
+END_VAR
+
+VAR
+    bAutoMode : Bool;        // 自动模式（由启动触发）
+    tPumpDelay : TON;        // 低液位停泵延时 5s
+    tFillDelay : TON;        // 补液延时 2s
+END_VAR
+
+BEGIN
+    // ── 安全链 ──
+    IF NOT bEmergencyStop OR bOverflow OR bDryRun THEN
+        bInletValve := FALSE; bOutletValve := FALSE; bPumpRun := FALSE;
+        bAutoMode := FALSE;
+        bOverflowAlarm := bOverflow;
+        RETURN;
+    END_IF;
+
+    // ── 启停 ──
+    IF bStart AND NOT bStop THEN
+        bAutoMode := TRUE;
+    END_IF;
+    IF bStop THEN
+        bAutoMode := FALSE;
+        bInletValve := FALSE; bOutletValve := FALSE; bPumpRun := FALSE;
+    END_IF;
+
+    // ── 自动控制逻辑 ──
+    IF bAutoMode THEN
+        // 低液位→开进水阀（补液）
+        IF bLowLevel AND NOT bHighLevel THEN
+            tFillDelay(IN := TRUE, PT := T#2S);
+            IF tFillDelay.Q THEN
+                bInletValve := TRUE;
+            END_IF;
+        END_IF;
+
+        // 高液位→关进水阀
+        IF bHighLevel THEN
+            bInletValve := FALSE;
+            tFillDelay(IN := FALSE);
+        END_IF;
+
+        // 高液位→开出水阀/泵（排水到低液位）
+        IF bHighLevel AND NOT bLowLevel THEN
+            bOutletValve := TRUE;
+            bPumpRun := TRUE;
+        END_IF;
+
+        // 低液位→停泵（带延时保护）
+        IF bLowLevel THEN
+            tPumpDelay(IN := TRUE, PT := T#5S);
+            IF tPumpDelay.Q THEN
+                bOutletValve := FALSE;
+                bPumpRun := FALSE;
+            END_IF;
+        END_IF;
+
+        // 非低液位时复位停泵延时
+        IF NOT bLowLevel THEN
+            tPumpDelay(IN := FALSE);
+        END_IF;
+
+        // 非高液位时复位补液延时
+        IF NOT bLowLevel OR bHighLevel THEN
+            tFillDelay(IN := FALSE);
+        END_IF;
+    END_IF;
+
+    // ── 报警 ──
+    bHighAlarm := bHighLevel AND bAutoMode;
+    bLowAlarm := bLowLevel AND bAutoMode AND NOT bInletValve;
+
+END_FUNCTION_BLOCK

@@ -1,0 +1,171 @@
+{
+  "blockName": "SingleBtnToggle",
+  "blockNumber": 690,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iBtn",
+        "type": "Bool",
+        "comment": "单键按钮",
+        "address": "%I5.0"
+      },
+      {
+        "name": "iStopBtn",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I5.1"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oRun",
+        "type": "Bool",
+        "comment": "运行输出",
+        "address": "%Q5.0"
+      },
+      {
+        "name": "oRunLight",
+        "type": "Bool",
+        "comment": "运行指示灯",
+        "address": "%Q5.1"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mRisingEdge",
+        "type": "Bool",
+        "comment": "按钮上升沿"
+      },
+      {
+        "name": "mBtnOld",
+        "type": "Bool",
+        "comment": "按钮上一周期状态"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "急停正常",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStopBtn"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "边沿检测",
+      "comment": "检测按钮从0到1的跳变",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mBtnOld"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "mRisingEdge"
+        }
+      ]
+    },
+    {
+      "title": "保存按钮状态",
+      "comment": "保存按钮状态用于下一周期边沿检测",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iBtn"
+        },
+        {
+          "type": "coil",
+          "operand": "mBtnOld"
+        }
+      ]
+    },
+    {
+      "title": "上升沿置位",
+      "comment": "按钮按一下输出ON",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRisingEdge"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "oRun"
+        },
+        {
+          "type": "coil_set",
+          "operand": "oRun"
+        }
+      ]
+    },
+    {
+      "title": "上升沿复位",
+      "comment": "按钮再按一下输出OFF",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRisingEdge"
+        },
+        {
+          "type": "normally_open",
+          "operand": "oRun"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "oRun"
+        }
+      ]
+    },
+    {
+      "title": "安全链复位",
+      "comment": "急停断开时强制停止",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "oRun"
+        }
+      ]
+    },
+    {
+      "title": "运行指示灯",
+      "comment": "运行状态指示",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "oRun"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oRunLight"
+        }
+      ]
+    }
+  ]
+}

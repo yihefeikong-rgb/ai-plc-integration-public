@@ -1,0 +1,19 @@
+[
+  {"tag": "coil.0", "protocol": "modbus", "name": "Start Button"},
+  {"tag": "coil.1", "protocol": "modbus", "name": "Motor Run"},
+  {"tag": "coil.2", "protocol": "modbus", "name": "Indicator Light"},
+  {"tag": "coil.3", "protocol": "modbus", "name": "Alarm Buzzer"},
+  {"tag": "coil.4", "protocol": "modbus", "name": "Pump Enable"},
+  {"tag": "register.0", "protocol": "modbus", "name": "Temperature",
+   "threshold": {"min": 0, "max": 120, "delta": 5}},
+  {"tag": "register.1", "protocol": "modbus", "name": "Pressure",
+   "threshold": {"min": 0, "max": 16, "delta": 1}},
+  {"tag": "register.2", "protocol": "modbus", "name": "Speed Setpoint",
+   "threshold": {"min": 0, "max": 3000, "delta": 50}},
+  {"tag": "register.3", "protocol": "modbus", "name": "Flow Rate",
+   "threshold": {"min": 0, "max": 500, "delta": 10}},
+  {"tag": "input.0", "protocol": "modbus", "name": "Limit Switch 1"},
+  {"tag": "input.1", "protocol": "modbus", "name": "Limit Switch 2"},
+  {"tag": "input.2", "protocol": "modbus", "name": "E-Stop Status"},
+  {"tag": "input.3", "protocol": "modbus", "name": "Door Sensor"}
+]

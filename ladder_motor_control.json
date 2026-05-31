@@ -1,0 +1,286 @@
+{
+  "blockName": "MotorControl",
+  "version": "0.1",
+  "author": "AI Generated",
+  "variables": {
+    "inputs": [
+      {
+        "name": "bEmergencyStop",
+        "type": "Bool",
+        "address": "%I0.0"
+      },
+      {
+        "name": "bStartForward",
+        "type": "Bool",
+        "address": "%I0.1"
+      },
+      {
+        "name": "bStartReverse",
+        "type": "Bool",
+        "address": "%I0.2"
+      },
+      {
+        "name": "bStop",
+        "type": "Bool",
+        "address": "%I0.3"
+      },
+      {
+        "name": "bOverload",
+        "type": "Bool",
+        "address": "%I0.4"
+      },
+      {
+        "name": "bReset",
+        "type": "Bool",
+        "address": "%I0.5"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "bForwardOut",
+        "type": "Bool",
+        "address": "%Q0.0"
+      },
+      {
+        "name": "bReverseOut",
+        "type": "Bool",
+        "address": "%Q0.1"
+      },
+      {
+        "name": "bFault",
+        "type": "Bool",
+        "address": "%Q0.2"
+      }
+    ],
+    "local": [
+      {
+        "name": "bSafetyOK",
+        "type": "Bool"
+      },
+      {
+        "name": "bFaultLatch",
+        "type": "Bool"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "networkNumber": 1,
+      "title": "急停互锁",
+      "comment": "急停信号为 FALSE 时切断所有输出",
+      "rungs": [
+        [
+          {
+            "type": "normally_closed",
+            "operand": "%I0.0",
+            "symbol": "bEmergencyStop"
+          },
+          {
+            "type": "coil",
+            "operand": "%M0.0",
+            "symbol": "bSafetyOK"
+          }
+        ]
+      ]
+    },
+    {
+      "networkNumber": 2,
+      "title": "正转控制（自保持电路）",
+      "comment": "启动自保持，互锁反转，受急停保护",
+      "rungs": [
+        [
+          {
+            "type": "normally_open",
+            "operand": "%I0.1",
+            "symbol": "bStartForward"
+          },
+          {
+            "type": "normally_closed",
+            "operand": "%I0.3",
+            "symbol": "bStop"
+          },
+          {
+            "type": "normally_open",
+            "operand": "%M0.0",
+            "symbol": "bSafetyOK"
+          },
+          {
+            "type": "normally_closed",
+            "operand": "%M0.2",
+            "symbol": "bRunReverse"
+          },
+          {
+            "type": "coil",
+            "operand": "%Q0.0",
+            "symbol": "bForwardOut"
+          }
+        ],
+        [
+          {
+            "type": "normally_open",
+            "operand": "%Q0.0",
+            "symbol": "bForwardOut"
+          }
+        ]
+      ]
+    },
+    {
+      "networkNumber": 3,
+      "title": "反转控制（自保持电路）",
+      "comment": "启动自保持，互锁正转，受急停保护",
+      "rungs": [
+        [
+          {
+            "type": "normally_open",
+            "operand": "%I0.2",
+            "symbol": "bStartReverse"
+          },
+          {
+            "type": "normally_closed",
+            "operand": "%I0.3",
+            "symbol": "bStop"
+          },
+          {
+            "type": "normally_open",
+            "operand": "%M0.0",
+            "symbol": "bSafetyOK"
+          },
+          {
+            "type": "normally_closed",
+            "operand": "%Q0.0",
+            "symbol": "bForwardOut"
+          },
+          {
+            "type": "coil",
+            "operand": "%Q0.1",
+            "symbol": "bReverseOut"
+          }
+        ],
+        [
+          {
+            "type": "normally_open",
+            "operand": "%Q0.1",
+            "symbol": "bReverseOut"
+          }
+        ]
+      ]
+    },
+    {
+      "networkNumber": 4,
+      "title": "正反转互锁保护",
+      "comment": "防止正反转同时导通",
+      "rungs": [
+        [
+          {
+            "type": "normally_open",
+            "operand": "%Q0.0",
+            "symbol": "bForwardOut"
+          },
+          {
+            "type": "normally_closed",
+            "operand": "%Q0.1",
+            "symbol": "bReverseOut"
+          },
+          {
+            "type": "coil",
+            "operand": "%M0.1",
+            "symbol": "bForwardSafe"
+          }
+        ]
+      ]
+    },
+    {
+      "networkNumber": 5,
+      "title": "故障检测与锁定",
+      "comment": "过载触发故障，需手动复位",
+      "rungs": [
+        [
+          {
+            "type": "normally_closed",
+            "operand": "%I0.4",
+            "symbol": "bOverload"
+          },
+          {
+            "type": "normally_open",
+            "operand": "%M0.3",
+            "symbol": "bFaultLatch"
+          },
+          {
+            "type": "coil",
+            "operand": "%Q0.2",
+            "symbol": "bFault"
+          }
+        ]
+      ]
+    },
+    {
+      "networkNumber": 6,
+      "title": "故障复位",
+      "comment": "复位按钮清除故障锁定",
+      "rungs": [
+        [
+          {
+            "type": "normally_open",
+            "operand": "%I0.5",
+            "symbol": "bReset"
+          },
+          {
+            "type": "normally_open",
+            "operand": "%Q0.2",
+            "symbol": "bFault"
+          },
+          {
+            "type": "coil_set",
+            "operand": "%M0.3",
+            "symbol": "bFaultLatch",
+            "dest": "FALSE"
+          }
+        ]
+      ]
+    },
+    {
+      "networkNumber": 7,
+      "title": "运行反馈超时定时器",
+      "comment": "启动后 5s 内无反馈则报故障",
+      "rungs": [
+        [
+          {
+            "type": "normally_open",
+            "operand": "%Q0.0",
+            "symbol": "bForwardOut"
+          },
+          {
+            "type": "normally_closed",
+            "operand": "%I0.6",
+            "symbol": "bRunFeedback"
+          },
+          {
+            "type": "timer_on",
+            "symbol": "tmrFeedback",
+            "preset": "T#5S",
+            "operand": "%T0"
+          }
+        ]
+      ]
+    },
+    {
+      "networkNumber": 8,
+      "title": "故障触发（定时器输出）",
+      "comment": "反馈超时触发故障锁定",
+      "rungs": [
+        [
+          {
+            "type": "normally_open",
+            "operand": "%T0",
+            "symbol": "tmrFeedback.Q"
+          },
+          {
+            "type": "coil_set",
+            "operand": "%M0.3",
+            "symbol": "bFaultLatch"
+          }
+        ]
+      ]
+    }
+  ]
+}

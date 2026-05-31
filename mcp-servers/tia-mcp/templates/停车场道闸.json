@@ -1,0 +1,222 @@
+{
+  "blockName": "ParkingGate",
+  "blockNumber": 620,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iEntrySensor",
+        "type": "Bool",
+        "comment": "来车传感器",
+        "address": "%I4.0"
+      },
+      {
+        "name": "iGateUpLimit",
+        "type": "Bool",
+        "comment": "上限位",
+        "address": "%I4.1"
+      },
+      {
+        "name": "iGateDownLimit",
+        "type": "Bool",
+        "comment": "下限位",
+        "address": "%I4.2"
+      },
+      {
+        "name": "iCarPassed",
+        "type": "Bool",
+        "comment": "车通过确认",
+        "address": "%I4.3"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I4.4"
+      },
+      {
+        "name": "iFull",
+        "type": "Bool",
+        "comment": "车位满",
+        "address": "%I4.5"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oGateUp",
+        "type": "Bool",
+        "comment": "抬闸",
+        "address": "%Q4.0"
+      },
+      {
+        "name": "oGateDown",
+        "type": "Bool",
+        "comment": "落闸",
+        "address": "%Q4.1"
+      },
+      {
+        "name": "oEntryLight",
+        "type": "Bool",
+        "comment": "入口绿灯",
+        "address": "%Q4.2"
+      },
+      {
+        "name": "oFullLight",
+        "type": "Bool",
+        "comment": "满位红灯",
+        "address": "%Q4.3"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mEntryReq",
+        "type": "Bool",
+        "comment": "入口请求"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStop"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "请求抬闸",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iEntrySensor"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iFull"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iGateUpLimit"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mEntryReq"
+        }
+      ]
+    },
+    {
+      "title": "抬闸",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mEntryReq"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iGateUpLimit"
+        },
+        {
+          "type": "coil",
+          "operand": "oGateUp"
+        }
+      ]
+    },
+    {
+      "title": "通过后复位",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mEntryReq"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iGateUpLimit"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iCarPassed"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mEntryReq"
+        }
+      ]
+    },
+    {
+      "title": "落闸",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "mEntryReq"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iGateDownLimit"
+        },
+        {
+          "type": "coil",
+          "operand": "oGateDown"
+        }
+      ]
+    },
+    {
+      "title": "入口绿灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iFull"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oEntryLight"
+        }
+      ]
+    },
+    {
+      "title": "满位红灯",
+      "comment": "",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iFull"
+        },
+        {
+          "type": "coil",
+          "operand": "oFullLight"
+        }
+      ]
+    }
+  ]
+}

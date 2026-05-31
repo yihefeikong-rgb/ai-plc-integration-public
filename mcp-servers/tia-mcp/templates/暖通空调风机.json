@@ -1,0 +1,250 @@
+{
+  "blockName": "HVACFanControl",
+  "blockNumber": 700,
+  "interface": {
+    "inputs": [
+      {
+        "name": "iStart",
+        "type": "Bool",
+        "comment": "启动风机",
+        "address": "%I11.0"
+      },
+      {
+        "name": "iStop",
+        "type": "Bool",
+        "comment": "停止风机",
+        "address": "%I11.1"
+      },
+      {
+        "name": "iStopBtn",
+        "type": "Bool",
+        "comment": "急停（常闭）",
+        "address": "%I11.2"
+      },
+      {
+        "name": "iOverload",
+        "type": "Bool",
+        "comment": "风机过载（常闭）",
+        "address": "%I11.3"
+      },
+      {
+        "name": "iFireAlarm",
+        "type": "Bool",
+        "comment": "消防信号（常闭）",
+        "address": "%I11.4"
+      },
+      {
+        "name": "iFilterStatus",
+        "type": "Bool",
+        "comment": "过滤器状态（常开=正常）",
+        "address": "%I11.5"
+      },
+      {
+        "name": "iTempHigh",
+        "type": "Bool",
+        "comment": "温度高报警",
+        "address": "%I11.6"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "oFanRun",
+        "type": "Bool",
+        "comment": "风机运行",
+        "address": "%Q11.0"
+      },
+      {
+        "name": "oFanHigh",
+        "type": "Bool",
+        "comment": "高速运行",
+        "address": "%Q11.1"
+      },
+      {
+        "name": "oFanLow",
+        "type": "Bool",
+        "comment": "低速运行",
+        "address": "%Q11.2"
+      },
+      {
+        "name": "oFilterAlarm",
+        "type": "Bool",
+        "comment": "过滤器堵塞报警",
+        "address": "%Q11.3"
+      },
+      {
+        "name": "oFireAlarm",
+        "type": "Bool",
+        "comment": "消防联动指示",
+        "address": "%Q11.4"
+      },
+      {
+        "name": "oFault",
+        "type": "Bool",
+        "comment": "故障指示",
+        "address": "%Q11.5"
+      }
+    ],
+    "local": [
+      {
+        "name": "mSafetyOK",
+        "type": "Bool",
+        "comment": "安全条件"
+      },
+      {
+        "name": "mRunCmd",
+        "type": "Bool",
+        "comment": "运行指令"
+      }
+    ]
+  },
+  "networks": [
+    {
+      "title": "安全链",
+      "comment": "急停、过载、消防都正常才允许运行",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iStopBtn"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iOverload"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iFireAlarm"
+        },
+        {
+          "type": "coil",
+          "operand": "mSafetyOK"
+        }
+      ]
+    },
+    {
+      "title": "消防报警",
+      "comment": "消防信号触发时报警",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iFireAlarm"
+        },
+        {
+          "type": "coil",
+          "operand": "oFireAlarm"
+        }
+      ]
+    },
+    {
+      "title": "启动指令",
+      "comment": "启动按钮置位",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStart"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "停止指令",
+      "comment": "停止或安全链断开复位",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "iStop"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "mRunCmd"
+        }
+      ]
+    },
+    {
+      "title": "风机运行",
+      "comment": "运行指令驱动风机",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFanRun"
+        }
+      ]
+    },
+    {
+      "title": "高速运行",
+      "comment": "温度高时自动切高速",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "iTempHigh"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFanHigh"
+        }
+      ]
+    },
+    {
+      "title": "低速运行",
+      "comment": "正常温度低速运行",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "mRunCmd"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "iTempHigh"
+        },
+        {
+          "type": "normally_open",
+          "operand": "mSafetyOK"
+        },
+        {
+          "type": "coil",
+          "operand": "oFanLow"
+        }
+      ]
+    },
+    {
+      "title": "过滤器报警",
+      "comment": "过滤器堵塞时报警",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "iFilterStatus"
+        },
+        {
+          "type": "coil",
+          "operand": "oFilterAlarm"
+        }
+      ]
+    }
+  ]
+}

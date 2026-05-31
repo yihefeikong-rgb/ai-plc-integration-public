@@ -1,0 +1,79 @@
+FUNCTION_BLOCK "AutoCart3Cycle"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bStart : Bool;           // 启动
+    bStop : Bool;            // 停止
+    bReset : Bool;           // 复位
+    bEmergencyStop : Bool;   // 急停（常闭）
+    bForwardLimit : Bool;    // 前限位
+    bReverseLimit : Bool;    // 后限位
+    bOverload : Bool;        // 过载（常闭）
+END_VAR
+
+VAR_OUTPUT
+    bForwardOut : Bool;      // 正转输出
+    bReverseOut : Bool;      // 反转输出
+    bRunning : Bool;         // 运行中
+    bFault : Bool;           // 故障指示
+END_VAR
+
+VAR
+    iState : Int := 0;       // 0=停止 1=前进 2=卸载 3=后退 4=装载
+    iCycleCount : Int := 0;  // 循环计数器
+    bFaultLatch : Bool;      // 故障锁存
+    bCycleDone : Bool;       // 循环完成标志
+    tmrUnload : TON;         // 卸载定时器 5s
+    tmrLoad : TON;           // 装载定时器 3s
+END_VAR
+
+BEGIN
+    // ── 安全链 ──
+    IF NOT bEmergencyStop OR NOT bOverload THEN
+        bForwardOut := FALSE; bReverseOut := FALSE; bRunning := FALSE;
+        bFaultLatch := TRUE; iState := 5;
+    END_IF;
+
+    // ── 故障复位 ──
+    IF bFaultLatch AND bReset THEN
+        bFaultLatch := FALSE; iState := 0; iCycleCount := 0; bCycleDone := FALSE;
+    END_IF;
+    IF bFaultLatch THEN bFault := TRUE; RETURN; END_IF;
+
+    // ── 状态机 ──
+    CASE iState OF
+        0:  // 停止等待启动
+            IF bStart AND NOT bCycleDone THEN iState := 1; END_IF;
+        1:  // 前进
+            bForwardOut := TRUE; bRunning := TRUE;
+            IF bForwardLimit THEN bForwardOut := FALSE; iState := 2; END_IF;
+        2:  // 卸载
+            tmrUnload(IN := TRUE, PT := T#5S);
+            bRunning := TRUE;
+            IF tmrUnload.Q THEN iState := 3; END_IF;
+        3:  // 后退
+            bReverseOut := TRUE; bRunning := TRUE;
+            IF bReverseLimit THEN bReverseOut := FALSE; iState := 4; END_IF;
+        4:  // 装载
+            tmrLoad(IN := TRUE, PT := T#3S);
+            bRunning := TRUE;
+            IF tmrLoad.Q THEN
+                iCycleCount := iCycleCount + 1;
+                IF iCycleCount >= 3 THEN
+                    bCycleDone := TRUE; iState := 0;
+                ELSE
+                    iState := 1;
+                END_IF;
+            END_IF;
+        5:  // 故障
+            bFault := TRUE;
+            IF bReset THEN bFaultLatch := FALSE; iState := 0; END_IF;
+    END_CASE;
+
+    // ── 停止按钮 ──
+    IF bStop AND iState >= 1 AND iState <= 4 THEN
+        bForwardOut := FALSE; bReverseOut := FALSE; iState := 0;
+    END_IF;
+END_FUNCTION_BLOCK

@@ -1,0 +1,86 @@
+FUNCTION_BLOCK "ConveyorWithTimer"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bStart : Bool;           // 启动按钮
+    bStop : Bool;            // 停止按钮
+    bEmergencyStop : Bool;   // 急停（常闭）
+    bOverload : Bool;        // 过载（常闭）
+    bSensorEntry : Bool;     // 入口传感器
+    bSensorExit : Bool;      // 出口传感器
+    bSpeedSelect : Bool;     // 高速选择（True=高速）
+END_VAR
+
+VAR_OUTPUT
+    bMotorRun : Bool;        // 电机运行
+    bSpeedHigh : Bool;       // 高速模式
+    bFault : Bool;           // 故障指示
+    iCycleCount : Int;       // 循环计数
+END_VAR
+
+VAR
+    bSafetyOK : Bool;        // 安全条件
+    bRunCmd : Bool;          // 运行指令
+    tStartDelay : TON;       // 启动延时 2s
+    tStopDelay : TON;        // 停止延时 3s
+    tFaultLatch : Bool;      // 故障锁存
+END_VAR
+
+BEGIN
+    // ── 安全链 ──
+    bSafetyOK := bEmergencyStop AND bOverload;
+    
+    // ── 故障检测 ──
+    IF NOT bSafetyOK THEN
+        bFaultLatch := TRUE;
+        bRunCmd := FALSE;
+        bMotorRun := FALSE;
+    END_IF;
+    
+    // ── 故障复位（重新上电） ──
+    IF bSafetyOK AND bFaultLatch AND NOT bStart THEN
+        bFaultLatch := FALSE;
+    END_IF;
+    
+    // ── 启动逻辑 ──
+    IF bStart AND bSafetyOK AND NOT bFaultLatch THEN
+        tStartDelay(IN := TRUE, PT := T#2S);
+        IF tStartDelay.Q THEN
+            bRunCmd := TRUE;
+        END_IF;
+    END_IF;
+    
+    // ── 停止逻辑 ──
+    IF bStop OR NOT bSafetyOK THEN
+        tStopDelay(IN := TRUE, PT := T#3S);
+        IF tStopDelay.Q THEN
+            bRunCmd := FALSE;
+            tStartDelay(IN := FALSE);
+        END_IF;
+    END_IF;
+    
+    // ── 清除延时（启动或停止按钮松开时） ──
+    IF NOT bStart THEN
+        tStartDelay(IN := FALSE);
+    END_IF;
+    IF NOT bStop AND bSafetyOK THEN
+        tStopDelay(IN := FALSE);
+    END_IF;
+    
+    // ── 电机输出 ──
+    bMotorRun := bRunCmd AND bSafetyOK;
+    
+    // ── 速度选择 ──
+    bSpeedHigh := bMotorRun AND bSpeedSelect;
+    
+    // ── 物料计数 ──
+    IF bSensorEntry AND NOT bSensorExit THEN
+        iCycleCount := iCycleCount + 1;
+    END_IF;
+    
+    // ── 故障输出 ──
+    bFault := bFaultLatch OR NOT bSafetyOK;
+    
+END_FUNCTION_BLOCK

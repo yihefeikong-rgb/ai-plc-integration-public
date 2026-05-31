@@ -1,0 +1,322 @@
+{
+  "blockName": "AutoCart3Cycle",
+  "version": "0.1",
+  "author": "AI Generated",
+  "networks": [
+    {
+      "networkNumber": 1,
+      "title": "急停+过载安全链",
+      "comment": "急停或过载时切断所有输出，锁存故障",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "%I0.0",
+          "symbol": "bEmergencyStop"
+        },
+        {
+          "type": "coil",
+          "operand": "%M0.0",
+          "symbol": "bSafetyOK"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 2,
+      "title": "故障锁存与复位",
+      "comment": "安全链熔断→锁存故障；复位解除",
+      "elements": [
+        {
+          "type": "normally_closed",
+          "operand": "%M0.0",
+          "symbol": "bSafetyOK"
+        },
+        {
+          "type": "coil_set",
+          "operand": "%M0.2",
+          "symbol": "bFaultLatch"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 3,
+      "title": "启动→前进（State=0→1）",
+      "comment": "启动按钮触发前进，无故障时开始循环",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%I0.1",
+          "symbol": "bStart"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "%M0.2",
+          "symbol": "bFaultLatch"
+        },
+        {
+          "type": "normally_closed",
+          "operand": "%M2.0",
+          "symbol": "bCycleDone"
+        },
+        {
+          "type": "coil_set",
+          "operand": "%M2.1",
+          "symbol": "bStateFwd"
+        }
+      ],
+      "hasParallelBranch": true,
+      "parallelElements": [
+        {
+          "type": "normally_open",
+          "operand": "%M2.1",
+          "symbol": "bStateFwd"
+        }
+      ]
+    },
+    {
+      "networkNumber": 4,
+      "title": "前进→前限位→卸载（State=1→2）",
+      "comment": "前进输出，到前限位后转卸载",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%M2.1",
+          "symbol": "bStateFwd"
+        },
+        {
+          "type": "coil",
+          "operand": "%Q0.0",
+          "symbol": "bForwardOut"
+        },
+        {
+          "type": "coil",
+          "operand": "%Q0.2",
+          "symbol": "bRunning"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 5,
+      "title": "前进→前限位检测",
+      "comment": "到前限位后清除前进状态，设置卸载状态",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%M2.1",
+          "symbol": "bStateFwd"
+        },
+        {
+          "type": "normally_open",
+          "operand": "%I0.2",
+          "symbol": "bForwardLimit"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "%M2.1",
+          "symbol": "bStateFwd"
+        },
+        {
+          "type": "coil_set",
+          "operand": "%M2.2",
+          "symbol": "bStateUnload"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 6,
+      "title": "卸载定时（State=2→3）",
+      "comment": "TON定时5秒，到后转后退",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%M2.2",
+          "symbol": "bStateUnload"
+        },
+        {
+          "type": "timer_on",
+          "operand": "T1",
+          "symbol": "tmrUnload",
+          "preset": "T#5S"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 7,
+      "title": "卸载完成→后退（State=2→3）",
+      "comment": "定时到后清除卸载状态，设置后退状态",
+      "elements": [
+        {
+          "type": "timer_on",
+          "operand": "T1",
+          "symbol": "tmrUnload"
+        },
+        {
+          "type": "normally_open",
+          "operand": "T1",
+          "symbol": "tmrUnload.Q"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "%M2.2",
+          "symbol": "bStateUnload"
+        },
+        {
+          "type": "coil_set",
+          "operand": "%M2.3",
+          "symbol": "bStateRev"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 8,
+      "title": "后退输出（State=3）",
+      "comment": "后退运行，到后限位转装载",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%M2.3",
+          "symbol": "bStateRev"
+        },
+        {
+          "type": "coil",
+          "operand": "%Q0.1",
+          "symbol": "bReverseOut"
+        },
+        {
+          "type": "coil",
+          "operand": "%Q0.2",
+          "symbol": "bRunning"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 9,
+      "title": "后退→后限位→装载（State=3→4）",
+      "comment": "到后限位清除后退设装载",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%M2.3",
+          "symbol": "bStateRev"
+        },
+        {
+          "type": "normally_open",
+          "operand": "%I0.3",
+          "symbol": "bReverseLimit"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "%M2.3",
+          "symbol": "bStateRev"
+        },
+        {
+          "type": "coil_set",
+          "operand": "%M2.4",
+          "symbol": "bStateLoad"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 10,
+      "title": "装载定时（State=4→0/1）",
+      "comment": "TON定时3秒，到后计数+1，判断是否继续循环",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%M2.4",
+          "symbol": "bStateLoad"
+        },
+        {
+          "type": "timer_on",
+          "operand": "T2",
+          "symbol": "tmrLoad",
+          "preset": "T#3S"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 11,
+      "title": "装载完成→计数判断",
+      "comment": "装载定时到，自增计数。满3次→停止，不满→继续前进",
+      "elements": [
+        {
+          "type": "timer_on",
+          "operand": "T2",
+          "symbol": "tmrLoad"
+        },
+        {
+          "type": "normally_open",
+          "operand": "T2",
+          "symbol": "tmrLoad.Q"
+        },
+        {
+          "type": "coil_reset",
+          "operand": "%M2.4",
+          "symbol": "bStateLoad"
+        },
+        {
+          "type": "coil",
+          "operand": "%M3.0",
+          "symbol": "bIncrementCycle"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 12,
+      "title": "计数 ≥ 3 ? → 停止 / 继续",
+      "comment": "计数满3次设 bCycleDone，否则设 bStateFwd 继续",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%M3.1",
+          "symbol": "bCycleCountGE3"
+        },
+        {
+          "type": "coil_set",
+          "operand": "%M2.0",
+          "symbol": "bCycleDone"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    },
+    {
+      "networkNumber": 13,
+      "title": "故障输出",
+      "comment": "故障锁存位驱动故障灯",
+      "elements": [
+        {
+          "type": "normally_open",
+          "operand": "%M0.2",
+          "symbol": "bFaultLatch"
+        },
+        {
+          "type": "coil",
+          "operand": "%Q0.3",
+          "symbol": "bFault"
+        }
+      ],
+      "hasParallelBranch": false,
+      "parallelElements": []
+    }
+  ]
+}
