@@ -1,0 +1,151 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ai-plc-integration/schemas/ladder-spec",
+  "title": "LadderSpec — 梯形图 LAD 规格 JSON Schema",
+  "description": "DeepSeek 生成、CartGen 消费的 LadderSpec JSON 格式约束。校验失败时 CartGen 不会被执行。",
+
+  "type": "object",
+  "required": ["blockName", "blockNumber", "interface", "networks"],
+  "additionalProperties": false,
+
+  "properties": {
+    "blockName": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$",
+      "description": "英文驼峰命名的 FB 块名，如 MotorForwardReverse"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9999,
+      "description": "FB 编号，建议 100-999"
+    },
+    "description": {
+      "type": "string",
+      "description": "块功能描述（可选，中文）"
+    },
+
+    "interface": {
+      "type": "object",
+      "required": ["inputs", "outputs"],
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "description": "输入变量",
+          "items": { "$ref": "#/definitions/variable" }
+        },
+        "outputs": {
+          "type": "array",
+          "description": "输出变量",
+          "items": { "$ref": "#/definitions/variable" }
+        },
+        "local": {
+          "type": "array",
+          "description": "本地/中间变量（可选，不需要 address）",
+          "items": { "$ref": "#/definitions/variableNoAddress" }
+        }
+      }
+    },
+
+    "networks": {
+      "type": "array",
+      "description": "梯形图网络列表",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["title", "elements"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "网络标题（中文）"
+          },
+          "comment": {
+            "type": "string",
+            "description": "逻辑说明（中文，可空串）"
+          },
+          "elements": {
+            "type": "array",
+            "description": "梯形图元素列表",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": { "$ref": "#/definitions/element" }
+          }
+        }
+      }
+    }
+  },
+
+  "definitions": {
+    "variable": {
+      "type": "object",
+      "required": ["name", "type", "comment", "address"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z]\\w*$",
+          "description": "变量名（匈牙利命名：iXxx / oXxx / mXxx）"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Bool", "Int", "Real", "Word", "DWord", "Time"],
+          "description": "数据类型"
+        },
+        "comment": {
+          "type": "string",
+          "description": "中文注释"
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^%[IQM][0-9.]+$",
+          "description": "物理地址，如 %I15.0 或 %Q10.2"
+        }
+      }
+    },
+
+    "variableNoAddress": {
+      "type": "object",
+      "required": ["name", "type", "comment"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z]\\w*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Bool", "Int", "Real", "Word", "DWord", "Time"]
+        },
+        "comment": {
+          "type": "string"
+        }
+      }
+    },
+
+    "element": {
+      "type": "object",
+      "required": ["type", "operand"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "normally_open",
+            "normally_closed",
+            "coil",
+            "coil_set",
+            "coil_reset"
+          ],
+          "description": "CartGen 支持的元素类型"
+        },
+        "operand": {
+          "type": "string",
+          "pattern": "^[a-zA-Z]\\w*$",
+          "description": "变量名引用"
+        }
+      }
+    }
+  }
+}

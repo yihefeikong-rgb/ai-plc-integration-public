@@ -1,0 +1,70 @@
+# ═══════════════════════════════════════════════════
+# AI-PLC 项目统一配置
+# ═══════════════════════════════════════════════════
+# 支持环境变量引用: ${VAR_NAME} 或 ${VAR_NAME:默认值}
+# 相对路径从项目根目录（本文件的上上级目录的上级目录）解析
+
+# ── TIA Portal ──
+tia:
+  version: "V18"
+  # TIA 项目文件 (.ap18)
+  project_path: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\demo.ap18}"
+  # TIA Portal 安装目录（Openness API DLL 所在）
+  install_dir: "${TIA_INSTALL_DIR:D:\\TIA BEN TI\\Portal V18}"
+  # 仿真/输出文件目录（XML、SVG、SCL 均输出到此）
+  output_dir: "${TIA_OUTPUT_DIR:D:\\TIA FANG ZHEN}"
+
+# ── CartGen LAD 生成器 ──
+cartgen:
+  # CartGen.dll 相对路径（从项目根目录算）
+  dll_path: "mcp-servers/tia-mcp/CartGen/bin/Release/net8.0/CartGen.dll"
+
+# ── DeepSeek AI ──
+deepseek:
+  api_key: "${DEEPSEEK_API_KEY}"
+  api_url: "https://api.deepseek.com/v1/chat/completions"
+  model: "deepseek-chat"
+  temperature: 0.3
+  max_tokens: 4000
+  timeout_sec: 60
+
+# ── 模板 & 代码生成 ──
+generation:
+  templates_dir: "mcp-servers/tia-mcp/templates"
+  scl_templates_dir: "plc-code-templates/siemens-scl"
+  # 批量生成时跳过的模板（已验证通过的无需重复生成）
+  batch_skip:
+    - "电机正反转"
+
+# ── 日志 ──
+logging:
+  audit_log: "mcp-servers/tia-mcp/logs/audit.log"
+  batch_log: "mcp-servers/tia-mcp/logs/batch_gen.log"
+
+# ── 仿真 ──
+simulation:
+  # 后端: "v18" (免费版) 或 "advanced" (S7-PLCSIM Advanced, 支持 Factory I/O)
+  backend: "${PLCSIM_BACKEND:v18}"
+
+  # PLCSIM Advanced V5.0 安装路径
+  advanced_install_dir: "${PLCSIM_ADV_DIR:D:\\TIA FANG ZHEN\\PLCSIMADV}"
+
+  # PLCSIM Advanced 连接参数（仅 backend=advanced 时生效）
+  advanced:
+    plc_ip: "10.0.0.1"
+    rack: 0
+    slot: 1
+    port: 102
+
+# ── Factory I/O ──
+factory_io:
+  # Factory I/O 安装路径
+  install_dir: "${FACTORY_IO_DIR:D:\\Factory IO}"
+  # 导出的 CSV I/O 映射文件
+  csv_output: "D:\\TIA FANG ZHEN\\factory_io_mapping.csv"
+
+# ── 安全 ──
+safety:
+  emergency_stop: "iStop"
+  overload: "iOverload"
+  interlock_rules: "safety/interlock-rules.yml"

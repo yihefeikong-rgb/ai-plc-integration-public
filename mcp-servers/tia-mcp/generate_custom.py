@@ -2,8 +2,9 @@
 快速生成自定义 LAD 块：改 description 就行
 """
 import json, re, subprocess, tempfile, os, sys
+from config_loader import cfg
 
-API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
+API_KEY = cfg.deepseek.api_key
 if not API_KEY:
     print("❌ 请设置环境变量 DEEPSEEK_API_KEY（或在 .env 文件中定义）")
     sys.exit(1)
@@ -90,8 +91,8 @@ tmp = os.path.join(tempfile.gettempdir(), f'lad_{BLOCK_NAME}.json')
 with open(tmp, 'w') as f:
     json.dump(spec, f, ensure_ascii=False, indent=2)
 
-xml_out = rf'D:\TIA FANG ZHEN\{BLOCK_NAME}.xml'
-dll = r'mcp-servers/tia-mcp/CartGen/bin/Release/net8.0/CartGen.dll'
+xml_out = os.path.join(cfg.tia.output_dir, f'{BLOCK_NAME}.xml')
+dll = cfg.cartgen.dll_path
 r = subprocess.run(['dotnet', 'exec', dll, tmp, xml_out], capture_output=True, timeout=60)
 if r.returncode != 0:
     print(f"❌ CartGen 失败: {r.stderr.decode()[:300]}")
@@ -109,8 +110,9 @@ with open(xml_out, 'w', encoding='utf-8') as f:
     f.write(xml)
 
 import clr
-clr.AddReference(r'D:\TIA BEN TI\Portal V18\PublicAPI\V18\Siemens.Engineering.dll')
-clr.AddReference(r'D:\TIA BEN TI\Portal V18\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
+_tia_dir = cfg.tia.install_dir
+clr.AddReference(rf'{_tia_dir}\PublicAPI\V18\Siemens.Engineering.dll')
+clr.AddReference(rf'{_tia_dir}\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
 from Siemens.Engineering import TiaPortal, TiaPortalMode, ImportOptions
 from Siemens.Engineering.SW import SWImportOptions
 from Siemens.Engineering.SW.ExternalSources import GenerateBlockOption
@@ -120,7 +122,7 @@ from System.IO import FileInfo
 
 tia = TiaPortal(TiaPortalMode.WithoutUserInterface)
 try:
-    project = tia.Projects.Open(FileInfo(r'D:\PLC cheng xu\TIA PLC CHENG XU\demo\demo.ap18'))
+    project = tia.Projects.Open(FileInfo(cfg.tia.project_path))
     plc_sw = None
     for device in project.Devices:
         for item in device.DeviceItems:

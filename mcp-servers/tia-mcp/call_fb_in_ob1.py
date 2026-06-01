@@ -11,10 +11,9 @@
 
 import sys, os, datetime, subprocess
 
-# ─── 配置 ───
-TIA_PROJECT = r'D:\PLC cheng xu\TIA PLC CHENG XU\demo\demo.ap18'
-TIA_XML_DIR = r'D:\TIA FANG ZHEN'
-# ────────────
+from config_loader import cfg
+TIA_PROJECT = cfg.tia.project_path
+TIA_XML_DIR = cfg.tia.output_dir
 
 def generate_combined_scl(fb_names: list) -> str:
     """生成 MasterIO FB + 实例 DB + OB1 的合并 SCL
@@ -98,17 +97,9 @@ END_ORGANIZATION_BLOCK
 
 def list_io_map_fbs() -> list:
     """列出项目中已有的 IO_Map_* FB（需要 TIA Portal 已安装）"""
-    import clr
-    clr.AddReference(r'D:\TIA BEN TI\Portal V18\PublicAPI\V18\Siemens.Engineering.dll')
-    clr.AddReference(r'D:\TIA BEN TI\Portal V18\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
-    from Siemens.Engineering import TiaPortal, TiaPortalMode
-    from Siemens.Engineering.HW.Features import SoftwareContainer
-    from System.IO import FileInfo
+    from tia_session import tia_session
 
-    tia = TiaPortal(TiaPortalMode.WithoutUserInterface)
-    try:
-        project = tia.Projects.Open(FileInfo(TIA_PROJECT))
-        plc_sw = _get_plc_sw(project)
+    with tia_session(TIA_PROJECT) as (project, plc_sw):
         if not plc_sw:
             return []
 
@@ -118,62 +109,18 @@ def list_io_map_fbs() -> list:
             if name.startswith('IO_Map_'):
                 fb_list.append(name)
         return sorted(fb_list)
-    finally:
-        tia.Dispose()
-        _kill_tia()
-
-
-def _get_plc_sw(project):
-    """获取 PLC 软件对象"""
-    from Siemens.Engineering.HW.Features import SoftwareContainer
-    for device in project.Devices:
-        for item in device.DeviceItems:
-            try:
-                c = item.GetService[SoftwareContainer]()
-                if c and c.Software and 'PlcSoftware' in c.Software.GetType().FullName:
-                    return c.Software
-            except:
-                pass
-    return None
-
-
-def _kill_tia():
-    """强杀 TIA Portal 相关进程"""
-    import subprocess
-    for filter_name in ['S7*', 'Tia*']:
-        try:
-            r = subprocess.run(
-                f'tasklist /fi "IMAGENAME eq {filter_name}" /fo csv /nh',
-                shell=True, capture_output=True, text=True, encoding='gbk', errors='replace')
-        except Exception:
-            continue
-        stdout = r.stdout or ''
-        for line in stdout.strip().split('\n'):
-            if line:
-                proc = line.replace('"', '').split(',')[0].strip()
-                if proc:
-                    subprocess.run(['taskkill', '/f', '/im', proc], capture_output=True)
 
 
 def insert_fb_calls(fb_names: list):
     """创建 MasterIO FB + MasterIO_DB + OB1，级联所有 IO 映射 FB"""
-    import clr
-    clr.AddReference(r'D:\TIA BEN TI\Portal V18\PublicAPI\V18\Siemens.Engineering.dll')
-    clr.AddReference(r'D:\TIA BEN TI\Portal V18\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
-    from Siemens.Engineering import TiaPortal, TiaPortalMode, ImportOptions
-    from Siemens.Engineering.SW import SWImportOptions
     from Siemens.Engineering.SW.ExternalSources import GenerateBlockOption
-    from Siemens.Engineering.HW.Features import SoftwareContainer
     from Siemens.Engineering.Compiler import ICompilable
-    from System.IO import FileInfo
+    from tia_session import tia_session
 
     print(f'🔌 连接 TIA Portal...')
-    tia = TiaPortal(TiaPortalMode.WithoutUserInterface)
-    try:
-        project = tia.Projects.Open(FileInfo(TIA_PROJECT))
+    with tia_session(TIA_PROJECT) as (project, plc_sw):
         print(f'   ✅ 项目: {project.Name}')
 
-        plc_sw = _get_plc_sw(project)
         if not plc_sw:
             print('❌ 未找到 PLC 设备')
             return 1
@@ -246,8 +193,6 @@ def insert_fb_calls(fb_names: list):
         cr = compiler.Compile()
         status = '✅ 成功' if cr.State.ToString() == 'Success' else f'⚠ State={cr.State}'
         print(f'   📦 编译: {status}, Errors={cr.ErrorCount}, Warnings={cr.WarningCount}')
-        project.Save()
-        print(f'   💾 项目已保存')
 
         print()
         print('=' * 55)
@@ -263,16 +208,6 @@ def insert_fb_calls(fb_names: list):
         print(f'   2. 强制表: %I15.0=1 → %Q15.0 响应')
         print('=' * 55)
         return 0
-
-    except Exception as e:
-        print(f'❌ 错误: {e}')
-        import traceback
-        traceback.print_exc()
-        return 1
-    finally:
-        tia.Dispose()
-        _kill_tia()
-        print('✅ TIA Portal 已关闭')
 
 
 def main():

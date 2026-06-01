@@ -14,6 +14,8 @@ import tempfile
 import os
 from pathlib import Path
 from fastmcp import FastMCP
+from config_loader import cfg, validate_ladder_spec
+from audit import audit_log
 
 # SVG 渲染器（可选，渲染失败不影响主流程）
 try:
@@ -27,21 +29,6 @@ mcp = FastMCP("tia-portal")
 TIA_WORKER = Path(__file__).parent / "bin" / "TiaWorker.exe"
 LAD_CREATOR = Path(__file__).parent / "lad_creator.py"
 SCL_TEMPLATES = Path(__file__).parent.parent.parent / "plc-code-templates" / "siemens-scl"
-
-DEFAULT_PROJECT = ""
-DEEPSEEK_API_KEY = ""
-
-
-def _load_env():
-    global DEFAULT_PROJECT, DEEPSEEK_API_KEY
-    env_path = Path(__file__).parent.parent.parent / ".env"
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("TIA_PROJECT_PATH="):
-                DEFAULT_PROJECT = line.split("=", 1)[1].strip().strip('"')
-            elif line.startswith("DEEPSEEK_API_KEY="):
-                DEEPSEEK_API_KEY = line.split("=", 1)[1].strip()
 
 
 def _run_worker(command: str, payload: dict) -> dict:
@@ -76,9 +63,9 @@ def _run_worker(command: str, payload: dict) -> dict:
 
 
 def _resolve_path(project_path: str) -> str:
-    p = project_path or DEFAULT_PROJECT
+    p = project_path or cfg.tia.project_path
     if not p:
-        raise ValueError("未指定项目路径，请在 .env 中设置 TIA_PROJECT_PATH")
+        raise ValueError("未指定项目路径，请在 config.yaml 或 .env 中设置 TIA_PROJECT_PATH")
     return p
 
 
@@ -115,22 +102,23 @@ def _gen_scl_via_deepseek(description: str, template: str) -> dict:
 
     import requests
 
-    if not DEEPSEEK_API_KEY:
-        return {"status": "error", "error": "未找到 DEEPSEEK_API_KEY"}
+    api_key = cfg.deepseek.api_key
+    if not api_key:
+        return {"status": "error", "error": "未找到 DEEPSEEK_API_KEY（请在 .env 或 config.yaml 中设置）"}
 
     resp = requests.post(
-        "https://api.deepseek.com/v1/chat/completions",
+        cfg.deepseek.api_url,
         headers={
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
         json={
-            "model": "deepseek-chat",
+            "model": cfg.deepseek.model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 4000,
+            "temperature": cfg.deepseek.temperature,
+            "max_tokens": cfg.deepseek.max_tokens,
         },
-        timeout=60,
+        timeout=cfg.deepseek.timeout_sec,
     )
     resp.raise_for_status()
     content = resp.json()["choices"][0]["message"]["content"]
@@ -321,7 +309,7 @@ def create_ladder_block(
             raw = content.strip()
         spec = json.loads(raw)
 
-        # 2b. 轻量校验
+        # 2b. Schema 校验（DeepSeek 输出不稳定，先校验再传 CartGen）
         if not isinstance(spec, dict):
             return {"status": "error", "error": "DeepSeek 返回的不是 JSON 对象"}
         if "networks" not in spec or not isinstance(spec["networks"], list):
@@ -331,16 +319,22 @@ def create_ladder_block(
         if block_name:
             spec["blockName"] = block_name
 
+        # 2c. JSON Schema 校验
+        validation = validate_ladder_spec(spec)
+        if not validation["valid"]:
+            return {"status": "error", "error": "LadderSpec 格式校验失败",
+                    "validation_errors": validation["errors"]}
+
         # 3. 保存到临时 JSON 文件
         tmp_json = os.path.join(tempfile.gettempdir(), f"lad_{spec['blockName']}.json")
         with open(tmp_json, "w", encoding="utf-8") as f:
             json.dump(spec, f, ensure_ascii=False, indent=2)
 
         # 4. 调 CartGen 生成 XML
-        TIA_XML_DIR = r"D:\TIA FANG ZHEN"
-        os.makedirs(TIA_XML_DIR, exist_ok=True)
-        xml_path = os.path.join(TIA_XML_DIR, f"{spec['blockName']}.xml")
-        dll_path = os.path.join(os.path.dirname(__file__), "CartGen", "bin", "Release", "net8.0", "CartGen.dll")
+        output_dir = cfg.tia.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        xml_path = os.path.join(output_dir, f"{spec['blockName']}.xml")
+        dll_path = cfg.cartgen.dll_path
         r = subprocess.run(["dotnet", "exec", dll_path, tmp_json, xml_path], capture_output=True, timeout=60)
         if r.returncode != 0:
             err_text = r.stderr.decode('utf-8', 'ignore') or r.stdout.decode('utf-8', 'ignore')
@@ -366,6 +360,9 @@ def create_ladder_block(
             except Exception:
                 pass
 
+        audit_log("create_ladder_block", user_input=description,
+                  block_name=spec.get("blockName"), result="ok",
+                  networks=len(spec.get("networks", [])))
         return {"status": "ok", "blockName": spec.get("blockName"),
                 "networks": len(spec.get("networks", [])),
                 "xmlPath": xml_path,
@@ -379,17 +376,110 @@ def create_ladder_block(
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
 
 
+# ─── 一键全流程 ───────────────────────────────────────
+
+
+@mcp.tool()
+def full_pipeline(
+    description: str,
+    block_name: str = "",
+    project_path: str = "",
+) -> dict:
+    """一键全流程：自然语言 → LAD FB → IO_Map → OB1 调用链 → 编译。
+
+    串联 create_ladder_block + gen_io_map + call_fb_in_ob1 的完整流程。
+
+    Args:
+        description: 功能描述，如 "电机正反转，带急停和过载保护"
+        block_name: 块名称（可选，留空自动生成）
+        project_path: TIA 项目路径（可选，留空使用默认）
+
+    Returns:
+        {"status": "ok", "blockName": "...", "steps": [...]}
+    """
+    steps = []
+
+    # ── Step 1: 生成 LAD FB ──
+    result = create_ladder_block(description, block_name or "AutoGen", project_path)
+    if result.get("status") != "ok":
+        return {"status": "error", "step": "create_ladder_block",
+                "error": result.get("error", "LAD FB 生成失败"),
+                "steps": steps}
+    gen_block_name = result["blockName"]
+    steps.append({"step": "create_ladder_block", "blockName": gen_block_name,
+                   "networks": result.get("networks", 0)})
+
+    # ── Step 2: 生成 IO 映射 SCL ──
+    try:
+        import sys as _sys, os as _os
+        _sys.path.insert(0, str(Path(__file__).parent))
+        from gen_io_map import generate_io_map
+
+        # 查找生成的 JSON 模板文件
+        template_dir = cfg.generation.templates_dir
+        json_path = None
+        for fname in _os.listdir(template_dir):
+            if fname.endswith('.json'):
+                fpath = _os.path.join(template_dir, fname)
+                with open(fpath, encoding='utf-8') as f:
+                    spec = json.load(f)
+                if spec.get('blockName') == gen_block_name:
+                    json_path = fpath
+                    break
+
+        if not json_path:
+            # 使用临时 JSON
+            tmp = _os.path.join(tempfile.gettempdir(), f"lad_{gen_block_name}.json")
+            if _os.path.exists(tmp):
+                json_path = tmp
+            else:
+                steps.append({"step": "gen_io_map", "status": "skipped",
+                               "reason": "未找到模板 JSON 文件，跳过 IO 映射"})
+                return {"status": "ok", "blockName": gen_block_name, "steps": steps,
+                        "warning": "IO 映射跳过：未找到模板 JSON"}
+
+        io_map_scl = generate_io_map(json_path)
+        io_map_name = f"IO_Map_{gen_block_name}"
+        output_dir = cfg.tia.output_dir
+        scl_dir = _os.path.join(output_dir, 'scl')
+        _os.makedirs(scl_dir, exist_ok=True)
+        scl_path = _os.path.join(scl_dir, f"{io_map_name}.scl")
+        with open(scl_path, 'w', encoding='utf-8-sig') as f:
+            f.write(io_map_scl)
+        steps.append({"step": "gen_io_map", "sclPath": scl_path, "blockName": io_map_name})
+    except Exception as e:
+        steps.append({"step": "gen_io_map", "status": "error", "error": str(e)})
+        return {"status": "error", "step": "gen_io_map", "error": str(e), "steps": steps}
+
+    # ── Step 3: OB1 调用链 ──
+    try:
+        from call_fb_in_ob1 import insert_fb_calls
+        call_result = insert_fb_calls([io_map_name])
+        steps.append({"step": "ob1_calls", "fb": io_map_name,
+                       "result": "success" if call_result == 0 else f"code={call_result}"})
+    except Exception as e:
+        steps.append({"step": "ob1_calls", "status": "error", "error": str(e)})
+        return {"status": "error", "step": "ob1_calls", "error": str(e), "steps": steps}
+
+    audit_log("full_pipeline", user_input=description, block_name=gen_block_name,
+              result="ok", steps_count=len(steps))
+    return {"status": "ok", "blockName": gen_block_name,
+            "networks": result.get("networks", 0),
+            "steps": steps}
+
+
 def _call_deepseek(prompt: str) -> dict:
     """调用 DeepSeek API"""
     import requests
-    if not DEEPSEEK_API_KEY:
-        raise ValueError("未配置 DEEPSEEK_API_KEY")
+    api_key = cfg.deepseek.api_key
+    if not api_key:
+        raise ValueError("未配置 DEEPSEEK_API_KEY（请在 .env 或 config.yaml 中设置）")
     resp = requests.post(
-        "https://api.deepseek.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-        json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}],
-              "temperature": 0.3, "max_tokens": 4000},
-        timeout=60,
+        cfg.deepseek.api_url,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"model": cfg.deepseek.model, "messages": [{"role": "user", "content": prompt}],
+              "temperature": cfg.deepseek.temperature, "max_tokens": cfg.deepseek.max_tokens},
+        timeout=cfg.deepseek.timeout_sec,
     )
     resp.raise_for_status()
     return resp.json()
@@ -397,44 +487,25 @@ def _call_deepseek(prompt: str) -> dict:
 
 def _import_xml_into_tia(xml_path: str, project_path: str = ""):
     """将 SimaticML XML 导入 TIA Portal"""
-    p = project_path or DEFAULT_PROJECT
+    p = project_path or cfg.tia.project_path
     if not p:
-        raise ValueError("未指定项目路径，请在 .env 中设置 TIA_PROJECT_PATH")
+        raise ValueError("未指定项目路径，请在 config.yaml 或 .env 中设置 TIA_PROJECT_PATH")
 
-    import clr, System, subprocess, os
-    clr.AddReference(r'D:\TIA BEN TI\Portal V18\PublicAPI\V18\Siemens.Engineering.dll')
-    clr.AddReference(r'D:\TIA BEN TI\Portal V18\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
-    from Siemens.Engineering import TiaPortal, TiaPortalMode, ImportOptions
+    from tia_session import tia_session
+    from Siemens.Engineering import ImportOptions
     from Siemens.Engineering.SW import SWImportOptions
+    from Siemens.Engineering.Compiler import ICompilable
     from System.IO import FileInfo
-    tia = TiaPortal(TiaPortalMode.WithoutUserInterface)
-    try:
-        project = tia.Projects.Open(FileInfo(p))
-        device = project.Devices[0]
-        asm = System.Reflection.Assembly.LoadFrom(
-            r'D:\TIA BEN TI\Portal V18\PublicAPI\V18\Siemens.Engineering.dll')
-        sc = asm.GetType('Siemens.Engineering.HW.Features.SoftwareContainer')
 
-        for item in device.DeviceItems:
-            for m in item.GetType().GetMethods():
-                if m.Name == 'GetService' and m.IsGenericMethodDefinition:
-                    c = m.MakeGenericMethod(sc).Invoke(item, None)
-                    if c:
-                        sw = c.GetType().GetProperty('Software').GetValue(c, None)
-                        if sw and 'PlcSoftware' in sw.GetType().FullName:
-                            sw.BlockGroup.Blocks.Import(
-                                FileInfo(xml_path), ImportOptions.Override, SWImportOptions(2))
-                            # 编译
-                            comp = asm.GetType('Siemens.Engineering.Compiler.ICompilable')
-                            for gm in sw.GetType().GetMethods():
-                                if gm.Name == 'GetService' and gm.IsGenericMethodDefinition:
-                                    compiler = gm.MakeGenericMethod(comp).Invoke(sw, None)
-                                    if compiler:
-                                        compiler.Compile()
-                                        project.Save()
-                                        return
-    finally:
-        tia.Dispose()
+    with tia_session(p) as (project, plc_sw):
+        if not plc_sw:
+            raise RuntimeError("未找到 PLC 设备")
+
+        plc_sw.BlockGroup.Blocks.Import(
+            FileInfo(xml_path), ImportOptions.Override, SWImportOptions(2))
+        compiler = plc_sw.GetService[ICompilable]()
+        compiler.Compile()
+        project.Save()
 
 
 # DeepSeek Prompt 模板
@@ -487,8 +558,8 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
 {description}"""
 
 if __name__ == "__main__":
-    _load_env()
     print(f"[TiaMCP] TIA Worker: {TIA_WORKER}")
-    print(f"[TiaMCP] 默认项目: {DEFAULT_PROJECT or '(未设置)'}")
-    print(f"[TiaMCP] DeepSeek: {'OK' if DEEPSEEK_API_KEY else '(未配置)'}")
+    print(f"[TiaMCP] 默认项目: {cfg.tia.project_path}")
+    print(f"[TiaMCP] DeepSeek: {'OK' if cfg.deepseek.api_key else '(未配置)'}")
+    print(f"[TiaMCP] 输出目录: {cfg.tia.output_dir}")
     mcp.run()

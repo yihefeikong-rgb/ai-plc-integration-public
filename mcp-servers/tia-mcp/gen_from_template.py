@@ -9,12 +9,13 @@
 """
 
 import sys, os, json, re, subprocess
+from config_loader import cfg, validate_ladder_spec
 
-# ─── 配置（如路径不同改这里） ───
-TEMPLATES_DIR = r'mcp-servers/tia-mcp/templates'
-CARTGEN_DLL = r'mcp-servers/tia-mcp/CartGen/bin/Release/net8.0/CartGen.dll'
-TIA_PROJECT = r'D:\PLC cheng xu\TIA PLC CHENG XU\demo\demo.ap18'
-TIA_XML_DIR = r'D:\TIA FANG ZHEN'
+# ─── 配置（从 config.yaml 加载） ───
+TEMPLATES_DIR = cfg.generation.templates_dir
+CARTGEN_DLL = cfg.cartgen.dll_path
+TIA_PROJECT = cfg.tia.project_path
+TIA_XML_DIR = cfg.tia.output_dir
 # ──────────────────────────────
 
 def _find_plc(project):
@@ -225,7 +226,7 @@ def main():
 
     # 4. SVG 预览
     try:
-        sys.path.insert(0, r'mcp-servers/tia-mcp')
+        sys.path.insert(0, os.path.dirname(__file__))
         from ladder_renderer import render_svg_preview
         svg = render_svg_preview(spec)
         svg_path = os.path.join(TIA_XML_DIR, f"{block_name}.svg")
@@ -237,22 +238,16 @@ def main():
 
     # 5. 导入 TIA Portal（两阶段：先导入 FB，关闭重开后导入 IO 映射）
     print("   导入 TIA Portal...")
-    import clr, time
-    clr.AddReference(r'D:\TIA BEN TI\Portal V18\PublicAPI\V18\Siemens.Engineering.dll')
-    clr.AddReference(r'D:\TIA BEN TI\Portal V18\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
-    from Siemens.Engineering import TiaPortal, TiaPortalMode, ImportOptions
+    import time as _time
+    from Siemens.Engineering import ImportOptions
     from Siemens.Engineering.SW import SWImportOptions
     from Siemens.Engineering.SW.ExternalSources import GenerateBlockOption
-    from Siemens.Engineering.HW.Features import SoftwareContainer
     from Siemens.Engineering.Compiler import ICompilable
-    from System.IO import FileInfo
 
     # ══ 阶段 1：导入 LAD FB + 编译 ══
-    tia = TiaPortal(TiaPortalMode.WithoutUserInterface)
-    try:
-        project = tia.Projects.Open(FileInfo(TIA_PROJECT))
+    from tia_session import tia_session
+    with tia_session(TIA_PROJECT) as (project, plc_sw):
         print(f"   项目: {project.Name}")
-        plc_sw = _find_plc(project)
         if not plc_sw:
             print("❌ 未找到 PLC 设备"); return 1
 
@@ -260,20 +255,15 @@ def main():
             FileInfo(xml_path), ImportOptions.Override, SWImportOptions(2))
         print("   ✅ FB 导入成功")
 
-        # ⚠ 编译 FB，确保它被 SCL 编译器识别
         compiler = plc_sw.GetService[ICompilable]()
         cr = compiler.Compile()
         print(f"   📦 预编译: State={cr.State}, Errors={cr.ErrorCount}, Warnings={cr.WarningCount}")
-        project.Save()
-    finally:
-        tia.Dispose()
-        _kill_tia()
 
     # ══ 阶段 2：关闭重开 → 导入 IO 映射 SCL ══
-    time.sleep(2)
+    _time.sleep(2)
 
     # 生成 IO 映射 SCL
-    sys.path.insert(0, r'mcp-servers/tia-mcp')
+    sys.path.insert(0, os.path.dirname(__file__))
     from gen_io_map import generate_io_map
     io_map_scl = generate_io_map(json_path)
     io_map_name = f"IO_Map_{block_name}"
@@ -285,17 +275,12 @@ def main():
     print(f"   ✅ IO 映射 SCL: {scl_path}")
 
     print(f"   🔄 重新打开项目（使编译器看到新 FB）...")
-    tia2 = TiaPortal(TiaPortalMode.WithoutUserInterface)
-    try:
-        project2 = tia2.Projects.Open(FileInfo(TIA_PROJECT))
-        plc_sw2 = _find_plc(project2)
+    with tia_session(TIA_PROJECT) as (project2, plc_sw2):
         if not plc_sw2:
             print("❌ 重开后未找到 PLC 设备"); return 1
 
-        # ══ 确保标签表已导入（IO 映射 SCL 引用标签符号名） ══
         _ensure_tag_table(plc_sw2, block_name)
 
-        # 导入 IO 映射 SCL
         ext_group = plc_sw2.ExternalSourceGroup
         if ext_group is not None:
             scl_name = os.path.basename(scl_path)
@@ -314,15 +299,10 @@ def main():
         else:
             print("   ⚠ ExternalSourceGroup 不可用，跳过")
 
-        # 编译
-        compiler = plc_sw2.GetService[ICompilable]()
-        cr = compiler.Compile()
-        status = '✅' if cr.State.ToString() == 'Success' else f'⚠ State={cr.State}'
-        print(f"   📦 编译: {status}, Errors={cr.ErrorCount}, Warnings={cr.WarningCount}")
-        project2.Save()
-    finally:
-        tia2.Dispose()
-        _kill_tia()
+        compiler2 = plc_sw2.GetService[ICompilable]()
+        cr2 = compiler2.Compile()
+        status = '✅' if cr2.State.ToString() == 'Success' else f'⚠ State={cr2.State}'
+        print(f"   📦 编译: {status}, Errors={cr2.ErrorCount}, Warnings={cr2.WarningCount}")
 
     print()
     print("=" * 50)
