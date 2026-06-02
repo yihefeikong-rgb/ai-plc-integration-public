@@ -1,0 +1,106 @@
+{
+  "blockName": "PalletizerControl",
+  "blockNumber": 730,
+  "interface": {
+    "inputs": [
+      {"name": "iStart", "type": "Bool", "comment": "启动", "address": "%I20.0"},
+      {"name": "iStop", "type": "Bool", "comment": "停止", "address": "%I20.1"},
+      {"name": "iEStop", "type": "Bool", "comment": "急停", "address": "%I20.2"},
+      {"name": "iBoxPresent", "type": "Bool", "comment": "箱子到位", "address": "%I20.3"},
+      {"name": "iPalletInPos", "type": "Bool", "comment": "托盘到位", "address": "%I20.4"},
+      {"name": "iPalletFull", "type": "Bool", "comment": "托盘已满", "address": "%I20.5"},
+      {"name": "iPusherFwdLS", "type": "Bool", "comment": "推杆前进限位", "address": "%I20.6"},
+      {"name": "iPusherBackLS", "type": "Bool", "comment": "推杆后退限位", "address": "%I20.7"},
+      {"name": "iLifterUpLS", "type": "Bool", "comment": "升降台上极限", "address": "%I21.0"},
+      {"name": "iLifterDownLS", "type": "Bool", "comment": "升降台下极限", "address": "%I21.1"},
+      {"name": "iRollerRunning", "type": "Bool", "comment": "滚筒运行中", "address": "%I21.2"}
+    ],
+    "outputs": [
+      {"name": "oConveyorRun", "type": "Bool", "comment": "传送带运行", "address": "%Q20.0"},
+      {"name": "oPusherFwd", "type": "Bool", "comment": "推杆前进", "address": "%Q20.1"},
+      {"name": "oPusherBack", "type": "Bool", "comment": "推杆后退", "address": "%Q20.2"},
+      {"name": "oLifterUp", "type": "Bool", "comment": "升降台上升", "address": "%Q20.3"},
+      {"name": "oLifterDown", "type": "Bool", "comment": "升降台下降", "address": "%Q20.4"},
+      {"name": "oPalletLight", "type": "Bool", "comment": "托盘指示灯", "address": "%Q20.5"},
+      {"name": "oAlarm", "type": "Bool", "comment": "报警", "address": "%Q20.6"}
+    ],
+    "local": [
+      {"name": "mCycleActive", "type": "Bool", "comment": "码垛循环进行中"},
+      {"name": "mBoxCount", "type": "Int", "comment": "已码箱数"},
+      {"name": "mMaxBoxCount", "type": "Int", "comment": "最大箱数"}
+    ]
+  },
+  "networks": [
+    {
+      "title": "启动/停止自保持",
+      "comment": "启动信号置位循环，停止或急停复位",
+      "elements": [
+        {"type": "normally_open", "operand": "iStart"},
+        {"type": "normally_closed", "operand": "iStop"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "mCycleActive"}
+      ]
+    },
+    {
+      "title": "停止信号复位",
+      "comment": "停止或急停时复位循环",
+      "elements": [
+        {"type": "normally_open", "operand": "iStop"},
+        {"type": "normally_open", "operand": "iEStop"},
+        {"type": "coil_reset", "operand": "mCycleActive"},
+        {"type": "coil_reset", "operand": "oConveyorRun"}
+      ]
+    },
+    {
+      "title": "传送带运送箱子",
+      "comment": "循环中且箱子到位前传送带运行",
+      "elements": [
+        {"type": "normally_open", "operand": "mCycleActive"},
+        {"type": "normally_closed", "operand": "iBoxPresent"},
+        {"type": "normally_closed", "operand": "iPalletFull"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil", "operand": "oConveyorRun"}
+      ]
+    },
+    {
+      "title": "推杆推出",
+      "comment": "箱子到位 + 托盘到位 → 推杆前进",
+      "elements": [
+        {"type": "normally_open", "operand": "iBoxPresent"},
+        {"type": "normally_open", "operand": "iPalletInPos"},
+        {"type": "normally_closed", "operand": "iPusherFwdLS"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "oConveyorRun"},
+        {"type": "coil", "operand": "oPusherFwd"}
+      ]
+    },
+    {
+      "title": "推杆后退",
+      "comment": "推杆前进到位后退回",
+      "elements": [
+        {"type": "normally_open", "operand": "iPusherFwdLS"},
+        {"type": "normally_open", "operand": "mCycleActive"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "oPusherBack"},
+        {"type": "coil_reset", "operand": "oConveyorRun"}
+      ]
+    },
+    {
+      "title": "推杆复位完成",
+      "comment": "推杆复位到位 → 清除推出状态",
+      "elements": [
+        {"type": "normally_open", "operand": "iPusherBackLS"},
+        {"type": "coil_reset", "operand": "oPusherFwd"},
+        {"type": "coil_reset", "operand": "oPusherBack"}
+      ]
+    },
+    {
+      "title": "托盘满报警",
+      "comment": "托盘已满时点亮指示灯",
+      "elements": [
+        {"type": "normally_open", "operand": "iPalletFull"},
+        {"type": "coil", "operand": "oPalletLight"}
+      ]
+    }
+  ]
+}

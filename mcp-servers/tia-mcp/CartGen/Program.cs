@@ -1,4 +1,4 @@
-﻿#nullable disable
+﻿#nullable enable
 // CartGen — JSON 驱动的 SimaticML LAD 生成器
 // 用法: CartGen.exe <input.json> [output.xml]
 

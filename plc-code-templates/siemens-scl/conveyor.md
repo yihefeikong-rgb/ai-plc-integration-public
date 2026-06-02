@@ -1,78 +1,121 @@
-# 传送带控制 SCL 模板
+# 传送带控制 — SCL 生成模板
 
-## 适用场景
-- 单条/多条传送带启停控制
-- 传送带级联（上下游联动）
-- 物料检测与分拣
-- 变频调速传送带
+## 功能描述
+多段传送带的速度控制和联锁，带物料检测、满料停止、紧急停止。
 
-## SCL 编码规范
+## SCL 代码模板
 
-### 变量命名
-```
-bStart           : Bool;    // 启动按钮
-bStop            : Bool;    // 停止按钮
-bEmergencyStop   : Bool;    // 急停
-bMaterialDetect  : Bool;    // 物料检测
-bJamDetect       : Bool;    // 堵料检测
-bDownstreamReady : Bool;    // 下游就绪
-bUpstreamRunning : Bool;    // 上游运行中
-rSpeedSetpoint   : Real;    // 速度设定 (0-1500 rpm)
-rSpeedActual     : Real;    // 实际速度
-iState           : Int;     // 状态
-tiAccelTime      : Time;    // 加速时间
-tiDecelTime      : Time;    // 减速时间
-```
-
-### 级联控制逻辑（多条传送带必须实现）
-1. 逆序启动：下游传送带先启动，上游后启动
-2. 顺序停止：上游先停，下游后停
-3. 下游故障时上游立即停止（防堵料）
-4. 上游故障时下游延时停止（清空物料）
-
-### 物料跟踪
-- 物料检测上升沿 → 启动计数器
-- 延时后下游传感器未检测到 → 堵料报警
-- 连续3次堵料 → 故障锁定
-
-### 状态机
-```
-IDLE(0) -> STARTING(1) -> RUNNING(2) -> STOPPING(3) -> IDLE(0)
-任意状态 -> FAULT(4) --复位--> IDLE(0)
-```
-
-### 示例结构
-```pascal
+```scl
 FUNCTION_BLOCK "ConveyorControl"
-{ S7_Optimized_Access := 'TRUE' }
+TITLE = '传送带控制'
 VERSION : 0.1
+
 VAR_INPUT
-    bStart : Bool;
-    bStop : Bool;
-    bEmergencyStop : Bool;
-    bMaterialSensor : Bool;      // 入料传感器
-    bDischargeSensor : Bool;     // 出料传感器
-    bDownstreamReady : Bool;     // 下游就绪
-    rSpeedSetpoint : Real;
+  iStart : BOOL;             // 启动
+  iStop : BOOL;              // 停止
+  iEStop : BOOL;             // 急停（常闭）
+  iSensorEntry : BOOL;       // 入口传感器
+  iSensorMid : BOOL;         // 中部传感器
+  iSensorExit : BOOL;        // 出口传感器
+  iJamSensor : BOOL;         // 堵料传感器
+  iFullSensor : BOOL;        // 满料传感器
+  iAutoMode : BOOL;          // 自动模式
+  iSpeedPot : INT;           // 速度电位器 (0-27648)
 END_VAR
 
 VAR_OUTPUT
-    bRun : Bool;
-    bFault : Bool;
-    iFaultCode : Int;
-    iMaterialCount : Int;        // 物料计数
-    rActualSpeed : Real;
+  oConveyorRun : BOOL;       // 传送带运行
+  oSpeedOut : INT;           // 速度输出 (0-27648)
+  oJamAlarm : BOOL;          // 堵料报警
+  oFullLight : BOOL;         // 满料指示灯
+  oRunningLight : BOOL;      // 运行指示灯
 END_VAR
 
 VAR
-    iState : Int := 0;
-    tiStartDelay : Time;         // 启动延时（级联）
-    tiStopDelay : Time;          // 停止延时
-    tiTrackingTimeout : Time;    // 物料跟踪超时
-    iJamCount : Int := 0;        // 堵料计数
+  iState : INT;              // 状态: 0=STOP, 1=RUN, 2=JAM, 3=FULL
+  tonJamDelay : TON;         // 堵料检测延时
+  xJamTimerRun : BOOL;       // 堵料计时运行中
+  rSpeedPercent : REAL;      // 速度百分比
 END_VAR
 
 BEGIN
-    // 实现级联控制 + 物料跟踪
+  // === 速度转换 ===
+  rSpeedPercent := INT_TO_REAL(iSpeedPot) / 276.48;
+  IF rSpeedPercent < 10.0 THEN
+    rSpeedPercent := 10.0;  // 最低速度 10%
+  END_IF;
+  oSpeedOut := REAL_TO_INT(rSpeedPercent * 276.48 / 100.0);
+
+  // === 急停 ===
+  IF NOT iEStop THEN
+    iState := 0;
+    oConveyorRun := FALSE;
+    oJamAlarm := TRUE;
+    RETURN;
+  END_IF;
+
+  // === 满料停止 ===
+  IF iFullSensor THEN
+    iState := 3;
+    oConveyorRun := FALSE;
+    oFullLight := TRUE;
+  END_IF;
+
+  // === 启动 ===
+  IF iStart AND NOT iStop AND NOT iFullSensor THEN
+    IF iAutoMode THEN
+      // 自动模式: 入口有料才启动
+      IF iSensorEntry THEN
+        iState := 1;
+        oFullLight := FALSE;
+      END_IF;
+    ELSE
+      // 手动模式: 直接启动
+      iState := 1;
+      oFullLight := FALSE;
+    END_IF;
+  END_IF;
+
+  // === 停止 ===
+  IF iStop THEN
+    iState := 0;
+    oConveyorRun := FALSE;
+  END_IF;
+
+  // === 传送带运行 ===
+  IF iState = 1 THEN
+    oConveyorRun := TRUE;
+    oRunningLight := TRUE;
+  ELSE
+    oConveyorRun := FALSE;
+    oRunningLight := FALSE;
+  END_IF;
+
+  // === 堵料检测 ===
+  IF iSensorEntry AND iSensorMid AND NOT iSensorExit AND iState = 1 THEN
+    IF NOT xJamTimerRun THEN
+      tonJamDelay(IN := TRUE, PT := T#5S);
+      xJamTimerRun := TRUE;
+    END_IF;
+    IF tonJamDelay.Q THEN
+      iState := 2;
+      oJamAlarm := TRUE;
+    END_IF;
+  ELSE
+    tonJamDelay(IN := FALSE);
+    xJamTimerRun := FALSE;
+  END_IF;
+
+  // === 出口物料放行 ===
+  IF iSensorExit AND iState = 1 THEN
+    // 出口有料时继续运行，等待下游取走
+    oConveyorRun := TRUE;
+  END_IF;
 END_FUNCTION_BLOCK
 ```
+
+## 联锁规则
+- 急停：无条件停止所有传送带
+- 满料：入口传送带停止，防止堆积
+- 堵料：入口和中段同时有料、出口无料超过 5s 判定为堵料
+- 速度：保留 10% 最低速度防止电机堵转

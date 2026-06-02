@@ -58,6 +58,8 @@ Python.Runtime.PythonException
 snapshot_*.json
 *.sh
 *.ps1
+question_text.txt
+
+# 测试临时文件
+.pytest_cache/
 test_*.py
-question_text.txt
-question_text.txt

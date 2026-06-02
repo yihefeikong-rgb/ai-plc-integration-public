@@ -57,6 +57,26 @@ CPU_TYPES = {
     "1516f": ECPUType.CPU1516F,
 }
 
+# ── PLCSIM 错误码映射 ──
+ERROR_CODES = {
+    -1: "ERR_UNKNOWN",
+    -14: "InstanceNotRunning",
+    -37: "ArchiveStorageNotCreated",
+    -39: "InvalidOperatingState",
+    -50: "VirtualSwitchMisconfigured",
+    -52: "IsEmpty（无硬件配置）",
+}
+
+
+def _decode_error(e: Exception) -> str:
+    """将 PLCSIM 异常转成可读信息。"""
+    msg = str(e)
+    for code, desc in ERROR_CODES.items():
+        if str(code) in msg:
+            return f"错误 {code}: {desc}"
+    return msg
+
+
 STATE_NAMES = {
     EOperatingState.InvalidOperatingState: "invalid",
     EOperatingState.Off: "off",

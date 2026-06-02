@@ -1,0 +1,109 @@
+{
+  "blockName": "WarehouseASRS",
+  "blockNumber": 720,
+  "interface": {
+    "inputs": [
+      {"name": "iStart", "type": "Bool", "comment": "启动", "address": "%I18.0"},
+      {"name": "iStop", "type": "Bool", "comment": "停止", "address": "%I18.1"},
+      {"name": "iEStop", "type": "Bool", "comment": "急停", "address": "%I18.2"},
+      {"name": "iAutoMode", "type": "Bool", "comment": "自动模式", "address": "%I18.3"},
+      {"name": "iStoreReq", "type": "Bool", "comment": "入库请求", "address": "%I18.4"},
+      {"name": "iRetrieveReq", "type": "Bool", "comment": "出库请求", "address": "%I18.5"},
+      {"name": "iConveyorAtPickup", "type": "Bool", "comment": "传送带到取货位", "address": "%I18.6"},
+      {"name": "iConveyorAtDropoff", "type": "Bool", "comment": "传送到放货位", "address": "%I18.7"},
+      {"name": "iLifterUpLimit", "type": "Bool", "comment": "升降机上极限", "address": "%I19.0"},
+      {"name": "iLifterDownLimit", "type": "Bool", "comment": "升降机下极限", "address": "%I19.1"},
+      {"name": "iGripperOpenLS", "type": "Bool", "comment": "夹爪张开限位", "address": "%I19.2"},
+      {"name": "iGripperCloseLS", "type": "Bool", "comment": "夹爪闭合限位", "address": "%I19.3"},
+      {"name": "iPosSensor", "type": "Bool", "comment": "位置检测传感器", "address": "%I19.4"}
+    ],
+    "outputs": [
+      {"name": "oConveyorFwd", "type": "Bool", "comment": "传送带正转", "address": "%Q18.0"},
+      {"name": "oConveyorRev", "type": "Bool", "comment": "传送带反转", "address": "%Q18.1"},
+      {"name": "oLifterUp", "type": "Bool", "comment": "升降机上升", "address": "%Q18.2"},
+      {"name": "oLifterDown", "type": "Bool", "comment": "升降机下降", "address": "%Q18.3"},
+      {"name": "oGripperClose", "type": "Bool", "comment": "夹爪闭合", "address": "%Q18.4"},
+      {"name": "oGripperOpen", "type": "Bool", "comment": "夹爪张开", "address": "%Q18.5"},
+      {"name": "oStoreLight", "type": "Bool", "comment": "入库指示灯", "address": "%Q18.6"},
+      {"name": "oRetrieveLight", "type": "Bool", "comment": "出库指示灯", "address": "%Q18.7"},
+      {"name": "oFault", "type": "Bool", "comment": "故障报警", "address": "%Q19.0"}
+    ],
+    "local": [
+      {"name": "mState", "type": "Int", "comment": "状态机 0=IDLE 1=STORE 2=RETRIEVE 3=FAULT"},
+      {"name": "mStoreComplete", "type": "Bool", "comment": "入库完成标志"},
+      {"name": "mRetrieveComplete", "type": "Bool", "comment": "出库完成标志"},
+      {"name": "mTimer", "type": "Int", "comment": "定时器"}
+    ]
+  },
+  "networks": [
+    {
+      "title": "急停连锁",
+      "comment": "急停触发时复位所有输出",
+      "elements": [
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "mState"},
+        {"type": "coil", "operand": "oFault"}
+      ]
+    },
+    {
+      "title": "入库请求",
+      "comment": "自动模式 + 入库请求 + 传送带到取货位 → 开始入库",
+      "elements": [
+        {"type": "normally_open", "operand": "iAutoMode"},
+        {"type": "normally_open", "operand": "iStoreReq"},
+        {"type": "normally_open", "operand": "iConveyorAtPickup"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "mState"}
+      ]
+    },
+    {
+      "title": "传送带运送入库",
+      "comment": "入库状态 → 传送带正转",
+      "elements": [
+        {"type": "normally_open", "operand": "mState"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil", "operand": "oConveyorFwd"},
+        {"type": "coil_set", "operand": "oStoreLight"}
+      ]
+    },
+    {
+      "title": "到达放货位→夹爪闭合",
+      "comment": "传送到放货位 + 入库状态 → 夹爪闭合取货",
+      "elements": [
+        {"type": "normally_open", "operand": "iConveyorAtDropoff"},
+        {"type": "normally_open", "operand": "mState"},
+        {"type": "normally_closed", "operand": "iGripperCloseLS"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "oGripperClose"}
+      ]
+    },
+    {
+      "title": "夹爪张开放货",
+      "comment": "夹爪闭合到位 → 张开放货",
+      "elements": [
+        {"type": "normally_open", "operand": "iGripperCloseLS"},
+        {"type": "normally_open", "operand": "mState"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "oGripperOpen"}
+      ]
+    },
+    {
+      "title": "入库完成复位",
+      "comment": "夹爪张开到位 → 复位入库状态",
+      "elements": [
+        {"type": "normally_open", "operand": "iGripperOpenLS"},
+        {"type": "coil_reset", "operand": "mState"},
+        {"type": "coil_reset", "operand": "oGripperClose"},
+        {"type": "coil_reset", "operand": "oConveyorFwd"}
+      ]
+    },
+    {
+      "title": "故障指示",
+      "comment": "非IDLE/STORE/RETRIEVE状态时报警",
+      "elements": [
+        {"type": "normally_closed", "operand": "mState"},
+        {"type": "coil", "operand": "oFault"}
+      ]
+    }
+  ]
+}

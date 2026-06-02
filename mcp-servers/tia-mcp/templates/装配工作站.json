@@ -1,0 +1,138 @@
+{
+  "blockName": "AssemblyStation",
+  "blockNumber": 740,
+  "interface": {
+    "inputs": [
+      {"name": "iStart", "type": "Bool", "comment": "启动", "address": "%I22.0"},
+      {"name": "iStop", "type": "Bool", "comment": "停止", "address": "%I22.1"},
+      {"name": "iEStop", "type": "Bool", "comment": "急停", "address": "%I22.2"},
+      {"name": "iPartPresent", "type": "Bool", "comment": "零件到位", "address": "%I22.3"},
+      {"name": "iFixtureClamped", "type": "Bool", "comment": "夹具夹紧", "address": "%I22.4"},
+      {"name": "iScrewdriverDown", "type": "Bool", "comment": "螺丝刀下极限", "address": "%I22.5"},
+      {"name": "iScrewdriverUp", "type": "Bool", "comment": "螺丝刀上极限", "address": "%I22.6"},
+      {"name": "iEjectFwd", "type": "Bool", "comment": "顶杆前进限位", "address": "%I22.7"},
+      {"name": "iEjectBack", "type": "Bool", "comment": "顶杆后退限位", "address": "%I23.0"},
+      {"name": "iQualityOK", "type": "Bool", "comment": "质量检测通过", "address": "%I23.1"},
+      {"name": "iManualMode", "type": "Bool", "comment": "手动模式", "address": "%I23.2"}
+    ],
+    "outputs": [
+      {"name": "oConveyorRun", "type": "Bool", "comment": "传送带运行", "address": "%Q22.0"},
+      {"name": "oFixtureClamp", "type": "Bool", "comment": "夹具夹紧", "address": "%Q22.1"},
+      {"name": "oScrewdriverDown", "type": "Bool", "comment": "螺丝刀下降", "address": "%Q22.2"},
+      {"name": "oScrewdriverUp", "type": "Bool", "comment": "螺丝刀上升", "address": "%Q22.3"},
+      {"name": "oEjectFwd", "type": "Bool", "comment": "顶杆前进", "address": "%Q22.4"},
+      {"name": "oEjectBack", "type": "Bool", "comment": "顶杆后退", "address": "%Q22.5"},
+      {"name": "oGreenLight", "type": "Bool", "comment": "绿灯（合格）", "address": "%Q22.6"},
+      {"name": "oRedLight", "type": "Bool", "comment": "红灯（不合格）", "address": "%Q22.7"},
+      {"name": "oAlarm", "type": "Bool", "comment": "报警", "address": "%Q23.0"}
+    ],
+    "local": [
+      {"name": "mAutoMode", "type": "Bool", "comment": "自动模式"},
+      {"name": "mCycleActive", "type": "Bool", "comment": "循环进行中"},
+      {"name": "mPartOK", "type": "Bool", "comment": "零件合格"},
+      {"name": "mStep", "type": "Int", "comment": "步骤"}
+    ]
+  },
+  "networks": [
+    {
+      "title": "模式选择",
+      "comment": "非手动模式即为自动",
+      "elements": [
+        {"type": "normally_closed", "operand": "iManualMode"},
+        {"type": "coil", "operand": "mAutoMode"}
+      ]
+    },
+    {
+      "title": "自动循环启动",
+      "comment": "自动模式 + 启动 → 置位循环",
+      "elements": [
+        {"type": "normally_open", "operand": "mAutoMode"},
+        {"type": "normally_open", "operand": "iStart"},
+        {"type": "normally_closed", "operand": "iStop"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "mCycleActive"}
+      ]
+    },
+    {
+      "title": "传送带送料",
+      "comment": "循环中且零件未到位 → 传送带运行",
+      "elements": [
+        {"type": "normally_open", "operand": "mCycleActive"},
+        {"type": "normally_closed", "operand": "iPartPresent"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil", "operand": "oConveyorRun"}
+      ]
+    },
+    {
+      "title": "夹具夹紧",
+      "comment": "零件到位 + 循环中 → 夹具夹紧",
+      "elements": [
+        {"type": "normally_open", "operand": "iPartPresent"},
+        {"type": "normally_open", "operand": "mCycleActive"},
+        {"type": "normally_closed", "operand": "iFixtureClamped"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "oConveyorRun"},
+        {"type": "coil", "operand": "oFixtureClamp"}
+      ]
+    },
+    {
+      "title": "螺丝刀下降拧紧",
+      "comment": "夹具夹紧后螺丝刀下降",
+      "elements": [
+        {"type": "normally_open", "operand": "iFixtureClamped"},
+        {"type": "normally_closed", "operand": "iScrewdriverDown"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil", "operand": "oScrewdriverDown"}
+      ]
+    },
+    {
+      "title": "螺丝刀上升",
+      "comment": "螺丝刀下降到位后上升",
+      "elements": [
+        {"type": "normally_open", "operand": "iScrewdriverDown"},
+        {"type": "normally_closed", "operand": "iScrewdriverUp"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil_set", "operand": "oScrewdriverUp"},
+        {"type": "coil_reset", "operand": "oScrewdriverDown"}
+      ]
+    },
+    {
+      "title": "质量检测指示",
+      "comment": "检测通过亮绿灯，不通过亮红灯",
+      "elements": [
+        {"type": "normally_open", "operand": "iQualityOK"},
+        {"type": "coil", "operand": "oGreenLight"}
+      ]
+    },
+    {
+      "title": "不合格品红灯",
+      "comment": "质量检测不通过亮红灯",
+      "elements": [
+        {"type": "normally_closed", "operand": "iQualityOK"},
+        {"type": "normally_open", "operand": "iPartPresent"},
+        {"type": "coil", "operand": "oRedLight"}
+      ]
+    },
+    {
+      "title": "分拣顶出",
+      "comment": "不合格品顶出",
+      "elements": [
+        {"type": "normally_closed", "operand": "iQualityOK"},
+        {"type": "normally_open", "operand": "iPartPresent"},
+        {"type": "normally_closed", "operand": "iEjectFwd"},
+        {"type": "normally_closed", "operand": "iEStop"},
+        {"type": "coil", "operand": "oEjectFwd"}
+      ]
+    },
+    {
+      "title": "顶杆复位",
+      "comment": "顶杆前进到位后退回",
+      "elements": [
+        {"type": "normally_open", "operand": "iEjectFwd"},
+        {"type": "normally_closed", "operand": "iEjectBack"},
+        {"type": "coil", "operand": "oEjectBack"},
+        {"type": "coil_reset", "operand": "oEjectFwd"}
+      ]
+    }
+  ]
+}
