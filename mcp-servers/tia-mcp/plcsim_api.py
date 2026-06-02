@@ -317,7 +317,7 @@ def restore_instance(
     ip: str = "10.0.0.1",
     subnet: str = "255.255.255.0",
     cpu_type: str = "1511",
-    interface: str = "softbus",
+    interface: str = "tcpip",
 ) -> IInstance:
     """从黄金备份恢复实例（替代 TIA Portal 手动下载）。
 
@@ -370,6 +370,12 @@ def restore_instance(
 
         # 设通信接口
         if interface == "tcpip":
+            # 重置网卡绑定（解决 VirtualSwitchMisconfigured）
+            try:
+                SimulationRuntimeManager.ResetNetInterfaceBindings()
+                time.sleep(1)
+            except Exception:
+                pass
             instance.CommunicationInterface = ECommunicationInterface.TCPIP
             time.sleep(1)
             instance.SetIPSuite(0, SIPSuite4(ip, subnet, "0.0.0.0"), False)
@@ -411,7 +417,12 @@ def switch_to_tcpip(name: str, ip: str = "10.0.0.1", subnet: str = "255.255.255.
 
     print(f"[plcsim] 切换 '{name}' → TCP/IP {ip}/{subnet}")
 
-    # 先停
+    # 重置网卡绑定（解决 VirtualSwitchMisconfigured）
+    try:
+        SimulationRuntimeManager.ResetNetInterfaceBindings()
+        time.sleep(1)
+    except Exception:
+        pass
     if instance.OperatingState == EOperatingState.Run:
         instance.Stop()
         _wait_for_state(instance, EOperatingState.Stop, timeout=10)
