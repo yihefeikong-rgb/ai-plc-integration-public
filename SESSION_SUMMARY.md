@@ -1,56 +1,50 @@
 ## 项目位置
 D:\claude code xiangmu\AI 接入PLC\
 
-## 当前阶段：阶段 2 已完成，阶段 3 待开始
+## 当前阶段：阶段 2 → 阶段 3 过渡中
 
 ---
 
 ## 已完成（本次会话）
 
-### 修复 pymodbus 3.13 API 兼容性
-- mcp-servers/modbus-mcp/server.py — slave=1 改为 device_id=1，count 改为 keyword-only（6处）
-- edge-gateway/src/app.py — 同样3处修复
-- 环境/sim_plc.py — 重写为 SimDevice + SimData + DataType API
+### 多 AI 问答获取 PLCSIM 备份方案
+咨询了 6 个 AI（Kimi / ChatGPT / Gemini / 腾讯元宝 / 豆包 / 智谱清言），确认：
+- **核心 API**: `ArchiveStorage/RetrieveStorage`（不是 Backup/Restore）
+- 将虚拟 SIMATIC 存储卡（含硬件配置+程序）打包成 ZIP
+- 必须在 OFF 状态调用
 
-### 新建文件
-- run_gateway.py — 边缘网关独立启动脚本
-- .env — 含 DeepSeek API Key
+### PLCSIM 首次下载障碍突破
 
-### 运行中的服务
-| 服务 | 端口 | 启动命令 |
-|------|------|----------|
-| Modbus 模拟器 | 502 | python 环境/sim_plc.py |
-| InfluxDB 2.7 | 8086 | docker compose up -d influxdb |
-| Grafana | 3000 | docker compose up -d grafana (admin/admin123) |
+| 步骤 | 状态 |
+|------|:--:|
+| TIA Portal GUI 手动下载到 factory io1（最后一次） | ✅ |
+| `ArchiveStorage` → golden.zip（146 KB） | ✅ |
+| `plcsim_api.py` 完善中 | 🟡 |
+| TCP/IP 切换待解决 | ⏳ |
 
-### 验证通过
-- Modbus 模拟器读写(线圈/寄存器/离散输入)
-- MCP Server 通过模拟器读写
-- DeepSeek API 连通
-- AI 闭环：采集->分析->决策->写入
-- InfluxDB 数据写入
+**关键经验**：`StoragePath` 必须在 TIA Portal 下载前设置，否则 PowerOff 后内容丢失。
 
----
+### 全自动化流程（后续）
+```python
+RegisterInstance → StoragePath → RetrieveStorage(golden.zip) 
+→ SetCommunicationInterface(TCPIP) → SetIPSuite → PowerOn → Run()
+```
 
-## 下一步：阶段 3 西门子工程态
+### 新建/修改的文件
+- **`mcp-servers/tia-mcp/plcsim_api.py`** — 350 行，PLCSIM Advanced .NET API 完整封装
+- **`mcp-servers/tia-mcp/check_status.py`** — 实例状态检查
+- **`mcp-servers/tia-mcp/create_golden*.py`** — 黄金备份创建脚本
+- **`mcp-servers/tia-mcp/switch_to_tcpip.py`** — TCP/IP 切换（遇到 VirtualSwitchMisconfigured）
+- **`mcp-servers/tia-mcp/*.py`** — 各类测试脚本
 
-### 已有条件
-- TIA Portal V18: D:\TIA BEN TI\
-- PLCSIM V18 + Advanced: D:\TIA FANG ZHEN\
-- Openness API DLL: D:\TIA BEN TI\Portal V18\PublicAPI\V18\Siemens.Engineering.dll
-
-### 需要新建
-- mcp-servers/tia-mcp/ — C# .NET TiaWorker + Python MCP Host
-- plc-code-templates/siemens-scl/ — SCL代码生成Prompt模板
-
-### 架构
-Claude/Cursor -> TiaMcpHost(Python FastMCP) -> TiaWorker(C# .NET Framework 4.8) -> TIA Openness DLL
+### PLCSIM 当前状态
+- factory io1: **Softbus RUN**
+- 黄金备份: `D:\PLC cheng xu\TIA PLC CHENG XU\demo\factory_io1_golden.zip`
 
 ---
 
-## 快速启动
-
-cd "D:\claude code xiangmu\AI 接入PLC"
-python 环境/sim_plc.py &          # 模拟器
-docker compose up -d influxdb grafana  # 数据库+看板
-python run_gateway.py              # 边缘网关
+## 下一步
+1. 验证 `RetrieveStorage` 恢复流程
+2. 解决 TCP/IP 虚拟网卡配置
+3. 编写 Factory I/O auto.cfg
+4. 三端一键启动脚本
