@@ -58,4 +58,6 @@ Python.Runtime.PythonException
 snapshot_*.json
 *.sh
 *.ps1
+test_*.py
+question_text.txt
 question_text.txt
