@@ -53,3 +53,9 @@ mcp-servers/tia-mcp/TiaUtilities/
 # 空/临时文件
 python
 Python.Runtime.PythonException
+
+# 浏览器快照/临时测试文件
+snapshot_*.json
+*.sh
+*.ps1
+question_text.txt
