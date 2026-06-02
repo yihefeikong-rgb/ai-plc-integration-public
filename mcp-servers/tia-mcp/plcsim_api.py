@@ -238,7 +238,7 @@ def create_instance(
         instance.Run()
         _wait_for_state(instance, EOperatingState.Run, timeout=30)
         time.sleep(2)
-        print(f"[plcsim] ✅ '{name}' RUN (IP={ip})")
+        print(f"[plcsim] OK '{name}' RUN (IP={ip})")
         return instance
 
     except Exception as e:
@@ -261,9 +261,9 @@ def stop_instance(name: str, cleanup: bool = True):
         _ensure_off(instance)
         if cleanup:
             instance.UnregisterInstance()
-            print(f"[plcsim] ✅ '{name}' 已注销")
+            print(f"[plcsim] OK '{name}' 已注销")
         else:
-            print(f"[plcsim] ✅ '{name}' 已停止")
+            print(f"[plcsim] OK '{name}' 已停止")
     except Exception as e:
         raise RuntimeError(f"停止 '{name}' 失败: {e}")
 
@@ -326,7 +326,7 @@ def archive_instance(name: str, zip_path: str, storage_path: Optional[str] = Non
         raise RuntimeError(f"归档文件未生成: {zip_path}")
 
     size_kb = os.path.getsize(zip_path) / 1024
-    print(f"[plcsim] ✅ 归档完成: {zip_path} ({size_kb:.1f} KB)")
+    print(f"[plcsim] OK 归档完成: {zip_path} ({size_kb:.1f} KB)")
     return zip_path
 
 
@@ -409,7 +409,7 @@ def restore_instance(
         _wait_for_state(instance, EOperatingState.Run, timeout=30)
         time.sleep(2)
 
-        print(f"[plcsim] ✅ 恢复完成: '{name}' RUN (IP={ip})")
+        print(f"[plcsim] OK 恢复完成: '{name}' RUN (IP={ip})")
         return instance
 
     except Exception as e:
@@ -467,7 +467,7 @@ def switch_to_tcpip(name: str, ip: str = "10.0.0.1", subnet: str = "255.255.255.
 
     instance.Run()
     _wait_for_state(instance, EOperatingState.Run, timeout=30)
-    print(f"[plcsim] ✅ '{name}' TCP/IP RUN")
+    print(f"[plcsim] OK '{name}' TCP/IP RUN")
     return instance
 
 
@@ -573,5 +573,5 @@ if __name__ == "__main__":
             print(f"未知命令: {cmd}")
             _usage()
     except Exception as e:
-        print(f"❌ {e}")
+        print(f"ERR: {e}")
         sys.exit(1)

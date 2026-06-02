@@ -1,0 +1,57 @@
+// ═══════════════════════════════════════════════════════
+// AI 自动生成 — ConveyorControl OB1 调用
+// 适用场景: Factory IO "From A to B"
+// ═══════════════════════════════════════════════════════
+
+FUNCTION_BLOCK "IO_Map_ConveyorControl"
+TITLE = IO Mapping - ConveyorControl
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR
+    // 多实例：原 FB 的实例
+    ConveyorControl : "ConveyorControl";
+END_VAR
+
+BEGIN
+    // ── IO 映射 ──
+    // Factory IO: Sensor → %I0.0, Run → %I0.1, Conveyor → %Q0.0
+    ConveyorControl.iSensor := "Sensor";       // %I0.0
+    ConveyorControl.iRun := "Run";             // %I0.1
+    "Conveyor" := ConveyorControl.oConveyor;   // %Q0.0
+
+END_FUNCTION_BLOCK
+
+
+DATA_BLOCK "DB_ConveyorControl"
+TITLE = Instance DB for ConveyorControl
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+  IO_Map_ConveyorControl
+BEGIN
+    
+END_DATA_BLOCK
+
+
+ORGANIZATION_BLOCK "Main"
+TITLE = Main Program Sweep (Cycle) — ConveyorControl
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_TEMP
+    OB1_EV_CLASS : Byte;
+    OB1_SCAN_1 : Byte;
+    OB1_PRIORITY : Byte;
+    OB1_OB_NUMBR : Byte;
+    OB1_RESERVED_1 : Byte;
+    OB1_RESERVED_2 : Byte;
+    OB1_PREV_CYCLE : Int;
+    OB1_MIN_CYCLE : Int;
+    OB1_MAX_CYCLE : Int;
+END_VAR
+
+BEGIN
+    // ══ 调用 ConveyorControl IO 映射实例 ══
+    "DB_ConveyorControl"();
+    
+END_ORGANIZATION_BLOCK

@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding ="utf-8"?>
+<Document>
+  <Engineering version="V17" />
+  <SW.Blocks.FB ID="0">
+    <AttributeList>
+      <HeaderAuthor>Giacomo P.</HeaderAuthor>
+      <HeaderFamily>SPIN_SRL</HeaderFamily>
+      <Interface>
+        <Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+          <Section Name="Input">
+            <Member Name="iSensor" Datatype="Bool" />
+            <Member Name="iRun" Datatype="Bool" />
+          </Section>
+          <Section Name="Output">
+            <Member Name="oConveyor" Datatype="Bool" />
+          </Section>
+
+        </Sections>
+      </Interface>
+      <Name>ConveyorControl</Name>
+      <Number>500</Number>
+      <ProgrammingLanguage>LAD</ProgrammingLanguage>
+      <SetENOAutomatically>true</SetENOAutomatically>
+      <UDABlockProperties>GENERATED_BY_XMLREADER</UDABlockProperties>
+      <UDAEnableTagReadback>true</UDAEnableTagReadback>
+    </AttributeList>
+    <ObjectList>
+
+      <SW.Blocks.CompileUnit ID="5" CompositionName="CompileUnits">
+        <AttributeList>
+          <NetworkSource>
+            <FlgNet xmlns="http://www.siemens.com/automation/Openness/SW/NetworkSource/FlgNet/v4">
+              <Parts>
+                <Part UId="10000" Name="Contact" />
+                <Access Scope="LocalVariable" UId="10001">
+                  <Symbol>
+                    <Component Name="iRun" />
+                  </Symbol>
+                </Access>
+                <Part UId="10002" Name="Contact">
+                  <Negated Name="operand" />
+                </Part>
+                <Access Scope="LocalVariable" UId="10003">
+                  <Symbol>
+                    <Component Name="iSensor" />
+                  </Symbol>
+                </Access>
+                <Part UId="10004" Name="Coil" />
+                <Access Scope="LocalVariable" UId="10005">
+                  <Symbol>
+                    <Component Name="oConveyor" />
+                  </Symbol>
+                </Access>
+              </Parts>
+              <Wires>
+                <Wire UId="10006">
+                  <IdentCon UId="10001" />
+                  <NameCon UId="10000" Name="operand" />
+                </Wire>
+                <Wire UId="10007">
+                  <Powerrail />
+                  <NameCon UId="10000" Name="in" />
+                </Wire>
+                <Wire UId="10008">
+                  <IdentCon UId="10003" />
+                  <NameCon UId="10002" Name="operand" />
+                </Wire>
+                <Wire UId="10009">
+                  <NameCon UId="10000" Name="out" />
+                  <NameCon UId="10002" Name="in" />
+                </Wire>
+                <Wire UId="10010">
+                  <IdentCon UId="10005" />
+                  <NameCon UId="10004" Name="operand" />
+                </Wire>
+                <Wire UId="10011">
+                  <NameCon UId="10002" Name="out" />
+                  <NameCon UId="10004" Name="in" />
+                </Wire>
+              </Wires>
+            </FlgNet>
+          </NetworkSource>
+          <ProgrammingLanguage>LAD</ProgrammingLanguage>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="6" CompositionName="Title">
+            <ObjectList>
+              <MultilingualTextItem ID="7" CompositionName="Items">
+                <AttributeList>
+                  <Culture>zh-CN</Culture>
+                  <Text>传送带控制</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+          <MultilingualText ID="9" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="A" CompositionName="Items">
+                <AttributeList>
+                  <Culture>zh-CN</Culture>
+                  <Text>Run=1 且 Sensor=0 时 Conveyor=1；Sensor=1 或 Run=0 时 Conveyor=0</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Blocks.CompileUnit>
+    </ObjectList>
+  </SW.Blocks.FB>
+</Document>

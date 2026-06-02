@@ -1,0 +1,26 @@
+{
+  "blockName": "ConveyorControl",
+  "blockNumber": 500,
+  "description": "传送带控制，用于 Factory IO 'From A to B' 场景",
+  "interface": {
+    "inputs": [
+      { "name": "iSensor", "type": "Bool", "comment": "传感器（箱子到位）", "address": "%I0.0" },
+      { "name": "iRun", "type": "Bool", "comment": "系统运行信号（Factory IO Run）", "address": "%I0.1" }
+    ],
+    "outputs": [
+      { "name": "oConveyor", "type": "Bool", "comment": "传送带电机", "address": "%Q0.0" }
+    ],
+    "local": []
+  },
+  "networks": [
+    {
+      "title": "传送带控制",
+      "comment": "Run=1 且 Sensor=0 时 Conveyor=1；Sensor=1 或 Run=0 时 Conveyor=0",
+      "elements": [
+        { "type": "normally_open", "operand": "iRun" },
+        { "type": "normally_closed", "operand": "iSensor" },
+        { "type": "coil", "operand": "oConveyor" }
+      ]
+    }
+  ]
+}

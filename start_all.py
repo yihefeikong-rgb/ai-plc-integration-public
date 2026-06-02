@@ -24,8 +24,8 @@ SERVER_PY = os.path.join(TIA_MCP_DIR, "server.py")
 
 GOLDEN_ZIP = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo\factory_io1_golden.zip"
 STORAGE_PATH = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo\plcsim_storage"
-FIO_SCENE = r"D:\Program Files\Factory IO\Scenes\MyScene.factoryio"  # 改你的场景路径
-FIO_EXE = r"C:\Program Files\Factory IO\Factory IO.exe"
+FIO_SCENE = r"C:\Users\huangxinyang\Documents\Factory IO\My Scenes\测试.factoryio"
+FIO_EXE = r"D:\Factory IO\Factory IO.exe"
 
 # ── 后台进程管理 ──
 _procs = []
@@ -74,7 +74,7 @@ def start_plcsim():
             storage_path=STORAGE_PATH,
             ip="10.0.0.1",
             cpu_type="1511",
-            interface="softbus",  # 等配好 TCP/IP 网卡后改成 tcpip
+            interface="softbus",
         )
         log(f"✅  PLCSIM RUN (IP=10.0.0.1)")
         return True
@@ -92,22 +92,16 @@ def start_factory_io():
     
     log("启动 Factory I/O ...")
     
-    # 生成 auto.cfg
-    auto_cfg_path = os.path.join(
-        os.path.expanduser("~"), "Documents", "Factory IO", "auto.cfg"
-    )
+    # 生成 auto.cfg（Factory IO 控制台命令格式）
+    auto_cfg_path = r"C:\ProgramData\Real Games\Factory IO\auto.cfg"
     auto_cfg = f"""# Factory I/O 自动连接配置
 # 由 start_all.py 自动生成
+# 格式参见: https://docs.factoryio.com/manual/console/
 
-[Scene]
-path = {FIO_SCENE}
-
-[Connection]
-type = S7-PLCSIM
-plc_type = S7-1500
-ip = 10.0.0.1
-rack = 0
-slot = 1
+ui.show_welcome_window = False
+scene.load_from_path(r"{FIO_SCENE}")
+drivers.siemens_s7plcsim.auto_connect = True
+drivers.siemens_s7plcsim.instance_name = 'factoryio'
 """
     os.makedirs(os.path.dirname(auto_cfg_path), exist_ok=True)
     with open(auto_cfg_path, "w", encoding="utf-8") as f:

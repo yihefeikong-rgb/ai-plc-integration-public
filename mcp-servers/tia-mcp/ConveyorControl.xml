@@ -1,0 +1,192 @@
+<?xml version="1.0" ?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0201" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.plcopen.org/xml/tc6_0201 http://www.plcopen.org/xml/tc6_0201">
+  <fileHeader companyName="AI-PLC-Integration" productName="LadderSpec→SimaticML" productVersion="1.0" creationDateTime="2026-06-02T22:10:36.819733"/>
+  <contentHeader name="ConveyorControl" modificationDateTime="2026-06-02T22:10:36.819733">
+    <coordinateInfo>
+      <fbd>
+        <scaling x="1" y="1"/>
+      </fbd>
+      <ld>
+        <scaling x="2" y="2"/>
+      </ld>
+      <sfc>
+        <scaling x="1" y="1"/>
+      </sfc>
+    </coordinateInfo>
+  </contentHeader>
+  <types>
+    <pous>
+      <pou name="ConveyorControl" pouType="functionBlock">
+        <interface>
+          <inputVars>
+            <variable name="iSensor">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.0</address>
+              <documentation>
+                <xhtml>传感器（箱子到位）</xhtml>
+              </documentation>
+            </variable>
+            <variable name="iRun">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%I0.1</address>
+              <documentation>
+                <xhtml>系统运行信号（Factory IO Run）</xhtml>
+              </documentation>
+            </variable>
+          </inputVars>
+          <outputVars>
+            <variable name="oConveyor">
+              <type>
+                <BOOL/>
+              </type>
+              <address>%Q0.0</address>
+              <documentation>
+                <xhtml>传送带电机</xhtml>
+              </documentation>
+            </variable>
+          </outputVars>
+          
+        </interface>
+        <body>
+        <ladNetwork>
+          <title>
+            <MultilingualTextItem>
+              <AttributeList>
+                <Culture>zh-CN</Culture>
+                <Text>传送带控制</Text>
+              </AttributeList>
+            </MultilingualTextItem>
+          </title>
+          <comment>
+            <MultilingualTextItem>
+              <AttributeList>
+                <Culture>zh-CN</Culture>
+                <Text>Run=1 且 Sensor=0 时 Conveyor=1；Sensor=1 或 Run=0 时 Conveyor=0</Text>
+              </AttributeList>
+            </MultilingualTextItem>
+          </comment>
+          <Content>
+          <leftPowerRail>
+            <localId>1</localId>
+            <position x="0" y="0"/>
+            <connectionPointOut>
+              <relPosition x="0" y="9.5"/>
+            </connectionPointOut>
+            <height>19</height>
+            <width>0</width>
+          </leftPowerRail>
+          <contact type="open">
+            <position x="100" y="10"/>
+            <connectionPointIn>
+              <relPosition x="0" y="9.5"/>
+            </connectionPointIn>
+            <connectionPointOut>
+              <relPosition x="60" y="9.5"/>
+            </connectionPointOut>
+            <localId>1</localId>
+            <height>19</height>
+            <width>60</width>
+            <negated>false</negated>
+            <variable>iRun</variable>
+          </contact>
+          <contact type="closed">
+            <position x="260" y="10"/>
+            <connectionPointIn>
+              <relPosition x="0" y="9.5"/>
+            </connectionPointIn>
+            <connectionPointOut>
+              <relPosition x="60" y="9.5"/>
+            </connectionPointOut>
+            <localId>2</localId>
+            <height>19</height>
+            <width>60</width>
+            <negated>true</negated>
+            <variable>iSensor</variable>
+          </contact>
+          <coil type="coil">
+            <position x="420" y="10"/>
+            <connectionPointIn>
+              <relPosition x="0" y="9.5"/>
+            </connectionPointIn>
+            <connectionPointOut>
+              <relPosition x="60" y="9.5"/>
+            </connectionPointOut>
+            <localId>3</localId>
+            <height>19</height>
+            <width>60</width>
+            <negated>false</negated>
+            <variable>oConveyor</variable>
+          </coil>
+          <rightPowerRail>
+            <localId>5</localId>
+            <position x="580" y="0"/>
+            <connectionPointIn>
+              <relPosition x="0" y="9.5"/>
+            </connectionPointIn>
+            <height>19</height>
+            <width>0</width>
+          </rightPowerRail>
+          <connection>
+            <position x="0" y="9.5"/>
+            <connectionPoint>
+              <relPosition x="0" y="0"/>
+            </connectionPoint>
+            <connectionPoint>
+              <relPosition x="100" y="9.5"/>
+            </connectionPoint>
+            <localId>100</localId>
+          </connection>
+          <connection>
+            <position x="160" y="9.5"/>
+            <connectionPoint>
+              <relPosition x="0" y="0"/>
+            </connectionPoint>
+            <connectionPoint>
+              <relPosition x="260" y="9.5"/>
+            </connectionPoint>
+            <localId>101</localId>
+          </connection>
+          <connection>
+            <position x="320" y="9.5"/>
+            <connectionPoint>
+              <relPosition x="0" y="0"/>
+            </connectionPoint>
+            <connectionPoint>
+              <relPosition x="420" y="9.5"/>
+            </connectionPoint>
+            <localId>102</localId>
+          </connection>
+          <connection>
+            <position x="480" y="9.5"/>
+            <connectionPoint>
+              <relPosition x="0" y="0"/>
+            </connectionPoint>
+            <connectionPoint>
+              <relPosition x="540" y="9.5"/>
+            </connectionPoint>
+            <localId>202</localId>
+          </connection>
+          </Content>
+        </ladNetwork>
+        </body>
+        <addData>
+          <data name="TIA:BlockProperties" handleUnknown="implementation">
+            <BlockProperties>
+              <BlockNumber>500</BlockNumber>
+              <ProgrammingLanguage>LAD</ProgrammingLanguage>
+              <OptimizedBlockAccess>true</OptimizedBlockAccess>
+            </BlockProperties>
+          </data>
+        </addData>
+      </pou>
+    </pous>
+  </types>
+  <instances>
+    <configurations>
+    </configurations>
+  </instances>
+</project>
