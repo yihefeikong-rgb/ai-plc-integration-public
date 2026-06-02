@@ -64,3 +64,6 @@ question_text.txt
 .pytest_cache/
 test_*.py
 test_storage/
+
+# PLCSIM keeper PID 文件
+*.pid
