@@ -1,98 +1,165 @@
 # AI 接入 PLC 与工业机器人
 
-> 让 Claude/Cursor/GPT 通过自然语言直接监控、控制西门子 PLC、三菱 PLC 和工业机器人，并自动生成西门子 PLC 代码。
+> 构建生产级 AI Agent 系统，让 AI 通过自然语言直接监控、控制西门子 PLC、
+> 三菱 PLC 和工业机器人，并具备自动生成西门子 PLC 梯形图 (LAD) 代码的能力。
 
-## 快速开始
+**技术栈：** MCP + Python + C#/.NET + OPC UA / Modbus / MC 协议 + TIA Portal Openness
 
-### 有西门子 S7-1200/1500（推荐）
+---
 
-```bash
-# 1. 克隆项目
-git clone <your-repo>
-cd ai-plc-integration
-
-# 2. 配置 PLC IP
-# 编辑 mcp-servers/opcua-mcp/server.py 中的 PLC_URL
-
-# 3. 启动 MCP Server
-cd mcp-servers/opcua-mcp
-python -m venv venv
-source venv/bin/activate
-pip install fastmcp asyncua
-python server.py
-
-# 4. 配置 Claude Desktop
-# 编辑 ~/Library/Application Support/Claude/claude_desktop_config.json
-# 添加 opcua-mcp server 路径
-
-# 5. 重启 Claude，输入："读取当前温度"
-```
-
-### 无硬件（OpenPLC 仿真）
-
-```bash
-# 启动全栈仿真环境
-docker-compose --profile simulation up -d
-
-# 访问 http://localhost:8080 配置 OpenPLC
-# 默认账号：openplc / openplc
-```
-
-## 项目结构
+## 📦 项目结构
 
 ```
 ai-plc-integration/
-├── claude.md               # 项目总纲（给 Claude Code 的指令）
-├── docker-compose.yml      # 全栈一键部署
-├── docs/                   # 阶段文档
-│   ├── phase-1-runtime.md      # 运行态基础
-│   ├── phase-2-control-loop.md # AI控制闭环
-│   ├── phase-3-tia-engineering.md # 西门子工程态
-│   ├── phase-4-robot.md        # 工业机器人
-│   └── phase-5-orchestration.md # 统一编排
-├── mcp-servers/            # MCP 服务器
-│   ├── opcua-mcp/          # 西门子 OPC UA
-│   ├── mitsubishi-mcp/     # 三菱 MC 协议
-│   ├── tia-mcp/            # TIA Portal Openness
-│   └── robot-mcp/          # 工业机器人
-├── edge-gateway/           # 边缘网关
-└── plc-code-templates/     # AI 生成代码模板
+├── mcp-servers/                    # MCP 服务器集合
+│   ├── opcua-mcp/                  # OPC UA 运行时 MCP（西门子）
+│   ├── modbus-mcp/                 # Modbus TCP MCP
+│   ├── mitsubishi-mcp/             # 三菱 MC 协议 MCP（开发中）
+│   └── tia-mcp/                    # ⭐ TIA Portal 工程态 MCP
+│       ├── server.py               # FastMCP 服务（8 个工具）
+│       ├── plcsim_api.py           # PLCSIM Advanced .NET API 封装
+│       ├── config_loader.py        # 统一配置加载
+│       ├── CartGen/                # JSON → SimaticML LAD 生成器 (C#)
+│       ├── templates/              # 18 个 LAD 模板
+│       ├── lad_creator.py          # LAD 创建器
+│       └── gen_io_map.py           # IO 映射生成
+├── edge-gateway/                   # 边缘网关（InfluxDB + 数据采集）
+├── plc-code-templates/             # AI 生成 PLC 代码 Prompt 模板
+├── safety/                         # 安全策略与审计
+├── docs/                           # 技术文档
+├── scripts/                        # 运维脚本
+├── docker-compose.yml              # 全栈部署（InfluxDB + Grafana）
+└── .env.example                    # 环境变量模板
 ```
 
-## 五阶段计划
+## 🚀 快速开始
 
-| 阶段 | 周期 | 目标 | 状态 |
-|------|------|------|------|
-| 1 | Week 1-2 | AI 读取 PLC 实时数据 | 🔲 |
-| 2 | Week 3-4 | AI 控制闭环 + 本地 LLM | 🔲 |
-| 3 | Week 5-7 | AI 生成西门子 SCL 代码 | 🔲 |
-| 4 | Week 8 | 工业机器人接入 | 🔲 |
-| 5 | Week 9-10 | 统一编排 + 安全加固 | 🔲 |
+### 前置条件
 
-## 技术栈
+| 需求 | 版本 | 用途 |
+|------|------|------|
+| Python 3.10+ | — | MCP Server + 工具链 |
+| TIA Portal | V18 | 西门子工程态 |
+| PLCSIM Advanced | V5.0 | S7-1500 仿真 |
+| .NET SDK | 8.0 | CartGen LAD 生成器 |
+| Factory I/O | 最新 | 3D 工厂可视化 |
 
-- **MCP**: Model Context Protocol (FastMCP v3.1+)
-- **PLC 通信**: OPC UA / Modbus TCP / 三菱 MC 协议
-- **工程态**: TIA Portal Openness API (.NET)
-- **本地 LLM**: Ollama + Qwen3-Coder / DeepSeek-Coder
-- **数据**: InfluxDB + Grafana
-- **部署**: Docker + Docker Compose
+### 环境设置
 
-## 安全警告
+```bash
+# 1. 克隆
+git clone https://github.com/yihefeikong-rgb/ai-plc-integration
+cd ai-plc-integration
 
-⚠️ **生产环境必须遵守以下规则**：
-1. AI 禁止直接操作急停回路
-2. 所有写入操作需影子仿真验证
-3. 生产环境写入需人工确认
-4. 异常值连续 3 次自动熔断
-5. 审计日志不可篡改
+# 2. 环境变量
+cp .env.example .env
+# 编辑 .env，填入 DEEPSEEK_API_KEY
 
-## 参考
+# 3. 安装依赖
+pip install -r requirements.txt  # 各 MCP 子目录下也有 requirements
 
+# 4. 启动边缘网关（可选）
+python run_gateway.py
+```
+
+### PLCSIM 全自动化
+
+```python
+from plcsim_api import restore_instance
+
+# 从黄金备份恢复（无需 TIA Portal GUI）
+instance = restore_instance(
+    name="my_plc",
+    golden_zip="D:\\backup\\factory_io1_golden.zip",
+    storage_path="D:\\persist\\my_plc",
+    ip="10.0.0.2",
+    interface="tcpip",
+)
+# 实例已 RUN ✅
+```
+
+### 启动 TIA MCP Server
+
+```bash
+cd mcp-servers/tia-mcp
+python server.py
+# 暴露 8 个 MCP 工具：
+#   list_devices / import_scl_file / compile_project
+#   download_to_plcsim / generate_scl_code
+#   generate_and_import / create_ladder_block / full_pipeline
+```
+
+### AI 生成梯形图
+
+```bash
+# 方式 1: 模板直接生成
+dotnet run --project CartGen/CartGen.csproj -- templates/电机正反转.json
+
+# 方式 2: AI + CartGen 流水线
+python generate_custom.py  # 改 DESCRIPTION 即可
+```
+
+## 📊 当前进度
+
+| 阶段 | 内容 | 状态 |
+|------|------|:----:|
+| **1** | OPC UA + Modbus 运行态基础 | ✅ 完成 |
+| **2** | AI 控制闭环 + 安全互锁 + Grafana | ✅ 完成 |
+| **3** | ⭐ TIA Portal 工程态 + LAD 生成 | 🟡 主要完成 |
+| └─ | PLCSIM 首次下载限制突破 | ✅ |
+| └─ | CartGen 18 模板全通过 | ✅ |
+| └─ | golden.zip 归档/恢复 | ✅ |
+| └─ | TCP/IP 虚拟网卡配置 | ❌ 待解决 |
+| └─ | Factory I/O 自动连接 | ❌ 待解决 |
+| **4** | 工业机器人（ABB/UR） | 🔲 |
+| **5** | 统一编排 + 安全加固 | 🔲 |
+
+## 🖥️ TIA MCP 工具链架构
+
+```
+自然语言描述
+  ↓ DeepSeek API
+LadderSpec JSON（IEC 61131-3）
+  ↓ CartGen (.NET 8.0 / SimaticML)
+SimaticML XML（TIA Portal 原生格式）
+  ↓ _import_xml_into_tia() 
+TIA Portal 项目 → 编译 → PLCSIM 仿真 → Factory I/O 可视化
+```
+
+### 8 个 MCP 工具
+
+| 工具 | 功能 |
+|------|------|
+| `list_devices` | 列出 TIA 项目中的 PLC 设备 |
+| `import_scl_file` | 导入 SCL 源代码到 TIA 项目 |
+| `compile_project` | 编译 TIA 项目 |
+| `download_to_plcsim` | 下载到 PLCSIM 仿真 |
+| `generate_scl_code` | AI 生成 SCL 代码 |
+| `generate_and_import` | 一站式 AI + 导入 |
+| `create_ladder_block` | AI 生成梯形图 LAD 块 |
+| `full_pipeline` | LAD + I/O 映射 + OB1 调用链 |
+
+## 🚧 已知限制
+
+- **首次下载**: 必须通过 TIA Portal GUI 完成一次（已解决：用 golden.zip）
+- **TCP/IP 模式**: 需先安装 PLCSIM 虚拟网卡（VirtualSwitchMisconfigured）
+- **CartGen**: 不支持并联分支（parallelElements），自保持用 Set/Reset 模式
+- **三菱 MC 协议**: 暂无 MCP 实现（计划中）
+- **工业机器人**: 待接入（计划阶段 4）
+
+## 🔒 安全
+
+- 所有写入操作需影子仿真验证（PLCSIM）
+- 生产环境写入需人工确认
+- 连续 3 次异常值自动熔断
+- 审计日志不可篡改
+
+## 📚 参考
+
+- [FastMCP](https://github.com/jlowin/fastmcp)
 - [kukapay/opcua-mcp](https://github.com/kukapay/opcua-mcp)
-- [feelautom/tia-copilot-genai-bridge](https://github.com/feelautom/tia-copilot-genai-bridge)
-- [pyri-project/pyri-core](https://github.com/pyri-project/pyri-core)
-- [OpenPLC](https://openplcproject.com/)
+- [Siemens TIA Portal Openness](https://support.industry.siemens.com)
+- [Factory I/O](https://factoryio.com)
 
 ## License
 

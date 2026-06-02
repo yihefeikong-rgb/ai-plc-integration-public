@@ -31,11 +31,10 @@ RegisterInstance → StoragePath → RetrieveStorage(golden.zip)
 ```
 
 ### 新建/修改的文件
-- **`mcp-servers/tia-mcp/plcsim_api.py`** — 350 行，PLCSIM Advanced .NET API 完整封装
-- **`mcp-servers/tia-mcp/check_status.py`** — 实例状态检查
-- **`mcp-servers/tia-mcp/create_golden*.py`** — 黄金备份创建脚本
-- **`mcp-servers/tia-mcp/switch_to_tcpip.py`** — TCP/IP 切换（遇到 VirtualSwitchMisconfigured）
-- **`mcp-servers/tia-mcp/*.py`** — 各类测试脚本
+- **`mcp-servers/tia-mcp/plcsim_api.py`** — 全面升级（~550行），新增 archive/restore/tcpip 全套流程
+- **`mcp-servers/tia-mcp/config_loader.py`** — 修复 URL 被误解析为路径的 bug
+- **`README.md`** — 全面重写（项目结构 + 快速开始 + 进度表）
+- **`docs/phase-3-tia-engineering.md`** — 新建，TIA Portal 工程态完整文档
 
 ### PLCSIM 当前状态
 - factory io1: **Softbus RUN**
@@ -44,7 +43,7 @@ RegisterInstance → StoragePath → RetrieveStorage(golden.zip)
 ---
 
 ## 下一步
-1. 验证 `RetrieveStorage` 恢复流程
-2. 解决 TCP/IP 虚拟网卡配置
-3. 编写 Factory I/O auto.cfg
-4. 三端一键启动脚本
+1. 解决 TCP/IP 虚拟网卡配置（Factory I/O 连接前提）
+2. 编写 Factory I/O auto.cfg
+3. 三端一键启动脚本
+4. 测试 `_import_xml_into_tia` 导入 XML 到 TIA Portal
