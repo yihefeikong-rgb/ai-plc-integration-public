@@ -1,0 +1,27 @@
+# Factory I/O auto.cfg — 自动连接 PLCSIM Advanced
+# 
+# 放置位置: %USERPROFILE%\Documents\Factory IO\auto.cfg
+# 启动 Factory I/O 时自动读取此配置，省去手动选择的步骤
+#
+# 由 start_all.py 自动生成，也可手动编辑
+
+[Scene]
+# 场景文件路径（.factoryio 格式）
+path = D:\Program Files\Factory IO\Scenes\MyScene.factoryio
+
+[Connection]
+# PLC 类型: S7-PLCSIM / S7-1200 / S7-1500 / Modbus
+type = S7-PLCSIM
+
+# CPU 系列
+plc_type = S7-1500
+
+# PLCSIM Advanced 实例 IP
+ip = 10.0.0.1
+
+# 机架/槽位（S7-1500 默认 0/1）
+rack = 0
+slot = 1
+
+# 通信超时（毫秒）
+timeout_ms = 5000
