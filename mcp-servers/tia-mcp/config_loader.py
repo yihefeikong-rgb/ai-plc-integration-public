@@ -122,6 +122,9 @@ class _Config:
 
 def _looks_like_path(key: str, value: str) -> bool:
     """判断值是否像路径（需要 resolve）"""
+    # URL 不是路径
+    if value.startswith(("http://", "https://", "tcp://")):
+        return False
     path_keys = {
         "project_path", "install_dir", "output_dir",
         "dll_path", "templates_dir", "scl_templates_dir",
