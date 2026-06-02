@@ -63,3 +63,4 @@ question_text.txt
 # 测试临时文件
 .pytest_cache/
 test_*.py
+test_storage/
