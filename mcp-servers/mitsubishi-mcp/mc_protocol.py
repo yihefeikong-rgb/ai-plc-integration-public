@@ -47,8 +47,18 @@ def _parse_device(addr: str) -> tuple[int, int]:
     return code, offset
 
 
+def _device_prefix(addr: str) -> str:
+    """提取设备类型前缀，如 'M', 'D', 'TN', 'CN'"""
+    raw = addr.upper().rstrip("0123456789")
+    return raw
+
+
 def is_bit_device(addr: str) -> bool:
-    return addr[0].upper() in "MXYLBTXC"
+    """位设备（按位寻址）：M, X, Y, L, B, T, C, S, V, F
+    字设备（按字寻址）：D, W, TN, CN, Z, ZR, R, SW
+    """
+    prefix = _device_prefix(addr)
+    return prefix in ("M", "X", "Y", "L", "B", "T", "C", "S", "V", "F")
 
 
 def build_read_request(addr: str, count: int = 1) -> bytes:

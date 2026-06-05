@@ -196,21 +196,61 @@ def compile_project(project_path: str = "") -> dict:
 
 
 @mcp.tool()
-def download_to_plcsim(project_path: str = "", device_name: str = "") -> dict:
+def download_to_plcsim(
+    project_path: str = "",
+    compile_first: bool = False,
+    method: str = "auto",
+    target_ip: str = "",
+) -> dict:
     """将项目下载到 PLCSIM 仿真 PLC。
 
-    注意: 需要先在 TIA Portal 中配置 PLCSIM 连接。
+    下载策略（自动模式）:
+      1. TiaWorker.exe — 通过 Openness API DownloadProvider 下载（需 GUI 确认）
+      2. UI Automation — 模拟 GUI 点击（自动 fallback）
+      3. 手动指引 — 最末备选
 
     Args:
-        project_path: TIA 项目路径
-        device_name: 目标设备名称，留空使用第一个设备
+        project_path: TIA 项目路径，留空使用默认值
+        compile_first: 下载前先编译
+        method: "auto" (自动), "tiaworker", "ui", "manual"
+        target_ip: PLCSIM Advanced 的 IP 地址（可选）
     """
     try:
         path = _resolve_path(project_path)
-        return _run_worker("download", {
-            "ProjectPath": path,
-            "DeviceName": device_name,
-        })
+        from download_to_plcsim import (
+            _try_download_via_python, download_via_ui
+        )
+        import sys as _sys
+
+        if method == "ui":
+            rc = download_via_ui(compile_first)
+            return {"status": "ok" if rc == 0 else "error",
+                    "message": "UI Automation 下载完成" if rc == 0 else "UI Automation 下载失败"}
+
+        if method == "tiaworker":
+            rc = _try_download_via_python(compile_first, target_ip)
+            return {"status": "ok" if rc == 0 else "error",
+                    "message": "Python API 下载完成" if rc == 0 else "Python API 下载需要 PLCSIM 运行"}
+
+        # "auto" 模式：依次尝试
+        rc = _try_download_via_python(compile_first, target_ip)
+        if rc == 0:
+            return {"status": "ok", "message": "Python API 下载完成"}
+
+        if rc == -1:
+            rc = download_via_ui(compile_first=False)
+            if rc == 0:
+                return {"status": "ok", "message": "UI Automation 下载完成",
+                        "note": "Python API 不可用，使用 UI Automation"}
+
+        return {"status": "ok" if rc == 0 else "error",
+                "message": "下载成功" if rc == 0 else "请手动下载",
+                "manual_steps": [
+                    "1. 打开 TIA Portal，右键 PLC 设备",
+                    "2. 下载到设备 → 软件（全部）",
+                    "3. PG/PC 接口选 PLCSIM",
+                    "4. 下载 → 完成",
+                ]}
     except ValueError as e:
         return {"status": "error", "error": str(e)}
 

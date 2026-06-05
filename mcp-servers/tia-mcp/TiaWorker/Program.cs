@@ -10,6 +10,7 @@ using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.SW.ExternalSources;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.Download;
+using Siemens.Engineering.Connection;
 
 namespace TiaWorker
 {
@@ -159,7 +160,12 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            var interfaceName = input?.InterfaceName ?? "PN/IE";
+            var targetIp = input?.TargetIp ?? "";
+
+            // WithUserInterface 需要已有 TIA Portal 进程，这里用 WithoutUserInterface
+            // 如果下载过程需要 GUI 确认，会抛出异常并触发 fallback
+            using (var tia = new TiaPortal(TiaPortalMode.WithoutUserInterface))
             {
                 var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
                 var device = FindDevice(project, input?.DeviceName);
@@ -170,23 +176,165 @@ namespace TiaWorker
                     return 1;
                 }
 
-                var downloadProvider = device.GetService<DownloadProvider>();
-                if (downloadProvider == null)
+                // 1. 查找可下载的 DeviceItem（CPU）
+                var downloadItem = FindDownloadableItem(device);
+                if (downloadItem == null)
                 {
                     Console.WriteLine(JsonOk(new
                     {
-                        message = "Download requires TIA Portal GUI configuration. " +
-                                  "Open TIA Portal -> select device -> Download to device -> PLCSIM."
+                        note = "auto",
+                        message = "未找到可自动下载的设备接口。请在 TIA Portal GUI 中手动下载。"
                     }));
                     return 0;
                 }
 
-                Console.WriteLine(JsonOk(new
+                var downloadProvider = downloadItem.GetService<DownloadProvider>();
+                if (downloadProvider == null)
                 {
-                    message = "Download provider found. Use TIA Portal GUI to complete download."
-                }));
-                return 0;
+                    Console.WriteLine(JsonOk(new
+                    {
+                        note = "auto",
+                        message = "DownloadProvider 不可用。请在 TIA Portal GUI 中手动下载。"
+                    }));
+                    return 0;
+                }
+
+                // 2. 配置下载连接
+                try
+                {
+                    var connConfig = downloadProvider.Configuration;
+                    var mode = connConfig.Modes.Find(interfaceName);
+                    if (mode == null)
+                    {
+                        Console.WriteLine(JsonOk(new
+                        {
+                            note = "auto",
+                            message = $"未找到通信模式 '{interfaceName}'。请在 TIA Portal GUI 中手动下载。"
+                        }));
+                        return 0;
+                    }
+
+                    // 优先选择 PLCSIM 虚拟网卡
+                    ConfigurationPcInterface pcInterface = null;
+                    foreach (var iface in mode.PcInterfaces)
+                    {
+                        var name = iface.Name ?? "";
+                        if (name.IndexOf("PLCSIM", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            pcInterface = iface;
+                            break;
+                        }
+                    }
+                    pcInterface ??= mode.PcInterfaces.Count > 0 ? mode.PcInterfaces[0] : null;
+
+                    if (pcInterface == null)
+                    {
+                        Console.WriteLine(JsonOk(new
+                        {
+                            note = "auto",
+                            message = "未找到可用 PC 接口。请在 TIA Portal GUI 中手动下载。"
+                        }));
+                        return 0;
+                    }
+
+                    // 找目标设备配置
+                    IConfiguration targetConfig = null;
+                    if (!string.IsNullOrEmpty(targetIp))
+                    {
+                        // 先找子网中的地址
+                        foreach (var subnet in pcInterface.Subnets)
+                        {
+                            try
+                            {
+                                targetConfig = subnet.Addresses.Find(targetIp);
+                                if (targetConfig != null) break;
+                            }
+                            catch { }
+                        }
+                    }
+                    // 取第一个目标接口
+                    if (targetConfig == null && pcInterface.TargetInterfaces.Count > 0)
+                    {
+                        targetConfig = pcInterface.TargetInterfaces[0];
+                    }
+
+                    if (targetConfig == null)
+                    {
+                        Console.WriteLine(JsonOk(new
+                        {
+                            note = "auto",
+                            message = "未找到目标 PLC。请在 TIA Portal GUI 中手动下载。"
+                        }));
+                        return 0;
+                    }
+
+                    // 3. 执行下载（传递 null 回调，用户通过 GUI 手动确认）
+                    Console.Error.WriteLine($"[TiaWorker] Downloading to {pcInterface.Name}/{targetIp} ...");
+
+                    var result = downloadProvider.Download(
+                        targetConfig,
+                        (DownloadConfigurationDelegate)null,
+                        (DownloadConfigurationDelegate)null,
+                        DownloadOptions.Software);
+
+                    project.Save();
+
+                    var success = result.State == DownloadResultState.Success;
+
+                    Console.WriteLine(JsonOk(new
+                    {
+                        success,
+                        state = result.State.ToString(),
+                        errors = result.ErrorCount,
+                        message = success
+                            ? "已成功下载到 PLCSIM"
+                            : $"下载状态: {result.State}，错误: {result.ErrorCount}"
+                    }));
+                    return success ? 0 : 1;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonOk(new
+                    {
+                        note = "auto",
+                        message = $"API 下载尝试需 GUI 确认: {ex.Message}",
+                        fallback = "请查看 TIA Portal GUI 窗口，确认下载对话框。",
+                        detail = ex.ToString()
+                    }));
+                    return 0;
+                }
             }
+        }
+
+        /// <summary>
+        /// 递归查找支持 DownloadProvider 的 DeviceItem。
+        /// 通常为 CPU 模块（device.DeviceItems[0].DeviceItems[0]）。
+        /// </summary>
+        static DeviceItem FindDownloadableItem(Device device)
+        {
+            foreach (var topItem in device.DeviceItems)
+            {
+                var found = FindDownloadableItemRecursive(topItem, 0);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        static DeviceItem FindDownloadableItemRecursive(DeviceItem item, int depth)
+        {
+            if (depth > 10) return null;
+            try
+            {
+                var dp = item.GetService<DownloadProvider>();
+                if (dp != null) return item;
+            }
+            catch { }
+            foreach (var child in item.DeviceItems)
+            {
+                var found = FindDownloadableItemRecursive(child, depth + 1);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         static int ListDevices(string json)
@@ -256,5 +404,8 @@ namespace TiaWorker
     class DownloadInput : ProjectInput
     {
         public string DeviceName { get; set; }
+        public string InterfaceName { get; set; }
+        public string TargetIp { get; set; }
+        public int TimeoutSec { get; set; }
     }
 }

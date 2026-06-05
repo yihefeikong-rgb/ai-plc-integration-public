@@ -97,12 +97,19 @@ namespace TiaWorker
                 if (plc == null)
                     return JsonError("No PLC device found in project");
 
-                // ── 创建空 LAD 块 ──
-                PlcBlock fb = plc.BlockGroup.Blocks.Create(
+                // ── 创建空 LAD 块（通过反射兼容不同 V18 API 版本） ──
+                var blocks = plc.BlockGroup.Blocks;
+                var createMethod = blocks.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "Create" && m.GetParameters().Length >= 3);
+                if (createMethod == null)
+                    return JsonError("Cannot find PlcBlockComposition.Create method (TIA API mismatch)");
+                var fb = (PlcBlock)createMethod.Invoke(blocks, new object[] {
                     input.BlockName,
-                    PlcBlockType.FunctionBlock,
-                    PlcProgrammingLanguage.LAD
-                );
+                    Enum.Parse(blocks.GetType().Assembly.GetType(
+                        "Siemens.Engineering.SW.Blocks.PlcBlockType"), "FunctionBlock"),
+                    Enum.Parse(blocks.GetType().Assembly.GetType(
+                        "Siemens.Engineering.SW.Blocks.PlcProgrammingLanguage"), "LAD")
+                });
 
                 // ── 通过 LAD 编程接口搭梯级 ──
                 // 这里使用动态反射调用，避免编译时对 LAD 程序集的强依赖

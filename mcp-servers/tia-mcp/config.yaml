@@ -44,7 +44,7 @@ logging:
 # ── 仿真 ──
 simulation:
   # 后端: "v18" (免费版) 或 "advanced" (S7-PLCSIM Advanced, 支持 Factory I/O)
-  backend: "${PLCSIM_BACKEND:v18}"
+  backend: "${PLCSIM_BACKEND:advanced}"
 
   # PLCSIM Advanced V5.0 安装路径
   advanced_install_dir: "${PLCSIM_ADV_DIR:D:\\TIA FANG ZHEN\\PLCSIMADV}"

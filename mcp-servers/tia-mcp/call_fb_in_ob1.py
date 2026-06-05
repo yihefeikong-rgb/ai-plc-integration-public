@@ -30,8 +30,10 @@ def generate_combined_scl(fb_names: list) -> str:
     instances = []
     instance_calls = []
     for i, fb in enumerate(fb_names):
-        # 从 IO_Map_MotorForwardReverse → ioMap_MotorForwardReverse
-        inst_name = 'ioMap_' + fb.replace('IO_Map_', '')
+        # IO_Map_MotorForwardReverse → ioMap_MotorForwardReverse
+        # ConveyorControl → ioMap_ConveyorControl
+        base = fb.replace('IO_Map_', '')
+        inst_name = 'ioMap_' + base
         instances.append(f'    {inst_name} : "{fb}";')
         instance_calls.append(f'    {inst_name}();')
 
@@ -95,9 +97,15 @@ END_ORGANIZATION_BLOCK
 '''
 
 
-def list_io_map_fbs() -> list:
-    """列出项目中已有的 IO_Map_* FB（需要 TIA Portal 已安装）"""
+def list_io_map_fbs(include_all_fbs: bool = False) -> list:
+    """列出项目中需要调用到 OB1 的 FB。
+
+    Args:
+        include_all_fbs: True 时发现所有 FB（不仅 IO_Map_ 前缀），排除系统块
+    """
     from tia_session import tia_session
+
+    SYSTEM_PREFIXES = ('OB_', 'TMC_', 'Main', 'MasterIO')
 
     with tia_session(TIA_PROJECT) as (project, plc_sw):
         if not plc_sw:
@@ -108,6 +116,14 @@ def list_io_map_fbs() -> list:
             name = str(block.Name)
             if name.startswith('IO_Map_'):
                 fb_list.append(name)
+            elif include_all_fbs:
+                # 包含所有非系统 FB
+                type_id = str(block.TypeIdentifier) if hasattr(block, 'TypeIdentifier') else ''
+                is_fb = 'FB' in type_id or 'FunctionBlock' in type_id
+                is_system = any(name.startswith(p) for p in SYSTEM_PREFIXES)
+                is_program_block = 'ProgramBlock' in type_id
+                if (is_fb or is_program_block) and not is_system and name not in fb_list:
+                    fb_list.append(name)
         return sorted(fb_list)
 
 
@@ -200,7 +216,8 @@ def insert_fb_calls(fb_names: list):
         print()
         print(f'   调用链: OB1 → MasterIO_DB → MasterIO')
         for n in valid_fbs:
-            inst = 'ioMap_' + n.replace('IO_Map_', '')
+            base = n.replace('IO_Map_', '')
+            inst = 'ioMap_' + base
             print(f'                         ├─ {inst} → {n}')
         print()
         print(f'   下一步:')
@@ -216,8 +233,8 @@ def main():
         return 1
 
     if sys.argv[1] == '--list':
-        print('🔍 查找项目中的 IO_Map_* FB...')
-        fbs = list_io_map_fbs()
+        print('🔍 查找项目中的 FB...')
+        fbs = list_io_map_fbs(include_all_fbs=True)
         if fbs:
             print(f'   找到 {len(fbs)} 个:')
             for fb in fbs:
@@ -227,12 +244,14 @@ def main():
         return 0
 
     if sys.argv[1] == '--all':
-        print('🔍 自动发现 IO_Map_* FB...')
-        fbs = list_io_map_fbs()
+        print('🔍 自动发现所有 FB（包括非 IO_Map_ 前缀的）...')
+        fbs = list_io_map_fbs(include_all_fbs=True)
         if not fbs:
-            print('❌ 未找到任何 IO_Map_* FB，请先生成')
+            print('❌ 未找到任何 FB，请先生成')
             return 1
         print(f'   找到 {len(fbs)} 个')
+        for fb in fbs:
+            print(f'   • {fb}')
         return insert_fb_calls(fbs)
 
     # 手动指定 FB 名称

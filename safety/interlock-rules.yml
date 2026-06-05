@@ -1,0 +1,16 @@
+write_rules:
+  - target: "DB1.MotorSpeed"
+    max_value: 3000
+    min_value: 0
+    require_bits: ["DB1.SafetyOK", "DB1.EmergencyStopOff"]
+    shadow_test: true
+
+  - target: "DB1.HeaterPower"
+    max_value: 100
+    require_bits: ["DB1.TemperatureSensorOK"]
+    cooldown_seconds: 5
+
+  - target: "DB1.ConveyorSpeed"
+    max_value: 1500
+    min_value: 0
+    require_bits: ["DB1.SafetyOK"]

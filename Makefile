@@ -33,15 +33,17 @@ phase1:
 	cd mcp-servers/opcua-mcp && python server.py
 
 phase2:
-	@echo "启动阶段2：控制闭环"
-	docker-compose up -d influxdb grafana
+	@echo "启动阶段2：控制闭环（边缘网关 + InfluxDB）"
+	docker-compose up -d influxdb
 	@echo "InfluxDB: http://localhost:8086"
-	@echo "Grafana:  http://localhost:3000"
+	@echo ""
+	@echo "启动 AI 控制循环:"
+	@echo "  python run_gateway.py"
 
 phase3:
 	@echo "启动阶段3：西门子工程态"
-	@echo "确保 TIA Portal V17+ 已安装并配置 Openness"
-	cd mcp-servers/tia-mcp && python tia_mcp_host.py
+	@echo "确保 TIA Portal V18 已安装并配置 Openness"
+	cd mcp-servers/tia-mcp && python server.py
 
 sim:
 	@echo "启动 OpenPLC 仿真..."
@@ -49,14 +51,17 @@ sim:
 	@echo "OpenPLC: http://localhost:8080 (openplc/openplc)"
 
 llm:
-	@echo "启动本地 LLM..."
-	docker-compose --profile llm up -d
-	@echo "Ollama API: http://localhost:11434"
-	@echo "运行: ollama pull qwen3:30b"
+	@echo "本地 LLM (Ollama) 未部署 — 如需安装请参考:"
+	@echo "  https://ollama.com/download"
+	@echo "  ollama pull qwen3:7b"
+	@echo "  ollama serve"
 
 test:
 	@echo "运行测试..."
-	cd tests && python -m pytest -v
+	python -m pytest tests/ mcp-servers/mitsubishi-mcp/test_mc_protocol.py -v
+	@echo ""
+	@echo "CartGen 测试（需 .NET 8 SDK）:"
+	@echo "  python -m pytest mcp-servers/tia-mcp/test_cartgen.py -v"
 
 clean:
 	@echo "清理所有容器..."

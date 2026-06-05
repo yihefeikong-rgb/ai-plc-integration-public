@@ -67,7 +67,7 @@ class AuditLogger:
                 expected = "0" * 64 if i == 0 else json.loads(lines[i - 1])["hash"]
                 if entry.get("prev_hash") != expected:
                     return False
-                body = {k: v for k, v in entry.items() if k not in ("hash", "prev_hash")}
+                body = {k: v for k, v in entry.items() if k != "hash"}
                 if self._compute_hash(body, entry["prev_hash"]) != entry["hash"]:
                     return False
             return True

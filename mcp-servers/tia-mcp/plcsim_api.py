@@ -23,13 +23,13 @@ PLCSIM Advanced .NET API 封装 — 纯 API 操作，无需截屏/点鼠标。
 
 依赖:
     - pythonnet (clr)
-    - S7-PLCSIM Advanced V5.0
-    - DLL: C:\\Program Files (x86)\\Common Files\\Siemens\\PLCSIMADV\\API\\5.0\\...
+    - S7-PLCSIM Advanced V8.0（向后兼容 V5.0+）
+    - DLL: C:\\Program Files (x86)\\Common Files\\Siemens\\PLCSIMADV\\API\\8.0\\...
 """
-import time, os
+import time, os, subprocess
 from typing import Optional, List, Dict
 
-_API_DLL = r"C:\Program Files (x86)\Common Files\Siemens\PLCSIMADV\API\5.0\Siemens.Simatic.Simulation.Runtime.Api.x64.dll"
+_API_DLL = r"C:\Program Files (x86)\Common Files\Siemens\PLCSIMADV\API\8.0\Siemens.Simatic.Simulation.Runtime.Api.x64.dll"
 
 # ── 模块加载后立即初始化 ──
 import clr
@@ -75,6 +75,50 @@ def _decode_error(e: Exception) -> str:
         if str(code) in msg:
             return f"错误 {code}: {desc}"
     return msg
+
+
+_MANAGER_EXE = None  # 缓存 Runtime Manager 路径
+
+
+def _ensure_runtime_manager():
+    """确保 PLCSIM Advanced Runtime Manager 正在运行。
+
+    V8.0+ 需要 Runtime Manager 进程在线才能 PowerOn 实例。
+    如果未运行则启动它（安装目录下的 Manager.exe）。
+    """
+    global _MANAGER_EXE
+    if _MANAGER_EXE is None:
+        common = r"C:\Program Files (x86)\Common Files\Siemens\PLCSIMADV"
+        candidates = [
+            os.path.join(common, "Siemens.Simatic.Simulation.Runtime.Manager.exe"),
+            os.path.join(common, "Simulation.Runtime.Manager.exe"),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                _MANAGER_EXE = c
+                break
+        if _MANAGER_EXE is None:
+            print("[plcsim] ⚠ PLCSIM Runtime Manager 未找到，跳过自动启动")
+            return
+
+    # 检查是否已在运行
+    try:
+        tasklist = subprocess.run(
+            ["tasklist", "/fi", "ImageName eq Siemens.Simatic.Simulation.Runtime.Manager.exe"],
+            capture_output=True, text=True, timeout=5
+        )
+        if "Siemens.Simatic.Simulation.Runtime.Manager.exe" in tasklist.stdout:
+            return  # 已运行
+    except Exception:
+        pass
+
+    print(f"[plcsim] 启动 Runtime Manager ...")
+    try:
+        subprocess.Popen([_MANAGER_EXE], shell=True)
+        time.sleep(3)
+        print(f"[plcsim] Runtime Manager 已启动")
+    except Exception as e:
+        print(f"[plcsim] ⚠ 启动 Runtime Manager 失败: {e}")
 
 
 STATE_NAMES = {
@@ -222,6 +266,7 @@ def create_instance(
             instance.StoragePath = storage_path
             print(f"[plcsim] StoragePath = {storage_path}")
 
+        _ensure_runtime_manager()
         instance.PowerOn()
         _wait_for_state(instance, EOperatingState.Stop, timeout=20)
 
@@ -337,7 +382,7 @@ def restore_instance(
     ip: str = "10.0.0.1",
     subnet: str = "255.255.255.0",
     cpu_type: str = "1511",
-    interface: str = "tcpip",
+    interface: str = "softbus",
 ) -> IInstance:
     """从黄金备份恢复实例（替代 TIA Portal 手动下载）。
 
@@ -384,25 +429,41 @@ def restore_instance(
         instance.RetrieveStorage(golden_zip)
         time.sleep(1)
 
-        # 起机
-        instance.PowerOn()
-        _wait_for_state(instance, EOperatingState.Stop, timeout=20)
+        # 读取 golden 备份中的通信接口（V8.0 中 PowerOn 后只读）
+        try:
+            golden_interface = instance.CommunicationInterface
+        except Exception:
+            golden_interface = None
+        target_comm = ECommunicationInterface.TCPIP if interface == "tcpip" else ECommunicationInterface.Softbus
 
-        # 设通信接口
-        if interface == "tcpip":
-            # 重置网卡绑定（解决 VirtualSwitchMisconfigured）
+        # 如需 TCP/IP 且在 goldan 中未设置，尝试在 PowerOn 前切换
+        if target_comm == ECommunicationInterface.TCPIP:
+            if golden_interface != ECommunicationInterface.TCPIP:
+                try:
+                    instance.CommunicationInterface = ECommunicationInterface.TCPIP
+                    print(f"[plcsim] 切换到 TCP/IP (PowerOn 前)")
+                except Exception:
+                    print(f"[plcsim] ⚠ golden 为 {golden_interface}，无法切 TCP/IP")
             try:
                 SimulationRuntimeManager.ResetNetInterfaceBindings()
                 time.sleep(1)
             except Exception:
-                pass
-            instance.CommunicationInterface = ECommunicationInterface.TCPIP
-            time.sleep(1)
-            instance.SetIPSuite(0, SIPSuite4(ip, subnet, "0.0.0.0"), False)
-            print(f"[plcsim] TCPIP {ip}/{subnet}")
+                print(f"[plcsim] ⚠ ResetNetInterfaceBindings 不可用，跳过")
+
+        # 起机
+        _ensure_runtime_manager()
+        instance.PowerOn()
+        _wait_for_state(instance, EOperatingState.Stop, timeout=20)
+
+        # 设 IP（TCP/IP 模式）
+        if interface == "tcpip":
+            try:
+                instance.SetIPSuite(0, SIPSuite4(ip, subnet, "0.0.0.0"), False)
+                print(f"[plcsim] TCPIP {ip}/{subnet}")
+            except Exception as e:
+                print(f"[plcsim] ⚠ SetIPSuite: {e}")
         else:
-            instance.CommunicationInterface = ECommunicationInterface.Softbus
-            print(f"[plcsim] Softbus")
+            print(f"[plcsim] Softbus（来自 golden 备份）")
 
         # Run
         instance.Run()

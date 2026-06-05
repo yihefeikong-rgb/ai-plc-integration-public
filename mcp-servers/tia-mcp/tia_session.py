@@ -26,22 +26,39 @@ from pathlib import Path
 
 
 def _kill_tia_processes():
-    """强杀 TIA Portal 相关进程（S7*、Tia*）"""
-    for filt in ['S7*', 'Tia*']:
-        try:
-            r = subprocess.run(
-                f'tasklist /fi "IMAGENAME eq {filt}" /fo csv /nh',
-                shell=True, capture_output=True, text=True,
-                encoding='gbk', errors='replace')
-        except Exception:
-            continue
-        stdout = r.stdout or ''
-        for line in stdout.strip().split('\n'):
-            if line:
-                proc = line.replace('"', '').split(',')[0].strip()
-                if proc:
-                    subprocess.run(['taskkill', '/f', '/im', proc],
-                                   capture_output=True)
+    """清理残留的 headless TIA Portal 进程（仅杀无窗口的 headless 实例）
+
+    注意：不能杀 S7* / Siemens* 等系统进程，会误杀 PLCSIM 和 GUI 实例。
+    只杀通过 tasklist 可以用窗口标题区分的 headless TIA Portal 进程。
+    """
+    try:
+        r = subprocess.run(
+            'tasklist /fi "IMAGENAME eq Siemens.Automation.Portal.exe" /fo csv /nh',
+            shell=True, capture_output=True, text=True,
+            encoding='gbk', errors='replace',
+        )
+        if not r.stdout:
+            return
+        for line in r.stdout.strip().split('\n'):
+            if line and 'Siemens.Automation.Portal.exe' in line:
+                parts = line.replace('"', '').split(',')
+                if len(parts) >= 2:
+                    pid = parts[1].strip()
+                    # 检查该进程有无主窗口（有窗口的是 GUI 实例，不能杀）
+                    try:
+                        check = subprocess.run(
+                            f'tasklist /fi "PID eq {pid}" /fi "WINDOWTITLE ne n/a" /fo csv /nh',
+                            shell=True, capture_output=True, text=True,
+                            encoding='gbk', errors='replace',
+                        )
+                        if check.stdout and check.stdout.strip():
+                            continue  # 有窗口，跳过
+                        subprocess.run(['taskkill', '/f', '/pid', pid],
+                                       capture_output=True)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
 
 def _find_plc_software(project):
@@ -93,10 +110,12 @@ def tia_session(project_path: str = None, mode: str = "headless"):
     try:
         from config_loader import cfg
         _tia_dir = cfg.tia.install_dir
+        _tia_ver = cfg.tia.version
     except Exception:
         _tia_dir = r'D:\TIA BEN TI\Portal V18'
+        _tia_ver = 'V18'
 
-    clr.AddReference(rf'{_tia_dir}\PublicAPI\V18\Siemens.Engineering.dll')
+    clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\Siemens.Engineering.dll')
     clr.AddReference(rf'{_tia_dir}\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
     from Siemens.Engineering import TiaPortal, TiaPortalMode
     from System.IO import FileInfo
@@ -106,7 +125,18 @@ def tia_session(project_path: str = None, mode: str = "headless"):
     project = None
 
     try:
-        project = tia.Projects.Open(FileInfo(project_path))
+        # 先找已打开的项目，避免 "项目已被打开" 错误
+        project = None
+        for p in tia.Projects:
+            try:
+                if p.Path.Path == project_path:
+                    project = p
+                    print(f'   ℹ 使用已打开的项目: {p.Name}')
+                    break
+            except Exception:
+                continue
+        if project is None:
+            project = tia.Projects.Open(FileInfo(project_path))
         plc_sw = _find_plc_software(project)
         yield (project, plc_sw)
     finally:

@@ -133,7 +133,7 @@ def _looks_like_path(key: str, value: str) -> bool:
     if key in path_keys:
         return True
     # 也检查是否包含路径分隔符或文件扩展名
-    return bool(re.search(r'[\\/]|\.[a-z]{2,4}$', value))
+    return bool(re.search(r'[\\/]|\.[a-z0-9]{2,6}$', value))
 
 
 # ═══ LadderSpec JSON Schema 校验 ═══

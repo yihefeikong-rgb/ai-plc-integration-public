@@ -62,7 +62,7 @@ question_text.txt
 
 # 测试临时文件
 .pytest_cache/
-test_*.py
+/test_*.py           # 仅根目录的临时测试文件
 test_storage/
 
 # PLCSIM keeper PID 文件
