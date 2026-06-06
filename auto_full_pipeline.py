@@ -237,18 +237,18 @@ def step4_start_plcsim():
                 name='factoryio',
                 golden_zip=golden_zip,
                 storage_path=storage_path,
-                ip='10.0.0.1',
-                interface='softbus'  # Factory I/O S7-PLCSIM 驱动使用 Softbus
+                ip='192.168.0.1',
+                interface='tcpip'
             )
             if instance:
-                log(f"PLCSIM 运行中: 10.0.0.1 ✓", "ok")
+                log(f"PLCSIM 运行中: 192.168.0.1 ✓", "ok")
                 return True
         else:
             log("未找到 golden backup，创建新实例...")
-            instance = plcsim_api.create_instance('factoryio', '10.0.0.1', '255.255.255.0')
+            instance = plcsim_api.create_instance('factoryio', '192.168.0.1', '255.255.255.0')
             if instance:
                 instance.Run()
-                log(f"PLCSIM 运行中: 10.0.0.1 ✓", "ok")
+                log(f"PLCSIM 运行中: 192.168.0.1 ✓", "ok")
                 return True
         
         log("PLCSIM 启动失败", "error")
@@ -356,7 +356,7 @@ def main():
     if all_success:
         print(f"\n{GREEN}✅ 全部流程完成！{RESET}")
         print(f"  - TIA Portal: 项目已编译并下载到 PLCSIM")
-        print(f"  - PLCSIM: 10.0.0.1 (Softbus)")
+        print(f"  - PLCSIM: 192.168.0.1 (TCP/IP)")
         print(f"  - Factory I/O: 已启动（自动连接 PLCSIM）")
         print(f"  - 可在 Factory I/O 中选择场景并运行")
     else:

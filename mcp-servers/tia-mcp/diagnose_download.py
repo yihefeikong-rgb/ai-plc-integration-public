@@ -112,13 +112,13 @@ def step3_plcsim_status():
             check_label("PLCSIM 无运行实例", False,
                          "没有已注册的 PLCSIM 实例，请先在 GUI 或 api 中启动")
 
-        # ping 10.0.0.1
-        r = subprocess.run(["ping", "10.0.0.1", "-n", "1", "-w", "1000"],
+        # ping 192.168.0.1
+        r = subprocess.run(["ping", "192.168.0.1", "-n", "1", "-w", "1000"],
                            capture_output=True, text=True)
         if r.returncode == 0:
-            check_label("10.0.0.1 可达", True)
+            check_label("192.168.0.1 可达", True)
         else:
-            check_label("10.0.0.1 ping 不通", False,
+            check_label("192.168.0.1 ping 不通", False,
                          "PLCSIM 可能没启动或 IP 不对")
     except Exception as e:
         check_label("检查 PLCSIM 失败", False, str(e))

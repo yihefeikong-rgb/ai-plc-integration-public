@@ -185,7 +185,7 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
                 print('❌ 未找到目标 PLC')
                 return -1
 
-            ip = target_ip or '10.0.0.1'
+            ip = target_ip or '192.168.0.1'
             addr = target.Addresses.Create(ip)
 
             print(f'   网卡: {pc_iface.Name}')
@@ -348,7 +348,7 @@ def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = ""
     input_data = {
         "ProjectPath": project_path,
         "InterfaceName": "PN/IE",
-        "TargetIp": target_ip or "10.0.0.1",
+        "TargetIp": target_ip or "192.168.0.1",
         "DeviceName": "",
         "TimeoutSec": 120,
     }

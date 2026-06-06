@@ -26,7 +26,7 @@ try:
         name="factory_io1",
         golden_zip=GOLDEN,
         storage_path=STORAGE,
-        ip="10.0.0.1",
+        ip="192.168.0.1",
         cpu_type="1511",
         interface="tcpip",  # ← TCP/IP 模式！
     )

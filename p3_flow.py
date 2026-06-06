@@ -22,6 +22,7 @@ TIA_MCP_DIR = os.path.join(SCRIPT_DIR, "mcp-servers", "tia-mcp")
 GOLDEN_ZIP = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\factory_io1_golden.zip"
 STORAGE_PATH = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\plcsim_storage"
 PROJECT_PATH = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\demo_V21.ap21"
+PLC_IP = "192.168.0.1"
 FIO_EXE = r"D:\Factory IO\Factory IO.exe"
 
 GREEN='\033[92m'; YELLOW='\033[93m'; RED='\033[91m'; BLUE='\033[94m'; RESET='\033[0m'
@@ -94,8 +95,8 @@ def step1_plcsim():
     from plcsim_api import restore_instance, get_instances, _ensure_user_interface
     # 无条件恢复为 STOP（auto_run=False 不调用 Run，实例停在 STOP 状态）
     inst = restore_instance(name='factoryio', golden_zip=GOLDEN_ZIP,
-                            storage_path=STORAGE_PATH, ip='10.0.0.1',
-                            interface='softbus', auto_run=False)
+                            storage_path=STORAGE_PATH, ip=PLC_IP,
+                            interface='tcpip', auto_run=False)
     log(f"PLCSIM: {inst.OperatingState}（黄色待下载，V21 可扫描）", "ok")
     _ensure_user_interface(); time.sleep(3)
     return True

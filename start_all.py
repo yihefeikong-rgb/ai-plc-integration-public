@@ -31,6 +31,7 @@ STORAGE_PATH = os.path.join(V21_DIR, "plcsim_storage")
 GOLDEN_ZIP_V18 = os.path.join(V18_DIR, "factory_io1_golden.zip")
 STORAGE_PATH_V18 = os.path.join(V18_DIR, "plcsim_storage")
 
+PLC_IP = "192.168.0.1"  # TCP/IP 模式，与 PLCSIM Advanced 一致
 FIO_SCENE = r"C:\Users\huangxinyang\Documents\Factory IO\My Scenes\测试.factoryio"
 FIO_EXE = r"D:\Factory IO\Factory IO.exe"
 
@@ -87,16 +88,16 @@ def start_plcsim():
                 log(f"  停止残留实例 factoryio ({inst['state']})...")
                 stop_instance("factoryio")
         
-        # 恢复实例 — Factory I/O S7-PLCSIM 驱动使用 Softbus
+        # 恢复实例 — TCP/IP 模式（Factory I/O S7-1200/1500 驱动通过虚拟网卡连接）
         inst = restore_instance(
             name="factoryio",
             golden_zip=GOLDEN_ZIP,
             storage_path=STORAGE_PATH,
-            ip="10.0.0.1",
+            ip=PLC_IP,
             cpu_type="1511",
-            interface="softbus",  # Softbus: Factory I/O S7-PLCSIM 驱动要求
+            interface="tcpip",
         )
-        log(f"✅  PLCSIM RUN (实例=factoryio, 接口=softbus)")
+        log(f"✅  PLCSIM RUN (实例=factoryio, TCP/IP {PLC_IP})")
         
         # 启动 PLCSIM GUI（V21 下载需要 GUI 窗口才能扫描到设备）
         log("启动 PLCSIM GUI (UserInterface)...")

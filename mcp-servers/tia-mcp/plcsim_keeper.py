@@ -25,7 +25,7 @@ GOLDEN_ZIP = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo\factory_io1_golden.zip"
 STORAGE_PATH = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo\plcsim_storage"
 
 INSTANCE_NAME = "factoryio"
-INSTANCE_IP = "10.0.0.1"
+INSTANCE_IP = "192.168.0.1"
 
 
 def log(msg):
@@ -54,7 +54,7 @@ def start():
         storage_path=STORAGE_PATH,
         ip=INSTANCE_IP,
         cpu_type="1511",
-        interface="softbus",
+        interface="tcpip",
     )
     log(f"OK PLCSIM RUN (IP={INSTANCE_IP}, Name={INSTANCE_NAME})")
 

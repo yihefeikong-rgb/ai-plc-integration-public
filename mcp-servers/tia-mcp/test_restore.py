@@ -26,7 +26,7 @@ try:
         storage_path=STORAGE,
         ip="10.0.0.200",
         cpu_type="1511",
-        interface="softbus",
+        interface="tcpip",
     )
     print(f"\n✅ restore 成功！状态: {inst.OperatingState}")
 

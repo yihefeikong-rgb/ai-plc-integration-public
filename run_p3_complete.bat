@@ -7,7 +7,7 @@ set PYTHON=D:\Python3\python.exe
 set SCRIPTS=mcp-servers\tia-mcp
 set GOLDEN="D:\PLC cheng xu\TIA PLC CHENG XU\demo\factory_io1_golden.zip"
 set STORAGE="D:\PLC cheng xu\TIA PLC CHENG XU\demo\plcsim_storage"
-set PLC_IP=10.0.0.1
+set PLC_IP=192.168.0.1
 
 echo.
 echo ============================================

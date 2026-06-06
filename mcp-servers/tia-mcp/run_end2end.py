@@ -47,7 +47,7 @@ def step_start_plcsim():
     try:
         restore_instance(
             INSTANCE_NAME, GOLDEN_ZIP, STORAGE,
-            ip="10.0.0.1", interface="tcpip"
+            ip="192.168.0.1", interface="tcpip"
         )
         log("  PLCSIM 实例恢复成功!")
         return True

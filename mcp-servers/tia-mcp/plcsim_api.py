@@ -175,6 +175,76 @@ def _ensure_runtime_manager():
 _UI_EXE_CACHE = None
 
 
+def force_cleanup(name: str):
+    """强制清理 PLCSIM 实例残留数据。
+
+    当 PLCSIM Advanced GUI 中出现无法删除的残留实例（如 IP 显示 0.0.0.0），
+    或同名实例删除后自动恢复时，使用此函数完全清理。
+
+    清理项目:
+      1. 通过 API 注销实例（UnregisterInstance）
+      2. 删除存储路径下的实例数据
+      3. 删除 ProgramData\\Siemens\\PLCSIMADV 下的残留缓存
+
+    Args:
+        name: 实例名称（如 "factoryio"）
+    """
+    print(f"[plcsim] 强制清理实例 '{name}' ...")
+
+    # 1. API 注销
+    try:
+        instance = _get_instance(name)
+        if instance is not None:
+            print(f"   API 注销 '{name}'...")
+            _ensure_off(instance)
+            instance.UnregisterInstance()
+            print(f"   ✅ 已 API 注销")
+    except Exception as e:
+        print(f"   ⚠ API 注销异常（可忽略）: {e}")
+
+    # 2. 清理常用存储路径
+    try:
+        from config_loader import cfg
+        project_storage = os.path.join(os.path.dirname(cfg.tia.project_path), "plcsim_storage")
+    except Exception:
+        project_storage = None
+    known_storages = []
+    if project_storage:
+        known_storages.append(project_storage)
+    known_storages += [
+        r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\plcsim_storage",
+        r"D:\PLC cheng xu\TIA PLC CHENG XU\demo\plcsim_storage",
+    ]
+    for sp in known_storages:
+        for item in [name, f"{name}_persist", name.lower()]:
+            item_path = os.path.join(sp, item)
+            if os.path.exists(item_path):
+                try:
+                    import shutil
+                    shutil.rmtree(item_path, ignore_errors=True)
+                    print(f"   ✅ 已删除存储: {item_path}")
+                except Exception as e:
+                    print(f"   ⚠ 删除失败: {e}")
+
+    # 3. 清理 ProgramData 下的实例缓存
+    progdata = r"C:\ProgramData\Siemens\PLCSIMADV"
+    if os.path.exists(progdata):
+        for entry in os.listdir(progdata):
+            if name.lower() in entry.lower() or f"_{name}" in entry:
+                entry_path = os.path.join(progdata, entry)
+                try:
+                    if os.path.isfile(entry_path):
+                        os.remove(entry_path)
+                    else:
+                        import shutil
+                        shutil.rmtree(entry_path, ignore_errors=True)
+                    print(f"   ✅ 已清理 ProgramData: {entry_path}")
+                except Exception as e:
+                    print(f"   ⚠ 清理失败: {e}")
+
+    print(f"[plcsim] ✅ 强制清理完成。请重启 PLCSIM Advanced GUI。")
+
+
 def _ensure_user_interface():
     """确保 PLCSIM Advanced UserInterface GUI 正在运行。
 
@@ -319,13 +389,15 @@ def get_instances() -> List[Dict]:
 
 def create_instance(
     name: str,
-    ip: str = "10.0.0.1",
+    ip: str = "192.168.0.1",
     subnet: str = "255.255.255.0",
     cpu_type: str = "1511",
     interface: str = "tcpip",
     storage_path: Optional[str] = None,
 ) -> IInstance:
     """创建并启动一个 PLCSIM Advanced 虚拟 PLC 实例（空壳 CPU，无硬件配置）。
+
+    默认为 TCP/IP 模式 + 192.168.0.1，适用于 Factory I/O 通过 S7-1200/1500 驱动连接。
 
     Args:
         name: 实例名称
@@ -495,13 +567,15 @@ def restore_instance(
     name: str,
     golden_zip: str,
     storage_path: str,
-    ip: str = "10.0.0.1",
+    ip: str = "192.168.0.1",
     subnet: str = "255.255.255.0",
     cpu_type: str = "1511",
-    interface: str = "softbus",
+    interface: str = "tcpip",
     auto_run: bool = True,
 ) -> IInstance:
     """从黄金备份恢复实例（替代 TIA Portal 手动下载）。
+
+    默认为 TCP/IP 模式 + 192.168.0.1，适用于 Factory I/O S7-1200/1500 驱动连接。
 
     流程:
         RegisterInstance → StoragePath → RetrieveStorage
@@ -697,6 +771,7 @@ if __name__ == "__main__":
         print("  create <name> [ip] [cpu]     创建空壳实例")
         print("  stop <name>                  停止+删除实例")
         print("  stop-all                     停止所有")
+        print("  purge <name>                 强制清理残留实例数据")
         print("  archive <name> <zip>         归档为 ZIP（黄金备份）")
         print("  restore <name> <zip> <sp>    从 ZIP 恢复")
         print("  tcpip <name> <ip>            切换到 TCP/IP")
@@ -717,7 +792,7 @@ if __name__ == "__main__":
 
         elif cmd == "create":
             name = sys.argv[2] if len(sys.argv) > 2 else "test"
-            ip = sys.argv[3] if len(sys.argv) > 3 else "10.0.0.1"
+            ip = sys.argv[3] if len(sys.argv) > 3 else "192.168.0.1"
             cpu = sys.argv[4] if len(sys.argv) > 4 else "1511"
             create_instance(name, ip, cpu_type=cpu)
 
@@ -726,6 +801,9 @@ if __name__ == "__main__":
 
         elif cmd == "stop-all":
             stop_all()
+
+        elif cmd == "purge":
+            force_cleanup(sys.argv[2])
 
         elif cmd == "archive":
             name = sys.argv[2]
@@ -736,12 +814,12 @@ if __name__ == "__main__":
             name = sys.argv[2]
             zip_path = sys.argv[3]
             sp = sys.argv[4]
-            ip = sys.argv[5] if len(sys.argv) > 5 else "10.0.0.1"
+            ip = sys.argv[5] if len(sys.argv) > 5 else "192.168.0.1"
             restore_instance(name, zip_path, sp, ip)
 
         elif cmd == "tcpip":
             name = sys.argv[2]
-            ip = sys.argv[3] if len(sys.argv) > 3 else "10.0.0.1"
+            ip = sys.argv[3] if len(sys.argv) > 3 else "192.168.0.1"
             switch_to_tcpip(name, ip)
 
         else:

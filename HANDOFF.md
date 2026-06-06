@@ -1,8 +1,8 @@
 # AI 接入 PLC — 项目交接文档
 
-> 生成: 2026-06-06（第 5 次更新，P3 发现 + 深度搜索）
+> 生成: 2026-06-06（第 6 次更新，TCP/IP 模式切换 + Factory I/O 连接修复）
 > 当前分支: master
-> 最后提交: `6fdaa41` chore: 更新项目总结、AGENTS.md、.gitignore，同步当前项目状态
+> 最后提交: `ecccdf6` feat: P3 全面修复 — V21 Openness 适配 + PLCSIM V8.0 兼容 + 端到端脚本
 
 ---
 
@@ -55,22 +55,33 @@
 - ~~接口模式不一致（softbus vs TCPIP）~~ — 全部统一为 softbus
 - ~~golden 路径指向 V18 目录~~ — V21 优先，V18 回退
 
-**本次会话（2026-06-06 第5次 — 深度搜索+验证）**:
-- ✅ **深度搜索**: 全面搜索了西门子官方支持、Factory IO 文档、GitHub 同类项目（T-IA Connect）、社区方案
-- ✅ **V8.0 CommunicationInterface 只读发现**: V8.0 中 `CommunicationInterface` 注册后即只读（默认 Softbus），不能像 V5.0 那样在 Run 前切换。修复 `plcsim_api.py` 的 `create_instance()` 和 `switch_to_tcpip()` 跳过接口赋值
-- ✅ **TiaWorker CopyLocal 修复**: 添加 `<Private>False</Private>` 到 DLL 引用 + `AssemblyResolve` 事件处理器在运行时加载 V21 DLL
-- ✅ **TiaWorker 下载委托非 null 修复**: V21 要求 `preDownloadConfigurationDelegate` 不能为 null，改为匿名空委托
-- ✅ **TargetForSoftware → PlcSimulationAdvanced**: V21 下载必须设置目标为 PLCSIM Advanced（默认 CPU 导致连接失败）
-- ✅ **PLCSIM STOP 状态关键发现**: V21 外部 API 下载始终报"连接模块 PLC_1 失败"，无论 RUN/STOP。需通过 GUI（启动仿真按钮）建立 Softbus 链路
-- ✅ **新增 `p3_flow.py`**: 端到端脚本 — API 编译 + uiautomation 切换项目视图 + 选中程序块 + 启动仿真 + 下载 + FIO
-- ✅ **`plcsim_api.py` 新增 `auto_run` 参数**: `restore_instance(auto_run=False)` 可恢复到 STOP（黄色待下载）状态
-- ✅ **`plcsim_api.py` 新增 `_ensure_user_interface()`**: 启动 PLCSIM Advanced GUI 窗口（V21 扫描设备必需）
-- ✅ **`start_all.py` 整合 GUI 启动**: 恢复 PLCSIM 后自动调用 `_ensure_user_interface()`
+**本次会话（2026-06-06 第6次 — TCP/IP 模式切换）**:
+- ✅ **根因分析**: Factory I/O 报 `Error Code:-4, DoesNotExist` 是因为 PLCSIM Advanced 的 Online Access 模式设为 "PLCSIM"（Softbus），该模式仅用于 TIA Portal 内部通信，外部应用不可访问。**必须切换为 "TCP/IP Single Adapter"**
+- ✅ **V8.0 CommunicationInterface 完全只读确认**: 不同于 V5.0，V8.0 中注册实例后接口即锁定，不能通过 API 切换。必须在 PLCSIM Advanced GUI 中手动切换 Online Access，是一次性全局设置
+- ✅ **force_cleanup()**: 新增 `plcsim_api.py` 强制清理函数，处理残留实例（IP 显示 0.0.0.0）。API 注销 + 清理存储目录 + 清理 ProgramData 缓存
+- ✅ **purge CLI**: `python plcsim_api.py purge factoryio` — 一键清理残留
+- ✅ **默认模式切换**: `restore_instance()` 默认 `interface="tcpip"`, `ip="192.168.0.1"`（原 softbus/10.0.0.1）
+- ✅ **全脚本更新**: start_all.py, p3_flow.py, auto_full_pipeline.py, plcsim_keeper.py, run_end2end.py, test_tcpip_restore.py 全部统一为 tcpip + 192.168.0.1
+- ✅ **config.yaml 更新**: `plc_ip: 192.168.0.1`
+- ✅ **90 测试通过**
 
-**已知仍存在的问题**:
-- ⚠️ V21 API 下载 (`DownloadProvider.Download`) 在 headless/GUI 模式下均报 "连接到模块 PLC_1 失败" — 推测 golden backup 源自 V18，V21 不兼容其硬件配置
-- ⚠️ Factory I/O `Error Code: -4, DoesNotExist` — PLCSIM 实例被杀掉后 FIO 丢失连接，需在 FIO 控制台手动重连
-- ⚠️ V21 项目锁定机制 — TIA Portal 关闭后有 2 分钟冷却期，其他进程无法打开同一项目
+### 迁移到 TCP/IP 模式（一次性操作）
+1. 关闭所有相关软件（TIA Portal, Factory I/O, PLCSIM Advanced）
+2. 在 `任务管理器` 中结束所有 PLCSIM 相关进程
+3. 运行 `python mcp-servers/tia-mcp/plcsim_api.py purge factoryio` 清理残留
+4. 以管理员身份运行 **S7-PLCSIM Advanced V8.0 GUI**
+5. 在 GUI 中将 **Online Access** 从 "PLCSIM" 改为 **"TCP/IP Single Adapter"**
+6. 实例名: `factoryio`，IP: `192.168.0.1`，子网: `255.255.255.0`
+7. 点击 **Start** 启动，确认状态灯变**绿色**，IP 显示 `192.168.0.1`
+8. 在 TIA Portal 中：项目 → 属性 → 保护 → 勾选"块编译时支持仿真" → 重新编译
+9. CPU 属性 → 防护与安全 → 连接机制 → 勾选"允许来自远程对象的 PUT/GET 通信"
+10. 下载到设备 → PG/PC 接口选 **Siemens PLCSIM Virtual Ethernet Adapter**
+11. 下载完成后运行 `python mcp-servers/tia-mcp/plcsim_api.py archive factoryio ...` 重建 golden backup
+12. Factory I/O → F4 → 选 **Siemens S7-PLCSIM** 驱动 → Connect
+
+---
+
+## 三、关键文件与架构
 
 ---
 

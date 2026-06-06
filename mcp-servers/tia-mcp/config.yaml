@@ -51,7 +51,7 @@ simulation:
 
   # PLCSIM Advanced 连接参数（仅 backend=advanced 时生效）
   advanced:
-    plc_ip: "10.0.0.1"
+    plc_ip: "192.168.0.1"
     rack: 0
     slot: 1
     port: 102
@@ -82,7 +82,7 @@ factory_io:
 
   # TCP/IP 模式连接参数（仅 drivermode=tcpip 时生效）
   tcpip:
-    host: "${FIO_TCP_HOST:10.0.0.1}"
+    host: "${FIO_TCP_HOST:192.168.0.1}"
     rack: 0
     slot: 1
     model: "S7-1500"
