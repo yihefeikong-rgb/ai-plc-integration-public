@@ -1,0 +1,23 @@
+{
+  "name": "plc-mcp-kit",
+  "owner": {
+    "name": "yihefeikong-rgb"
+  },
+  "metadata": {
+    "description": "PLC-MCP 工具包 — 精选工具，适用于工业自动化项目"
+  },
+  "plugins": [
+    {
+      "name": "plc-mcp-kit",
+      "source": "./",
+      "description": "PLC-MCP 工具包 — 精选的 MCP 服务器、智能体和命令",
+      "version": "1.0.0",
+      "author": {
+        "name": "yihefeikong-rgb"
+      },
+      "license": "MIT",
+      "keywords": ["plc", "mcp", "industrial-automation"],
+      "category": "workflow"
+    }
+  ]
+}

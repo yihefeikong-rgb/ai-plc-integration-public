@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_plc-mcp-kit_github__search_repositories",
+      "WebFetch(domain:controlbyte.tech)",
+      "WebSearch",
+      "WebFetch(domain:docs.tia.siemens.cloud)",
+      "WebFetch(domain:www.reddit.com)"
+    ]
+  }
+}

@@ -1,35 +1,60 @@
 # AI 接入 PLC 与工业机器人
 
 > 构建生产级 AI Agent 系统，让 AI 通过自然语言直接监控、控制西门子 PLC、
-> 三菱 PLC 和工业机器人，并具备自动生成西门子 PLC 梯形图 (LAD) 代码的能力。
+> 三菱 PLC 和工业机器人，并具备自动生成西门子 PLC 梯形图 (LAD) / SCL 代码的能力。
 
-**技术栈：** MCP + Python + C#/.NET + OPC UA / Modbus / MC 协议 + TIA Portal Openness
+**技术栈：** MCP + Python + C#/.NET + Docker + OPC UA / Modbus / MC 协议 + TIA Portal Openness
+
+**版本：** TIA Portal V21 / PLCSIM Advanced V8.0 / Factory I/O
 
 ---
 
-## 📦 项目结构
+## 📦 实际项目结构
 
 ```
 ai-plc-integration/
 ├── mcp-servers/                    # MCP 服务器集合
+│   ├── tia-mcp/                    # ⭐ TIA Portal 工程态 MCP（核心）
+│   │   ├── server.py               # FastMCP 服务（8 个工具）
+│   │   ├── plcsim_api.py           # PLCSIM Advanced .NET API 封装
+│   │   ├── config_loader.py        # 统一配置加载（YAML + 环境变量）
+│   │   ├── config.yaml             # 主配置文件
+│   │   ├── CartGen/                # JSON → SimaticML LAD 生成器 (C# .NET 8)
+│   │   ├── TiaWorker/              # TIA Openness 桥接 (C# .NET 4.8)
+│   │   ├── tia_session.py          # TIA Portal Openness 会话管理（V21 模块化 DLL）
+│   │   ├── lad_creator.py          # LAD 块创建器
+│   │   ├── lad_creator.py / ladder_renderer.py  # 梯形图渲染
+│   │   ├── generate_scl.py         # SCL 代码生成
+│   │   ├── gen_io_map.py           # IO 映射生成
+│   │   ├── templates/              # LAD 模板（18 个已验证）
+│   │   ├── batch_gen_all.py        # 批量生成流水线
+│   │   ├── download_to_plcsim.py / dl_plcsim_gui.py  # 下载到 PLCSIM
+│   │   ├── test_dl_plcsim_gui.py / test_restore.py   # 测试
+│   │   └── fix_tia_protection.py   # TIA 项目保护设置修复
 │   ├── opcua-mcp/                  # OPC UA 运行时 MCP（西门子）
 │   ├── modbus-mcp/                 # Modbus TCP MCP
-│   ├── mitsubishi-mcp/             # 三菱 MC 协议 MCP（开发中）
-│   └── tia-mcp/                    # ⭐ TIA Portal 工程态 MCP
-│       ├── server.py               # FastMCP 服务（8 个工具）
-│       ├── plcsim_api.py           # PLCSIM Advanced .NET API 封装
-│       ├── config_loader.py        # 统一配置加载
-│       ├── CartGen/                # JSON → SimaticML LAD 生成器 (C#)
-│       ├── templates/              # 18 个 LAD 模板
-│       ├── lad_creator.py          # LAD 创建器
-│       └── gen_io_map.py           # IO 映射生成
-├── edge-gateway/                   # 边缘网关（InfluxDB + 数据采集）
-├── plc-code-templates/             # AI 生成 PLC 代码 Prompt 模板
-├── safety/                         # 安全策略与审计
+│   └── mitsubishi-mcp/             # 三菱 MC 协议 MCP（开发中）
+├── edge-gateway/                   # 边缘网关（InfluxDB + 数据采集 + AI 决策）
+├── plc-code-templates/             # AI 生成 PLC 代码 Prompt 模板（SCL）
+│   └── siemens-scl/                # 电机控制/传送带/PID/搅拌器/交通灯等
+├── safety/                         # 安全策略与审计（互锁规则、审计日志）
+├── mcp_common/                     # MCP 公共库（配置、审计、DeepSeek 客户端）
+├── config/                         # 全局配置
 ├── docs/                           # 技术文档
-├── scripts/                        # 运维脚本
-├── docker-compose.yml              # 全栈部署（InfluxDB + Grafana）
-└── .env.example                    # 环境变量模板
+├── scripts/                        # 运维脚本（自动启动、翻译、清理）
+├── tools/                          # 诊断工具（IO 标签诊断）
+├── tests/                          # 测试套件（pytest）
+├── 环境/                           # 仿真环境（Python venv）
+├── start_all.py                    # ⭐ 一键启动：PLCSIM + Factory I/O + TIA MCP
+├── run_gateway.py                  # 启动边缘网关
+├── auto_full_pipeline.py           # 完整自动化流程脚本
+├── check_progress.py               # 自动进度检测
+├── docker-compose.yml              # InfluxDB + OpenPLC + Grafana
+├── Makefile                        # 常用命令
+├── .env                            # 环境变量（DEEPSEEK_API_KEY, TIA 路径等）
+├── AGENTS.md                       # Agent 指令（补充 OpenCode.md）
+├── claude.md                       # 项目总纲
+└── OpenCode.md                     # 完整项目规则
 ```
 
 ## 🚀 快速开始
@@ -39,9 +64,10 @@ ai-plc-integration/
 | 需求 | 版本 | 用途 |
 |------|------|------|
 | Python 3.10+ | — | MCP Server + 工具链 |
-| TIA Portal | V18 | 西门子工程态 |
-| PLCSIM Advanced | V5.0 | S7-1500 仿真 |
+| TIA Portal | V21 | 西门子工程态 |
+| PLCSIM Advanced | V8.0 | S7-1500 仿真（向后兼容 V5.0+）|
 | .NET SDK | 8.0 | CartGen LAD 生成器 |
+| .NET Framework | 4.8 | TiaWorker 桥接 |
 | Factory I/O | 最新 | 3D 工厂可视化 |
 
 ### 环境设置
@@ -53,10 +79,10 @@ cd ai-plc-integration
 
 # 2. 环境变量
 cp .env.example .env
-# 编辑 .env，填入 DEEPSEEK_API_KEY
+# 编辑 .env，填入 DEEPSEEK_API_KEY 和 TIA 路径
 
 # 3. 安装依赖
-pip install -r requirements.txt  # 各 MCP 子目录下也有 requirements
+pip install -r 环境/requirements.txt
 
 # 4. 启动边缘网关（可选）
 python run_gateway.py
@@ -69,34 +95,21 @@ from plcsim_api import restore_instance
 
 # 从黄金备份恢复（无需 TIA Portal GUI）
 instance = restore_instance(
-    name="my_plc",
+    name="factoryio",
     golden_zip="D:\\backup\\factory_io1_golden.zip",
-    storage_path="D:\\persist\\my_plc",
-    ip="10.0.0.2",
-    interface="tcpip",
+    storage_path="D:\\persist\\factoryio",
+    ip="10.0.0.1",
+    interface="tcpip",   # PLCSIM 或 TCPIP
 )
 # 实例已 RUN ✅
 ```
 
-### 启动 TIA MCP Server
+### 一键启动
 
 ```bash
-cd mcp-servers/tia-mcp
-python server.py
-# 暴露 8 个 MCP 工具：
-#   list_devices / import_scl_file / compile_project
-#   download_to_plcsim / generate_scl_code
-#   generate_and_import / create_ladder_block / full_pipeline
-```
-
-### AI 生成梯形图
-
-```bash
-# 方式 1: 模板直接生成
-dotnet run --project CartGen/CartGen.csproj -- templates/电机正反转.json
-
-# 方式 2: AI + CartGen 流水线
-python generate_custom.py  # 改 DESCRIPTION 即可
+python start_all.py              # 启动 PLCSIM + Factory I/O + TIA MCP
+python start_all.py --tia-only   # 仅启动 TIA MCP Server
+python start_all.py stop          # 停止所有
 ```
 
 ## 📊 当前进度
@@ -105,10 +118,10 @@ python generate_custom.py  # 改 DESCRIPTION 即可
 |------|------|:----:|
 | **1** | OPC UA + Modbus 运行态基础 | ✅ 完成 |
 | **2** | AI 控制闭环 + 安全互锁 + Grafana | ✅ 完成 |
-| **3** | ⭐ TIA Portal 工程态 + LAD 生成 | 🟡 主要完成 |
-| └─ | PLCSIM 首次下载限制突破 | ✅ |
+| **3** | ⭐ TIA Portal 工程态 + LAD/SCL 生成 | 🟡 主要完成 |
+| └─ | PLCSIM 首次下载限制突破（golden.zip 归档/恢复）| ✅ |
 | └─ | CartGen 18 模板全通过 | ✅ |
-| └─ | golden.zip 归档/恢复 | ✅ |
+| └─ | TIA Portal V21 升级适配 | ✅ |
 | └─ | TCP/IP 虚拟网卡配置 | ❌ 待解决 |
 | └─ | Factory I/O 自动连接 | ❌ 待解决 |
 | **4** | 工业机器人（ABB/UR） | 🔲 |
@@ -116,13 +129,24 @@ python generate_custom.py  # 改 DESCRIPTION 即可
 
 ## 🖥️ TIA MCP 工具链架构
 
+### 通信链
+```
+Claude/Cursor AI
+  ↓ (MCP JSON-RPC)
+server.py (FastMCP)
+  ├── → 自然语言 → DeepSeek → SCL 代码 / LadderSpec JSON
+  ├── → JSON 临时文件 → TiaWorker.exe(C# .NET 4.8) → TIA Openness DLL
+  └── → CartGen(.NET 8) → SimaticML XML → 导入 TIA
+```
+
+### LAD 生成流水线
 ```
 自然语言描述
   ↓ DeepSeek API
-LadderSpec JSON（IEC 61131-3）
+LadderSpec JSON（IEC 61131-3 规范）
   ↓ CartGen (.NET 8.0 / SimaticML)
 SimaticML XML（TIA Portal 原生格式）
-  ↓ _import_xml_into_tia() 
+  ↓ _import_xml_into_tia()
 TIA Portal 项目 → 编译 → PLCSIM 仿真 → Factory I/O 可视化
 ```
 
@@ -133,26 +157,28 @@ TIA Portal 项目 → 编译 → PLCSIM 仿真 → Factory I/O 可视化
 | `list_devices` | 列出 TIA 项目中的 PLC 设备 |
 | `import_scl_file` | 导入 SCL 源代码到 TIA 项目 |
 | `compile_project` | 编译 TIA 项目 |
-| `download_to_plcsim` | 下载到 PLCSIM 仿真 |
+| `download_to_plcsim` | 下载到 PLCSIM 仿真器 |
 | `generate_scl_code` | AI 生成 SCL 代码 |
-| `generate_and_import` | 一站式 AI + 导入 |
+| `generate_and_import` | 一站式 AI 生成 + 导入 |
 | `create_ladder_block` | AI 生成梯形图 LAD 块 |
-| `full_pipeline` | LAD + I/O 映射 + OB1 调用链 |
+| `full_pipeline` | 全流水线：LAD + I/O 映射 + OB1 调用链 |
 
-## 🚧 已知限制
+## 🧩 已知问题
 
-- **首次下载**: 必须通过 TIA Portal GUI 完成一次（已解决：用 golden.zip）
 - **TCP/IP 模式**: 需先安装 PLCSIM 虚拟网卡（VirtualSwitchMisconfigured）
+- **ConveyorControl FB501**: 已在 TIA 项目中但未在 OB1 中调用
+- **`start_all.py`** 中实例名 `factory io1` 与 Factory I/O 要求的 `factoryio` 不同
 - **CartGen**: 不支持并联分支（parallelElements），自保持用 Set/Reset 模式
-- **三菱 MC 协议**: 暂无 MCP 实现（计划中）
-- **工业机器人**: 待接入（计划阶段 4）
+- **三菱 MCP**: 无硬件测试环境
+- **工业机器人**: 待接入
 
 ## 🔒 安全
 
 - 所有写入操作需影子仿真验证（PLCSIM）
 - 生产环境写入需人工确认
 - 连续 3 次异常值自动熔断
-- 审计日志不可篡改
+- 审计日志不可篡改（只追加模式）
+- 安全互锁规则配置（`safety/interlock-rules.yml`）
 
 ## 📚 参考
 
@@ -160,6 +186,7 @@ TIA Portal 项目 → 编译 → PLCSIM 仿真 → Factory I/O 可视化
 - [kukapay/opcua-mcp](https://github.com/kukapay/opcua-mcp)
 - [Siemens TIA Portal Openness](https://support.industry.siemens.com)
 - [Factory I/O](https://factoryio.com)
+- [OpenPLC](https://openplcproject.com)
 
 ## License
 

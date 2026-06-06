@@ -486,7 +486,9 @@ def restore_instance(
             golden_interface = instance.CommunicationInterface
         except Exception:
             golden_interface = None
-        target_comm = ECommunicationInterface.TCPIP if interface == "tcpip" else ECommunicationInterface.Softbus
+        # 支持大小写
+        interface_lower = interface.lower()
+        target_comm = ECommunicationInterface.TCPIP if interface_lower == "tcpip" else ECommunicationInterface.Softbus
 
         # 如需 TCP/IP 且在 goldan 中未设置，尝试在 PowerOn 前切换
         if target_comm == ECommunicationInterface.TCPIP:
@@ -508,7 +510,7 @@ def restore_instance(
         _wait_for_state(instance, EOperatingState.Stop, timeout=20)
 
         # 设 IP（TCP/IP 模式）
-        if interface == "tcpip":
+        if interface_lower == "tcpip":
             try:
                 instance.SetIPSuite(0, SIPSuite4(ip, subnet, "0.0.0.0"), False)
                 print(f"[plcsim] TCPIP {ip}/{subnet}")

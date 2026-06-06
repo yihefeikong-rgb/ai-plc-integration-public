@@ -60,6 +60,15 @@ snapshot_*.json
 *.ps1
 question_text.txt
 
+# 截屏文件
+clipboard_*.png
+
+# TIA 临时日志
+@AutomationLog.txt
+
+# Windows 保留设备名
+nul
+
 # 测试临时文件
 .pytest_cache/
 /test_*.py           # 仅根目录的临时测试文件

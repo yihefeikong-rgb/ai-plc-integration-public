@@ -1,0 +1,35 @@
+{
+  "name": "plc-mcp-kit",
+  "version": "1.0.0",
+  "description": "PLC-MCP 工具包 — 精选的 MCP 服务器、智能体和命令，适用于 AI 接入 PLC 与工业自动化项目。基于 ECC (everything-claude-code) 精简。",
+  "author": {
+    "name": "yihefeikong-rgb"
+  },
+  "homepage": "https://github.com/yihefeikong-rgb/AI-PLC",
+  "license": "MIT",
+  "keywords": [
+    "plc",
+    "mcp",
+    "industrial-automation",
+    "claude-code"
+  ],
+  "agents": [
+    "./agents/architect.md",
+    "./agents/build-error-resolver.md",
+    "./agents/chief-of-staff.md",
+    "./agents/code-reviewer.md",
+    "./agents/database-reviewer.md",
+    "./agents/doc-updater.md",
+    "./agents/e2e-runner.md",
+    "./agents/harness-optimizer.md",
+    "./agents/loop-operator.md",
+    "./agents/planner.md",
+    "./agents/python-reviewer.md",
+    "./agents/refactor-cleaner.md",
+    "./agents/security-reviewer.md",
+    "./agents/tdd-guide.md"
+  ],
+  "commands": [
+    "./commands/"
+  ]
+}
