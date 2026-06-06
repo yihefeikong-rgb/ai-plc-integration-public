@@ -85,27 +85,45 @@ def _ensure_runtime_manager():
 
     V8.0+ 需要 Runtime Manager 进程在线才能 PowerOn 实例。
     如果未运行则启动它（安装目录下的 Manager.exe）。
+    注意：先启动 UserInterface.exe（用户看到的仿真软件主窗口），
+    它会自动连带启动 Runtime Manager。
     """
     global _MANAGER_EXE
     if _MANAGER_EXE is None:
+        # 搜索路径：config.yaml 配置路径 → Common Files 路径
+        try:
+            from config_loader import cfg
+            adv_dir = cfg.simulation.advanced_install_dir
+            mgr_in_adv = os.path.join(adv_dir, 'bin', 'Siemens.Simatic.Simulation.Runtime.Manager.exe')
+        except Exception:
+            adv_dir = None
+            mgr_in_adv = None
+
         common = r"C:\Program Files (x86)\Common Files\Siemens\PLCSIMADV"
-        candidates = [
+        candidates = []
+        if mgr_in_adv:
+            candidates.append(mgr_in_adv)
+        candidates += [
             os.path.join(common, "Siemens.Simatic.Simulation.Runtime.Manager.exe"),
             os.path.join(common, "Simulation.Runtime.Manager.exe"),
         ]
         for c in candidates:
-            if os.path.exists(c):
+            if c and os.path.exists(c):
                 _MANAGER_EXE = c
                 break
         if _MANAGER_EXE is None:
             print("[plcsim] ⚠ PLCSIM Runtime Manager 未找到，跳过自动启动")
+            print("[plcsim]   搜索路径: " + " ; ".join(c for c in candidates if c))
             return
 
-    # 检查是否已在运行
+    # 检查是否已在运行（使用 cmd.exe /c 避免 Git Bash 参数转发）
     try:
         tasklist = subprocess.run(
-            ["tasklist", "/fi", "ImageName eq Siemens.Simatic.Simulation.Runtime.Manager.exe"],
-            capture_output=True, text=True, timeout=5
+            ['cmd.exe', '/c', 'tasklist', '/fi',
+             'ImageName eq Siemens.Simatic.Simulation.Runtime.Manager.exe',
+             '/fo', 'csv', '/nh'],
+            capture_output=True, text=True, timeout=5,
+            encoding='gbk', errors='replace',
         )
         if "Siemens.Simatic.Simulation.Runtime.Manager.exe" in tasklist.stdout:
             return  # 已运行

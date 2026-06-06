@@ -12,23 +12,35 @@ set PLC_IP=10.0.0.1
 echo.
 echo ============================================
 echo  AI to PLC - End-to-End Pipeline
-echo  PLCSIM + Factory IO + Compile + Download
+echo  PLCSIM GUI + Instance + FIO + Compile
 echo ============================================
 echo.
 
-REM ---- Step 1: Start PLCSIM from golden backup ----
-echo [1/5] Starting PLCSIM...
+REM ---- Step 1: Start PLCSIM Advanced GUI (the simulator window) ----
+echo [1/6] Starting PLCSIM Advanced GUI...
+%PYTHON% scripts\start_plcsim_gui.py
+if errorlevel 1 (
+    echo [FAIL] PLCSIM GUI failed to start
+    echo        Make sure S7-PLCSIM Advanced V8.0 is installed
+    pause
+    exit /b 1
+)
+echo [OK] PLCSIM GUI ready
+echo.
+
+REM ---- Step 2: Restore PLCSIM instance from golden backup ----
+echo [2/6] Restoring PLCSIM instance...
 %PYTHON% %SCRIPTS%\plcsim_api.py restore factoryio %GOLDEN% %STORAGE% %PLC_IP%
 if errorlevel 1 (
     echo [FAIL] PLCSIM restore failed
     pause
     exit /b 1
 )
-echo [OK] PLCSIM running
+echo [OK] PLCSIM instance running (IP=%PLC_IP%)
 echo.
 
-REM ---- Step 2: Launch Factory I/O ----
-echo [2/5] Starting Factory I/O...
+REM ---- Step 3: Launch Factory I/O ----
+echo [3/6] Starting Factory I/O...
 %PYTHON% scripts\launch_factory_io.py
 if errorlevel 1 (
     echo [WARN] Factory I/O launch failed (non-fatal)
@@ -38,8 +50,8 @@ if errorlevel 1 (
 )
 echo.
 
-REM ---- Step 3: Compile + Download ----
-echo [3/5] Compile + Download to PLCSIM...
+REM ---- Step 4: Compile + Download ----
+echo [4/6] Compile + Download to PLCSIM...
 %PYTHON% %SCRIPTS%\download_to_plcsim.py --compile-first
 if errorlevel 1 (
     echo.
@@ -53,8 +65,8 @@ if errorlevel 1 (
 echo [OK] Download complete
 echo.
 
-REM ---- Step 4: Update Golden Backup ----
-echo [4/5] Updating golden backup...
+REM ---- Step 5: Update Golden Backup ----
+echo [5/6] Updating golden backup...
 %PYTHON% scripts\archive_golden.py
 if errorlevel 1 (
     echo [WARN] Golden backup update failed (non-fatal)
@@ -63,7 +75,7 @@ echo.
 
 echo ============================================
 echo  [DONE] Pipeline Complete
-echo  PLCSIM [OK] - Factory IO [OK] - Download [OK]
+echo  PLCSIM [OK] - FIO [OK] - Download [OK]
 echo ============================================
 echo  Next steps:
 echo  1. Check PLCSIM: %PYTHON% %SCRIPTS%\plcsim_api.py list
