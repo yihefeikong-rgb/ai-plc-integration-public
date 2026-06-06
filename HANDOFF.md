@@ -20,7 +20,7 @@
 |:------|:-----|:----:|
 | **1** | OPC UA / Modbus 运行态 + 三菱 MC 协议 MCP | ✅ **完成** |
 | **2** | AI 控制闭环 + 安全互锁 | ✅ **完成**（跳过 Grafana/Ollama）|
-| **3** | TIA Portal 工程态 + LAD/SCL 代码生成 | 🟡 **进行中（95% — 权限问题已修复，待端到端验证）** |
+| **3** | TIA Portal 工程态 + LAD/SCL 代码生成 | 🟡 **进行中（95% — 许可证问题阻塞端到端验证）** |
 | **4** | 工业机器人 | ❌ 未开始 |
 | **5** | 统一编排 | ❌ 未开始 |
 
@@ -49,7 +49,11 @@
 - ✅ **auto.cfg 一致**: 之前 ProgramData 的 auto.cfg 用 `'factory io1'`，PLCSIM 实例名是 `factoryio`，Factory I/O 连不上仿真
 
 **待解决**:
-- 端到端下载验证 — 需以管理员身份运行 `run_p3_complete.bat` 或从管理员终端执行
+- ⚠️ **PLCSIM Advanced V8.0 许可证问题** (`Error Code: -30, LicenseNotFound`)
+  - `PowerOn()` 时触发，试用期可能已过（14天限制）
+  - 解决方案：重新安装刷新试用 / 使用 TIA Portal 内置仿真 / 购买正式许可 / 使用 OpenPLC Docker
+  - 代码已改善：`plcsim_api.py` 新增 `-30` 错误码映射 + 详细中文帮助信息
+- 端到端下载验证 — 需先解决许可证问题，然后以管理员身份运行 `run_p3_complete.bat`
 - ConveyorControl 的 IO 偏移量（当前使用 %I0.0，config 配置 io_offset=10）
 - V21 Openness 迁移（搁置，DLL 拆分问题太大）
 

@@ -61,6 +61,7 @@ CPU_TYPES = {
 ERROR_CODES = {
     -1: "ERR_UNKNOWN",
     -14: "InstanceNotRunning",
+    -30: "LicenseNotFound — PLCSIM Advanced 许可证未找到或已过期",
     -37: "ArchiveStorageNotCreated",
     -39: "InvalidOperatingState",
     -50: "VirtualSwitchMisconfigured",
@@ -68,12 +69,44 @@ ERROR_CODES = {
 }
 
 
+_LICENSE_HELP = """
+╔══════════════════════════════════════════════════════════╗
+║  PLCSIM Advanced 许可证问题 — Error Code: -30            ║
+╠══════════════════════════════════════════════════════════╣
+║                                                          ║
+║  可能原因:                                                ║
+║  1. 试用期已过（默认 14 天）                               ║
+║  2. 许可证未激活                                           ║
+║  3. 从 V5.0 升级后旧许可证不兼容                            ║
+║                                                          ║
+║  解决方案:                                                ║
+║  A. 打开 PLCSIM Advanced V8.0 GUI → 检查 License/About   ║
+║     确认试用期状态，必要时重新安装以刷新 14 天试用             ║
+║                                                          ║
+║  B. 使用 TIA Portal V18 内置 PLCSIM Basic 仿真:          ║
+║     TIA Portal → 选中 PLC → Start → Start Simulation     ║
+║     (无需独立 PLCSIM Advanced 许可证)                      ║
+║                                                          ║
+║  C. 购买 PLCSIM Advanced 正式许可证:                      ║
+║     通过 Siemens 官方渠道或代理商申请                        ║
+║                                                          ║
+║  D. 临时方案 — 使用 OpenPLC Docker 仿真:                  ║
+║     docker-compose --profile simulation up -d             ║
+║     (免费，无需 Siemens 许可证)                             ║
+╚══════════════════════════════════════════════════════════╝
+"""
+
+
 def _decode_error(e: Exception) -> str:
     """将 PLCSIM 异常转成可读信息。"""
     msg = str(e)
     for code, desc in ERROR_CODES.items():
         if str(code) in msg:
-            return f"错误 {code}: {desc}"
+            result = f"错误 {code}: {desc}"
+            # 许可证错误附带详细帮助
+            if code == -30:
+                result += _LICENSE_HELP
+            return result
     return msg
 
 
@@ -305,11 +338,12 @@ def create_instance(
         return instance
 
     except Exception as e:
+        decoded = _decode_error(e)
         try:
             instance.UnregisterInstance()
         except:
             pass
-        raise RuntimeError(f"创建 '{name}' 失败: {e}")
+        raise RuntimeError(f"创建 '{name}' 失败: {decoded}")
 
 
 def stop_instance(name: str, cleanup: bool = True):
@@ -492,11 +526,12 @@ def restore_instance(
         return instance
 
     except Exception as e:
+        decoded = _decode_error(e)
         try:
             instance.UnregisterInstance()
         except:
             pass
-        raise RuntimeError(f"恢复实例 '{name}' 失败: {e}")
+        raise RuntimeError(f"恢复实例 '{name}' 失败: {decoded}")
 
 
 def switch_to_tcpip(name: str, ip: str = "10.0.0.1", subnet: str = "255.255.255.0") -> IInstance:
@@ -652,5 +687,11 @@ if __name__ == "__main__":
             print(f"未知命令: {cmd}")
             _usage()
     except Exception as e:
-        print(f"ERR: {e}")
+        msg = str(e)
+        if "-30" in msg or "LicenseNotFound" in msg:
+            print(f"ERR: {msg}")
+            print(_LICENSE_HELP)
+        else:
+            decoded = _decode_error(e)
+            print(f"ERR: {decoded}")
         sys.exit(1)

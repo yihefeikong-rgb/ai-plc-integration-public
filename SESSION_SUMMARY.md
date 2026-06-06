@@ -10,9 +10,26 @@
 |:------|:-----|:----:|
 | **1** | OPC UA / Modbus 运行态 + 三菱 MC 协议 MCP | ✅ 完成 |
 | **2** | AI 控制闭环 + 安全互锁 | ✅ 完成（Grafana/Ollama 跳过） |
-| **3** | TIA Portal 工程态 + LAD/SCL 生成 | 🟡 **P3 闭环修复完成（2次会话），待端到端下载验证** |
+| **3** | TIA Portal 工程态 + LAD/SCL 生成 | 🟡 **P3 闭环修复完成，遇 PLCSIM V8.0 许可证问题阻塞** |
 | **4** | 工业机器人 | ❌ 未开始 |
 | **5** | 统一编排 | ❌ 未开始 |
+
+---
+
+## 已知阻塞
+
+### PLCSIM Advanced V8.0 许可证问题 (2026-06-06)
+
+- **现象**: `PowerOn()` 报 `Error Code: -30, LicenseNotFound`
+- **原因**: PLCSIM Advanced 试用期可能已过（14天），或从 V5.0 升级后许可证不兼容
+- **影响**: 无法通过 API 恢复/创建 PLCSIM 实例，端到端流水线阻塞
+- **代码改善**: `plcsim_api.py` 已添加 `-30` 错误码映射 + 详细中文诊断帮助
+- **解决方案优先级**:
+  1. 检查 PLCSIM Advanced GUI → License/About → 确认试用状态
+  2. 重新安装 PLCSIM Advanced V8.0 刷新 14 天试用
+  3. 改用 TIA Portal V18 内置 PLCSIM Basic 仿真（免费，无需独立许可证）
+  4. 使用 OpenPLC Docker 仿真（完全免费）
+  5. 购买 PLCSIM Advanced 正式许可证
 
 ---
 

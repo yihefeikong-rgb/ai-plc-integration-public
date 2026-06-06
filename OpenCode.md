@@ -70,7 +70,7 @@ ai-plc-integration/
 | **TIA 项目文件** | `D:\PLC cheng xu\TIA PLC CHENG XU\demo\demo.ap18` |
 | **CartGen DLL** | `mcp-servers/tia-mcp/CartGen/bin/Release/net8.0/CartGen.dll` |
 | **PLCSIM API 封装** | `mcp-servers/tia-mcp/plcsim_api.py` |
-| **PLCSIM API DLL** | `C:\Program Files (x86)\Common Files\Siemens\PLCSIMADV\API\5.0\Siemens.Simatic.Simulation.Runtime.Api.x64.dll` |
+| **PLCSIM API DLL** | `C:\Program Files (x86)\Common Files\Siemens\PLCSIMADV\API\8.0\Siemens.Simatic.Simulation.Runtime.Api.x64.dll` |
 | **SVG 渲染** | `mcp-servers/tia-mcp/ladder_renderer.py` |
 | **DeepSeek 生成** | `mcp-servers/tia-mcp/generate_custom.py` |
 | **模板目录** | `mcp-servers/tia-mcp/templates/` |
@@ -84,7 +84,7 @@ ai-plc-integration/
 
 ---
 
-## PLCSIM Advanced V5.0 操作规则
+## PLCSIM Advanced V8.0 操作规则
 
 ### ⚠️ 核心问题（不可绕过）
 

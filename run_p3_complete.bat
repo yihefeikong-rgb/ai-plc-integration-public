@@ -32,7 +32,18 @@ REM ---- Step 2: Restore PLCSIM instance from golden backup ----
 echo [2/6] Restoring PLCSIM instance...
 %PYTHON% %SCRIPTS%\plcsim_api.py restore factoryio %GOLDEN% %STORAGE% %PLC_IP%
 if errorlevel 1 (
-    echo [FAIL] PLCSIM restore failed
+    echo.
+    echo [FAIL] PLCSIM restore failed.
+    echo.
+    echo  If the error is "Error Code: -30, LicenseNotFound":
+    echo    → PLCSIM Advanced trial license may have expired (14-day limit)
+    echo    → Solution A: Reinstall PLCSIM Advanced to refresh trial
+    echo    → Solution B: Use TIA Portal built-in simulation (no separate license needed)
+    echo    → Solution C: Purchase PLCSIM Advanced license from Siemens
+    echo    → Solution D: Use OpenPLC Docker (free, no Siemens license):
+    echo         docker-compose --profile simulation up -d
+    echo.
+    echo  If the error is different, check plcsim_api.py error codes.
     pause
     exit /b 1
 )
