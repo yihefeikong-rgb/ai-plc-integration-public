@@ -15,8 +15,21 @@
 import os
 import re
 import yaml
+import sys
 from pathlib import Path
 from typing import Any
+
+
+# ═══ Windows 控制台编码修复 ═══
+# 在 GBK 编码的控制台中，emoji 等 Unicode 字符会导致 UnicodeEncodeError。
+# 如果 stdout 不是 UTF-8，切换到 UTF-8 并启用 errors='replace' 降级。
+if hasattr(sys.stdout, 'reconfigure') and sys.stdout.encoding:
+    enc = sys.stdout.encoding.lower()
+    if 'utf' not in enc and 'utf8' not in enc:
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
 
 
 # ═══ 项目根目录 ═══

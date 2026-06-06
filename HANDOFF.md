@@ -1,8 +1,8 @@
 # AI 接入 PLC — 项目交接文档
 
-> 生成: 2026-06-06
+> 生成: 2026-06-06（第 2 次更新）
 > 当前分支: master
-> 最后提交: `3bb49b8` feat: P3下载闭环+V8.0 PLCSIM迁移+安全审计
+> 最后提交: `4b3716c` docs: P3 权限修复文档 + 下载流程测试
 
 ---
 
@@ -36,15 +36,11 @@
 - **plcsim_api.py V8.0 迁移** + Runtime Manager 自动启动 ✅
 - **Golden restore 验证通过** ✅
 
-**本次会话（2026-06-06）修复**:
-- ✅ **headless 编译阻塞修复**: `ensure_service_initialized()` 不再 taskkill GUI 进程（headless 模式依赖 IPC 通道，杀死 GUI 会摧毁通道）
-- ✅ **管理员权限修复**: 发现 TIA Portal Openness API 所有模式都需要管理员权限。入口脚本改为自提权（`_ensure_admin()` + `ShellExecuteW runas`），编译改用 GUI 模式
-- ✅ **GUI 模式编译**: `download_to_plcsim.py` 和 `run_end2end.py` 均改为 GUI 模式编译
-- ✅ **UAC 提权启动**: TIA Portal 启动改用 `ShellExecuteW runas`，非 admin 进程正常提权
-- ✅ **tasklist 兼容修复**: 全部 `tasklist` 调用改用 `cmd.exe /c` 避免 Git Bash 参数转发
-- ✅ **集成测试**: 新增 `tests/test_download_flow.py`（18 个测试，16 通过）
-- ✅ **批处理启动器**: 新增 `run_p3_complete.bat` 一键端到端流水线
-- ✅ **文档更新**: HANDOFF.md / SESSION_SUMMARY.md 已更新
+**本次会话（2026-06-06 第2次）修复**:
+- ✅ **batch 文件 CRLF 编码修复**: `run_p3_complete.bat` 从 LF+UTF-8 重写为 CRLF+纯英文，cmd.exe 正常解析
+- ✅ **emoji GBK 崩溃修复**: `config_loader.py` 顶部添加 `sys.stdout.reconfigure(encoding='utf-8', errors='replace')`，所有脚本无需逐一修改
+- ✅ 新增 `scripts/archive_golden.py` — 独立的 golden backup 更新脚本，供 .bat 调用
+- ✅ 新增 `scripts/gen_bat.py` — batch 文件生成器（用 Python 写 CRLF 行尾）
 
 **待解决**:
 - 端到端下载验证 — 需以管理员身份运行 `run_p3_complete.bat` 或从管理员终端执行
@@ -142,6 +138,7 @@ factory_io.driver_mode: "plcsim"  # Softbus 模式
 "D:/Python3/python.exe" -m pytest tests/test_download_flow.py -v
 
 # P3 端到端流水线（一键批处理，自动提权）
+#   注意：.bat 文件是纯英文 + CRLF 编码，cmd.exe 正常解析
 run_p3_complete.bat
 
 # 或手动步骤（从管理员终端）:

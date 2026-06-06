@@ -10,7 +10,7 @@
 |:------|:-----|:----:|
 | **1** | OPC UA / Modbus 运行态 + 三菱 MC 协议 MCP | ✅ 完成 |
 | **2** | AI 控制闭环 + 安全互锁 | ✅ 完成（Grafana/Ollama 跳过） |
-| **3** | TIA Portal 工程态 + LAD/SCL 生成 | 🟡 **P3 闭环修复完成，待端到端下载验证** |
+| **3** | TIA Portal 工程态 + LAD/SCL 生成 | 🟡 **P3 闭环修复完成（2次会话），待端到端下载验证** |
 | **4** | 工业机器人 | ❌ 未开始 |
 | **5** | 统一编排 | ❌ 未开始 |
 
@@ -51,6 +51,14 @@
 | run_end2end.py 编译仍用 headless | `run_end2end.py` | 端到端脚本编译失败 |
 | tasklist 在 Git Bash 中参数被转发 | 全部 `tasklist` 调用 | `/fi` 被转为 `C:/Program Files/Git/fi` |
 | 非 admin 进程无法启动 TIA Portal | `download_to_plcsim.py`, `tia_session.py` | `subprocess.Popen` 报 WinError 740 |
+
+### 本次会话（2026-06-06 第2次）修复
+
+| Bug | 文件 | 影响 |
+|:----|:-----|:-----|
+| `run_p3_complete.bat` 是 LF+UTF-8 编码 | `run_p3_complete.bat` | cmd.exe 无法解析，显示乱码和"不是内部或外部命令" |
+| emoji 在 GBK 控制台报 UnicodeEncodeError | `download_to_plcsim.py` 等 5 个文件 | 43 处 emoji 在有中文 Windows 控制台崩溃 |
+| 缺少独立的 golden backup 脚本 | — | 批处理中无法通过单行 Python 调用 archive |
 
 ---
 
