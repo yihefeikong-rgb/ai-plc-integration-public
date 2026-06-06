@@ -69,7 +69,7 @@ def start_plcsim():
         
         # 恢复实例
         inst = restore_instance(
-            name="factory io1",
+            name="factoryio",
             golden_zip=GOLDEN_ZIP,
             storage_path=STORAGE_PATH,
             ip="10.0.0.1",
@@ -153,7 +153,7 @@ def stop_all():
     try:
         sys.path.insert(0, TIA_MCP_DIR)
         from plcsim_api import stop_instance
-        stop_instance("factory io1", cleanup=False)
+        stop_instance("factoryio", cleanup=False)
         log("  ✅ PLCSIM 实例已停止")
     except Exception:
         pass
