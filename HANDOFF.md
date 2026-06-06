@@ -40,11 +40,16 @@
 - ✅ **batch 文件 CRLF 编码修复**: `run_p3_complete.bat` 从 LF+UTF-8 重写为 CRLF+纯英文，cmd.exe 正常解析
 - ✅ **emoji GBK 崩溃修复**: `config_loader.py` 顶部添加 `sys.stdout.reconfigure(encoding='utf-8', errors='replace')`，所有脚本无需逐一修改
 - ✅ 新增 `scripts/archive_golden.py` — 独立的 golden backup 更新脚本，供 .bat 调用
-- ✅ 新增 `scripts/gen_bat.py` — batch 文件生成器（用 Python 写 CRLF 行尾）
+- ✅ `start_all.py` 统一实例名: `factory io1` → `factoryio`
+
+**本次会话（第3次）修复**:
+- ✅ **Factory I/O 启动**: `run_p3_complete.bat` 新增 Step [2/5] 启动 Factory I/O
+- ✅ **新增 `scripts/launch_factory_io.py`**: 生成正确 auto.cfg（instance_name=factoryio），写入用户 Documents 和 ProgramData 两个位置
+- ✅ **实例名统一**: `start_all.py` 中所有 `factory io1`（带空格）改为 `factoryio`（无空格）
+- ✅ **auto.cfg 一致**: 之前 ProgramData 的 auto.cfg 用 `'factory io1'`，PLCSIM 实例名是 `factoryio`，Factory I/O 连不上仿真
 
 **待解决**:
 - 端到端下载验证 — 需以管理员身份运行 `run_p3_complete.bat` 或从管理员终端执行
-- Factory I/O 自动化验证 — 下载闭环通后才能跑
 - ConveyorControl 的 IO 偏移量（当前使用 %I0.0，config 配置 io_offset=10）
 - V21 Openness 迁移（搁置，DLL 拆分问题太大）
 
