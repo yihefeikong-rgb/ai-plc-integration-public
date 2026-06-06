@@ -195,6 +195,7 @@ def force_cleanup(name: str):
     print(f"[plcsim] 强制清理实例 '{name}' ...")
 
     # 1. API 注销
+    sp = None
     try:
         instance = _get_instance(name)
         if instance is not None:
