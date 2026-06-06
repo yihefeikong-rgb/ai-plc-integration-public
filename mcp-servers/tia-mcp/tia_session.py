@@ -101,7 +101,12 @@ def ensure_service_initialized(timeout_sec: int = 120) -> bool:
         from config_loader import cfg
         _tia_dir = cfg.tia.install_dir
         _tia_ver = cfg.tia.version
-        clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\Siemens.Engineering.dll')
+        # V21 使用模块化 DLL（Base + Step7），V18 使用单一 DLL
+        if _tia_ver >= "V21":
+            clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\net48\Siemens.Engineering.Base.dll')
+            clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\net48\Siemens.Engineering.Step7.dll')
+        else:
+            clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\Siemens.Engineering.dll')
         clr.AddReference(rf'{_tia_dir}\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
         from Siemens.Engineering import TiaPortal, TiaPortalMode
 
@@ -193,16 +198,20 @@ def tia_session(project_path: str = None, mode: str = "headless"):
         except Exception:
             raise ValueError("未指定 project_path 且无法从 config.yaml 读取")
 
-    # 加载 TIA Openness DLL
+    # 加载 TIA Openness DLL（V21 使用模块化 DLL）
     try:
         from config_loader import cfg
         _tia_dir = cfg.tia.install_dir
         _tia_ver = cfg.tia.version
     except Exception:
-        _tia_dir = r'D:\TIA BEN TI\Portal V18'
-        _tia_ver = 'V18'
+        _tia_dir = r'D:\TIA BEN TI\Portal V21'
+        _tia_ver = 'V21'
 
-    clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\Siemens.Engineering.dll')
+    if _tia_ver >= "V21":
+        clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\net48\Siemens.Engineering.Base.dll')
+        clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\net48\Siemens.Engineering.Step7.dll')
+    else:
+        clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\Siemens.Engineering.dll')
     clr.AddReference(rf'{_tia_dir}\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
     from Siemens.Engineering import TiaPortal, TiaPortalMode
     from System.IO import FileInfo
