@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Web.Script.Serialization;
 using Siemens.Engineering;
 using Siemens.Engineering.HW;
@@ -17,6 +18,32 @@ namespace TiaWorker
     class Program
     {
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
+
+        // TIA Portal V21 Openness DLL 路径
+        // Private=False 编译（避免 CopyLocal 检查），运行时通过 AssemblyResolve 加载
+        static readonly string[] _tiaDllPaths = new[]
+        {
+            @"D:\TIA BEN TI\Portal V21\PublicAPI\V21\net48",
+            @"D:\TIA BEN TI\Portal V21\Bin\PublicAPI",
+        }; 
+
+        static Program()
+        {
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
+            {
+                var name = new AssemblyName(args.Name).Name;
+                if (!name.StartsWith("Siemens.Engineering", StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                foreach (var dir in _tiaDllPaths)
+                {
+                    var dllPath = Path.Combine(dir, name + ".dll");
+                    if (File.Exists(dllPath))
+                        return Assembly.LoadFrom(dllPath);
+                }
+                return null;
+            };
+        }
 
         static int Main(string[] args)
         {
@@ -214,15 +241,30 @@ namespace TiaWorker
                         return 0;
                     }
 
-                    // 优先选择 PLCSIM 虚拟网卡
+                    // 调试：枚举所有接口
+                    Console.Error.WriteLine($"[TiaWorker] 可用模式: {string.Join(", ", connConfig.Modes.Select(m => m.Name))}");
+                    foreach (var iface in mode.PcInterfaces)
+                    {
+                        Console.Error.WriteLine($"[TiaWorker]   接口: {iface.Name}");
+                    }
+
+                    // 优先选择 PLCSIM Softbus 接口（不含 "Ethernet"/"Virtual"）
                     ConfigurationPcInterface pcInterface = null;
                     foreach (var iface in mode.PcInterfaces)
                     {
                         var name = iface.Name ?? "";
                         if (name.IndexOf("PLCSIM", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            pcInterface = iface;
-                            break;
+                            // Softbus 模式接口名不含 "Ethernet"/"Virtual"
+                            if (name.IndexOf("Ethernet", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                name.IndexOf("Virtual", StringComparison.OrdinalIgnoreCase) < 0)
+                            {
+                                pcInterface = iface;
+                                break;
+                            }
+                            // 记住第一个候选（可能在列表前面）
+                            if (pcInterface == null)
+                                pcInterface = iface;
                         }
                     }
                     pcInterface ??= mode.PcInterfaces.Count > 0 ? mode.PcInterfaces[0] : null;
@@ -268,13 +310,41 @@ namespace TiaWorker
                         return 0;
                     }
 
-                    // 3. 执行下载（传递 null 回调，用户通过 GUI 手动确认）
-                    Console.Error.WriteLine($"[TiaWorker] Downloading to {pcInterface.Name}/{targetIp} ...");
+                    // 3. 设置下载目标为 PLCSIM Advanced（V21 关键！否则默认找真实硬件）
+                    Console.Error.WriteLine($"[TiaWorker] 设置下载目标为 PLCSIM Advanced...");
+
+                    DownloadConfigurationDelegate preDelegate = (cfg) =>
+                    {
+                        try
+                        {
+                            // 设置 TargetForSoftware → PlcSimulationAdvanced
+                            var targetForSoftware = cfg.GetType().GetProperty("TargetForSoftware");
+                            if (targetForSoftware != null)
+                            {
+                                var targetObj = targetForSoftware.GetValue(cfg);
+                                if (targetObj != null)
+                                {
+                                    var currentSelProp = targetObj.GetType().GetProperty("CurrentSelection");
+                                    if (currentSelProp != null)
+                                    {
+                                        var selectionsType = currentSelProp.PropertyType;
+                                        var plcSimAdv = Enum.Parse(selectionsType, "PlcSimulationAdvanced");
+                                        currentSelProp.SetValue(targetObj, plcSimAdv);
+                                        Console.Error.WriteLine("[TiaWorker] ✅ TargetForSoftware = PlcSimulationAdvanced");
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"[TiaWorker] ⚠ 设置 TargetForSoftware 失败: {ex.Message}");
+                        }
+                    };
 
                     var result = downloadProvider.Download(
                         targetConfig,
-                        (DownloadConfigurationDelegate)null,
-                        (DownloadConfigurationDelegate)null,
+                        preDelegate,
+                        new DownloadConfigurationDelegate(cfg => { }),
                         DownloadOptions.Software);
 
                     project.Save();

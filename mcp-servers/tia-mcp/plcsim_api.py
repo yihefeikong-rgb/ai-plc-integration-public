@@ -111,6 +111,7 @@ def _decode_error(e: Exception) -> str:
 
 
 _MANAGER_EXE = None  # 缓存 Runtime Manager 路径
+_UI_EXE = None  # 缓存 UserInterface 路径
 
 
 def _ensure_runtime_manager():
@@ -118,9 +119,8 @@ def _ensure_runtime_manager():
 
     V8.0+ 需要 Runtime Manager 进程在线才能 PowerOn 实例。
     如果未运行则启动它（安装目录下的 Manager.exe）。
-    注意：先启动 UserInterface.exe（用户看到的仿真软件主窗口），
-    它会自动连带启动 Runtime Manager。
     """
+    # [existing code unchanged below]
     global _MANAGER_EXE
     if _MANAGER_EXE is None:
         # 搜索路径：config.yaml 配置路径 → Common Files 路径
@@ -170,6 +170,68 @@ def _ensure_runtime_manager():
         print(f"[plcsim] Runtime Manager 已启动")
     except Exception as e:
         print(f"[plcsim] ⚠ 启动 Runtime Manager 失败: {e}")
+
+
+_UI_EXE_CACHE = None
+
+
+def _ensure_user_interface():
+    """确保 PLCSIM Advanced UserInterface GUI 正在运行。
+
+    V21 TIA Portal 下载时必须能看到 PLCSIM GUI 窗口，否则扫描不到设备。
+    Runtime Manager 后台服务不够，必须打开完整的 UserInterface 窗口。
+    注意：先启动 UserInterface，它会自动连带确保 Runtime Manager 运行。
+    """
+    global _UI_EXE_CACHE
+    if _UI_EXE_CACHE is None:
+        try:
+            from config_loader import cfg
+            adv_dir = cfg.simulation.advanced_install_dir
+            ui_candidate = os.path.join(adv_dir, 'bin', 'Siemens.Simatic.PlcSim.Advanced.UserInterface.exe')
+        except Exception:
+            adv_dir = None
+            ui_candidate = None
+
+        install_root = r"D:\TIA FANG ZHEN\PLCSIMADV"
+        candidates = []
+        if ui_candidate and os.path.exists(ui_candidate):
+            candidates.append(ui_candidate)
+        candidates += [
+            os.path.join(install_root, 'bin', 'Siemens.Simatic.PlcSim.Advanced.UserInterface.exe'),
+            os.path.join(r"C:\Program Files (x86)\Common Files\Siemens\PLCSIMADV",
+                         "Siemens.Simatic.PlcSim.Advanced.UserInterface.exe"),
+        ]
+        for c in candidates:
+            if c and os.path.exists(c):
+                _UI_EXE_CACHE = c
+                break
+        if _UI_EXE_CACHE is None:
+            print("[plcsim] ⚠ PLCSIM UserInterface 未找到，跳过 GUI 启动")
+            print("[plcsim]   搜索路径: " + " ; ".join(c for c in candidates if c))
+            return
+
+    # 检查是否已在运行
+    try:
+        tasklist = subprocess.run(
+            ['cmd.exe', '/c', 'tasklist', '/fi',
+             'ImageName eq Siemens.Simatic.PlcSim.Advanced.UserInterface.exe',
+             '/fo', 'csv', '/nh'],
+            capture_output=True, text=True, timeout=5,
+            encoding='gbk', errors='replace',
+        )
+        if "Siemens.Simatic.PlcSim.Advanced.UserInterface.exe" in tasklist.stdout:
+            print("[plcsim] ✅ PLCSIM GUI 已在运行")
+            return
+    except Exception:
+        pass
+
+    print("[plcsim] 🚀 启动 PLCSIM Advanced GUI (UserInterface)...")
+    try:
+        subprocess.Popen([_UI_EXE_CACHE], shell=True)
+        time.sleep(5)
+        print("[plcsim] ✅ PLCSIM GUI 已启动（设备可被 V21 扫描）")
+    except Exception as e:
+        print(f"[plcsim] ⚠ 启动 PLCSIM GUI 失败: {e}")
 
 
 STATE_NAMES = {
@@ -318,18 +380,20 @@ def create_instance(
             print(f"[plcsim] StoragePath = {storage_path}")
 
         _ensure_runtime_manager()
+
+        # V8.0 中 CommunicationInterface 注册后即只读（默认 Softbus）
+        # 如需 TCP/IP，只能通过调用 SetIPSuite 后 TIA Portal 经虚拟网卡连接
+        print(f"[plcsim] 接口: {instance.CommunicationInterface} (V8.0 只读)")
+
         instance.PowerOn()
         _wait_for_state(instance, EOperatingState.Stop, timeout=20)
 
-        # 设通信接口和 IP
+        # 设 IP（TCP/IP 模式，必须在 PowerOn 后、Run 前）
         if interface == "tcpip":
-            instance.CommunicationInterface = ECommunicationInterface.TCPIP
-            time.sleep(1)
             instance.SetIPSuite(0, SIPSuite4(ip, subnet, "0.0.0.0"), False)
             print(f"[plcsim] TCPIP {ip}/{subnet}")
         else:
-            instance.CommunicationInterface = ECommunicationInterface.Softbus
-            print(f"[plcsim] Softbus")
+            print(f"[plcsim] Softbus（默认）")
 
         instance.Run()
         _wait_for_state(instance, EOperatingState.Run, timeout=30)
@@ -435,6 +499,7 @@ def restore_instance(
     subnet: str = "255.255.255.0",
     cpu_type: str = "1511",
     interface: str = "softbus",
+    auto_run: bool = True,
 ) -> IInstance:
     """从黄金备份恢复实例（替代 TIA Portal 手动下载）。
 
@@ -481,23 +546,16 @@ def restore_instance(
         instance.RetrieveStorage(golden_zip)
         time.sleep(1)
 
-        # 读取 golden 备份中的通信接口（V8.0 中 PowerOn 后只读）
+        # 读取 golden 备份中的通信接口（V8.0 中完全只读，仅用于显示）
         try:
             golden_interface = instance.CommunicationInterface
         except Exception:
             golden_interface = None
-        # 支持大小写
         interface_lower = interface.lower()
         target_comm = ECommunicationInterface.TCPIP if interface_lower == "tcpip" else ECommunicationInterface.Softbus
 
-        # 如需 TCP/IP 且在 goldan 中未设置，尝试在 PowerOn 前切换
-        if target_comm == ECommunicationInterface.TCPIP:
-            if golden_interface != ECommunicationInterface.TCPIP:
-                try:
-                    instance.CommunicationInterface = ECommunicationInterface.TCPIP
-                    print(f"[plcsim] 切换到 TCP/IP (PowerOn 前)")
-                except Exception:
-                    print(f"[plcsim] ⚠ golden 为 {golden_interface}，无法切 TCP/IP")
+        # V8.0 中 CommunicationInterface 只读，SetIPSuite 自动启用 TCP/IP 监听
+        if interface_lower == "tcpip":
             try:
                 SimulationRuntimeManager.ResetNetInterfaceBindings()
                 time.sleep(1)
@@ -519,12 +577,14 @@ def restore_instance(
         else:
             print(f"[plcsim] Softbus（来自 golden 备份）")
 
-        # Run
-        instance.Run()
-        _wait_for_state(instance, EOperatingState.Run, timeout=30)
-        time.sleep(2)
-
-        print(f"[plcsim] OK 恢复完成: '{name}' RUN (IP={ip})")
+        # Run（V21 下载前需保持 STOP 状态，黄色；下载后才变 RUN）
+        if auto_run:
+            instance.Run()
+            _wait_for_state(instance, EOperatingState.Run, timeout=30)
+            time.sleep(2)
+            print(f"[plcsim] OK 恢复完成: '{name}' RUN (IP={ip})")
+        else:
+            print(f"[plcsim] OK 恢复完成: '{name}' STOP (待下载状态，黄色)")
         return instance
 
     except Exception as e:
@@ -566,9 +626,8 @@ def switch_to_tcpip(name: str, ip: str = "10.0.0.1", subnet: str = "255.255.255.
     instance.PowerOff()
     _wait_for_state(instance, EOperatingState.Off, timeout=10)
 
-    # 切 TCP/IP
-    instance.CommunicationInterface = ECommunicationInterface.TCPIP
-    time.sleep(1)
+    # V8.0 中 CommunicationInterface 只读，SetIPSuite 即启用 TCP/IP
+    # 跳过 interface 赋值，直接调用 SetIPSuite
 
     # 起机
     instance.PowerOn()

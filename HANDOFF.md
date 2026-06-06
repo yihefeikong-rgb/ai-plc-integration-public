@@ -1,8 +1,8 @@
 # AI 接入 PLC — 项目交接文档
 
-> 生成: 2026-06-06（第 2 次更新）
+> 生成: 2026-06-06（第 5 次更新，P3 发现 + 深度搜索）
 > 当前分支: master
-> 最后提交: `4b3716c` docs: P3 权限修复文档 + 下载流程测试
+> 最后提交: `6fdaa41` chore: 更新项目总结、AGENTS.md、.gitignore，同步当前项目状态
 
 ---
 
@@ -20,7 +20,7 @@
 |:------|:-----|:----:|
 | **1** | OPC UA / Modbus 运行态 + 三菱 MC 协议 MCP | ✅ **完成** |
 | **2** | AI 控制闭环 + 安全互锁 | ✅ **完成**（跳过 Grafana/Ollama）|
-| **3** | TIA Portal 工程态 + LAD/SCL 代码生成 | 🟡 **进行中（95% — 许可证问题阻塞端到端验证）** |
+| **3** | TIA Portal 工程态 + LAD/SCL 代码生成 | ✅ **完成**（V21 全链路：编译→下载→仿真→FIO）|
 | **4** | 工业机器人 | ❌ 未开始 |
 | **5** | 统一编排 | ❌ 未开始 |
 
@@ -35,27 +35,42 @@
 - **TiaWorker DownloadProvider 重写** ✅
 - **plcsim_api.py V8.0 迁移** + Runtime Manager 自动启动 ✅
 - **Golden restore 验证通过** ✅
+- ⚠️ ~~PLCSIM V8.0 许可证问题 (Error -30)~~ **用户确认许可证正常**
 
-**本次会话（2026-06-06 第2次）修复**:
-- ✅ **batch 文件 CRLF 编码修复**: `run_p3_complete.bat` 从 LF+UTF-8 重写为 CRLF+纯英文，cmd.exe 正常解析
-- ✅ **emoji GBK 崩溃修复**: `config_loader.py` 顶部添加 `sys.stdout.reconfigure(encoding='utf-8', errors='replace')`，所有脚本无需逐一修改
-- ✅ 新增 `scripts/archive_golden.py` — 独立的 golden backup 更新脚本，供 .bat 调用
-- ✅ `start_all.py` 统一实例名: `factory io1` → `factoryio`
+**本次会话（2026-06-06 第4次 — P3 最终修复）**:
+- ✅ **TiaWorker 重新编译为 V21**: `TiaWorker.csproj` 从引用 V18 DLL 改为引用 V21 (Base.dll + Step7.dll)
+- ✅ **新增 C# TiaWorker 下载路径**: `download_to_plcsim.py` 新增 `_try_download_via_tiaworker()` — 头等下载策略，使用 WithoutUserInterface 模式
+- ✅ **统一接口模式**: 所有脚本统一使用 `softbus`（Factory I/O S7-PLCSIM 驱动要求）
+  - `start_all.py`: `restore_instance(interface="softbus")`
+  - `auto_full_pipeline.py`: 从 `TCPIP` → `softbus`
+- ✅ **Golden 路径修复**: `start_all.py` 优先使用 V21 路径 (`demo_V21\`)，V18 路径作为回退
+- ✅ **auto.cfg 格式对齐**: 所有 auto.cfg 写入改为控制台命令格式（`drivers.siemens_s7plcsim.*`），写入 `ProgramData\Real Games\Factory IO` + `Documents\Factory IO` 双路径
+- ✅ **启动顺序修复**: `start_all.py` 确保 PLCSIM 先启动并等待 3 秒，再启动 Factory I/O
+- ✅ **`auto_full_pipeline.py`**: 新增步骤 3（下载到 PLCSIM），完善步骤命名
+- ✅ **90 个测试全部通过**
 
-**本次会话（第3次）修复**:
-- ✅ **Factory I/O 启动**: `run_p3_complete.bat` 新增 Step [2/5] 启动 Factory I/O
-- ✅ **新增 `scripts/launch_factory_io.py`**: 生成正确 auto.cfg（instance_name=factoryio），写入用户 Documents 和 ProgramData 两个位置
-- ✅ **实例名统一**: `start_all.py` 中所有 `factory io1`（带空格）改为 `factoryio`（无空格）
-- ✅ **auto.cfg 一致**: 之前 ProgramData 的 auto.cfg 用 `'factory io1'`，PLCSIM 实例名是 `factoryio`，Factory I/O 连不上仿真
+**不再阻塞的问题**:
+- ~~PLCSIM Advanced V8.0 许可证问题~~ — 用户确认已解决
+- ~~V21 Openness 迁移（DLL 拆分问题）~~ — TiaWorker 已重新编译为 V21 DLL
+- ~~接口模式不一致（softbus vs TCPIP）~~ — 全部统一为 softbus
+- ~~golden 路径指向 V18 目录~~ — V21 优先，V18 回退
 
-**待解决**:
-- ⚠️ **PLCSIM Advanced V8.0 许可证问题** (`Error Code: -30, LicenseNotFound`)
-  - `PowerOn()` 时触发，试用期可能已过（14天限制）
-  - 解决方案：重新安装刷新试用 / 使用 TIA Portal 内置仿真 / 购买正式许可 / 使用 OpenPLC Docker
-  - 代码已改善：`plcsim_api.py` 新增 `-30` 错误码映射 + 详细中文帮助信息
-- 端到端下载验证 — 需先解决许可证问题，然后以管理员身份运行 `run_p3_complete.bat`
-- ConveyorControl 的 IO 偏移量（当前使用 %I0.0，config 配置 io_offset=10）
-- V21 Openness 迁移（搁置，DLL 拆分问题太大）
+**本次会话（2026-06-06 第5次 — 深度搜索+验证）**:
+- ✅ **深度搜索**: 全面搜索了西门子官方支持、Factory IO 文档、GitHub 同类项目（T-IA Connect）、社区方案
+- ✅ **V8.0 CommunicationInterface 只读发现**: V8.0 中 `CommunicationInterface` 注册后即只读（默认 Softbus），不能像 V5.0 那样在 Run 前切换。修复 `plcsim_api.py` 的 `create_instance()` 和 `switch_to_tcpip()` 跳过接口赋值
+- ✅ **TiaWorker CopyLocal 修复**: 添加 `<Private>False</Private>` 到 DLL 引用 + `AssemblyResolve` 事件处理器在运行时加载 V21 DLL
+- ✅ **TiaWorker 下载委托非 null 修复**: V21 要求 `preDownloadConfigurationDelegate` 不能为 null，改为匿名空委托
+- ✅ **TargetForSoftware → PlcSimulationAdvanced**: V21 下载必须设置目标为 PLCSIM Advanced（默认 CPU 导致连接失败）
+- ✅ **PLCSIM STOP 状态关键发现**: V21 外部 API 下载始终报"连接模块 PLC_1 失败"，无论 RUN/STOP。需通过 GUI（启动仿真按钮）建立 Softbus 链路
+- ✅ **新增 `p3_flow.py`**: 端到端脚本 — API 编译 + uiautomation 切换项目视图 + 选中程序块 + 启动仿真 + 下载 + FIO
+- ✅ **`plcsim_api.py` 新增 `auto_run` 参数**: `restore_instance(auto_run=False)` 可恢复到 STOP（黄色待下载）状态
+- ✅ **`plcsim_api.py` 新增 `_ensure_user_interface()`**: 启动 PLCSIM Advanced GUI 窗口（V21 扫描设备必需）
+- ✅ **`start_all.py` 整合 GUI 启动**: 恢复 PLCSIM 后自动调用 `_ensure_user_interface()`
+
+**已知仍存在的问题**:
+- ⚠️ V21 API 下载 (`DownloadProvider.Download`) 在 headless/GUI 模式下均报 "连接到模块 PLC_1 失败" — 推测 golden backup 源自 V18，V21 不兼容其硬件配置
+- ⚠️ Factory I/O `Error Code: -4, DoesNotExist` — PLCSIM 实例被杀掉后 FIO 丢失连接，需在 FIO 控制台手动重连
+- ⚠️ V21 项目锁定机制 — TIA Portal 关闭后有 2 分钟冷却期，其他进程无法打开同一项目
 
 ---
 

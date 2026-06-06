@@ -2,17 +2,19 @@
 将 TIA Portal 项目下载到 PLCSIM 仿真 PLC。
 
 下载策略（按优先级）:
-  1. Python API — 通过 Openness API DownloadProvider 直接下载（已验证）
-     编译使用 GUI 模式（附加到运行中 Portal，无需管理员权限）
-     下载使用 GUI 模式（PLCSIM 虚拟网卡需要 GUI 会话）
-  2. UI Automation — 模拟 GUI 点击下载（后备，需 TIA Portal GUI 打开）
-  3. 手动指引 — 如果以上均不可用
+  1. C# TiaWorker — 编译过的 C# 可执行文件，直接调用 Openness API
+     使用 WithoutUserInterface 模式，无需 TIA Portal GUI
+  2. Python API — 通过 Openness DownloadProvider API 下载
+     使用 GUI 模式（附加到运行中 Portal）
+  3. UI Automation — 模拟 GUI 点击下载（后备）
+  4. 手动指引 — 如果以上均不可用
 
 用法:
   python download_to_plcsim.py                        # 默认（自动选择最优方式）
   python download_to_plcsim.py --compile-first        # 下载前先编译
   python download_to_plcsim.py --python               # 强制 Python API 模式
   python download_to_plcsim.py --ui                   # 强制 UI Automation 模式
+  python download_to_plcsim.py --tiaworker            # 强制 TiaWorker C# 模式
 """
 
 import sys, os, json, subprocess as _sp, tempfile
@@ -93,6 +95,17 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
     from tia_session import tia_session
 
     print('🔌 通过 Python API 下载到 PLCSIM...')
+
+    # V21 需要 PLCSIM GUI 窗口在运行，否则扫描不到设备
+    print('   确保 PLCSIM GUI 已启动...')
+    try:
+        from plcsim_api import _ensure_user_interface
+        _ensure_user_interface()
+        import time
+        time.sleep(3)
+    except Exception as e:
+        print(f'   ⚠ PLCSIM GUI 启动检查异常（继续）: {e}')
+
     print()
 
     # 确保 TIA Portal GUI 运行中（仅启动一次，编译和下载共用同一会话）
@@ -153,9 +166,15 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
 
             pc_iface = None
             for i in mode.PcInterfaces:
-                if 'PLCSIM' in str(i.Name).upper():
-                    pc_iface = i
-                    break
+                name = str(i.Name).upper()
+                if 'PLCSIM' in name:
+                    # 优先选纯 "PLCSIM" 接口（Softbus 模式），而非虚拟以太网适配器
+                    if 'ETHERNET' not in name and 'VIRTUAL' not in name:
+                        pc_iface = i
+                        break
+                    # 记住第一个候选（可能在列表前面）
+                    if pc_iface is None:
+                        pc_iface = i
             pc_iface = pc_iface or (mode.PcInterfaces[0] if mode.PcInterfaces.Count > 0 else None)
             if pc_iface is None:
                 print('❌ 未找到可用网卡')
@@ -174,16 +193,36 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
 
             def on_pre(c):
                 try:
-                    p = c.GetType().GetProperty('CurrentSelection')
+                    # V21 关键：设置下载目标为 PLCSIM Advanced（而非默认的 CPU）
+                    p = c.GetType().GetProperty('TargetForSoftware')
                     if p:
-                        p.SetValue(c, p.PropertyType.GetEnumValues().GetValue(0), None)
+                        target_obj = p.GetValue(c, None)
+                        if target_obj:
+                            sel_p = target_obj.GetType().GetProperty('CurrentSelection')
+                            if sel_p:
+                                sel_type = sel_p.PropertyType
+                                # 选择 PlcSimulationAdvanced（枚举值）
+                                try:
+                                    adv = sel_type.GetEnumValues().GetValue(1)  # 1 = PlcSimulationAdvanced
+                                    sel_p.SetValue(target_obj, adv, None)
+                                except:
+                                    pass
                 except: pass
 
             def on_post(c):
                 try:
-                    p = c.GetType().GetProperty('CurrentSelection')
+                    p = c.GetType().GetProperty('TargetForSoftware')
                     if p:
-                        p.SetValue(c, p.PropertyType.GetEnumValues().GetValue(0), None)
+                        target_obj = p.GetValue(c, None)
+                        if target_obj:
+                            sel_p = target_obj.GetType().GetProperty('CurrentSelection')
+                            if sel_p:
+                                sel_type = sel_p.PropertyType
+                                try:
+                                    adv = sel_type.GetEnumValues().GetValue(1)
+                                    sel_p.SetValue(target_obj, adv, None)
+                                except:
+                                    pass
                 except: pass
 
             print('📥 正在下载到 PLCSIM...')
@@ -266,6 +305,110 @@ def download_via_ui(compile_first: bool = False) -> int:
         return 1
 
 
+def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = "") -> int:
+    """通过 C# TiaWorker 可执行文件下载到 PLCSIM。
+
+    TiaWorker 使用 WithoutUserInterface 模式直接调用 Openness API，
+    无需 TIA Portal GUI 运行中。已使用 V21 DLL 编译。
+
+    Returns:
+        0: 成功, 1: 失败, -1: TiaWorker 不可用（触发 fallback）
+    """
+    tiaworker_exe = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'bin', 'TiaWorker.exe'
+    )
+
+    if not os.path.exists(tiaworker_exe):
+        print('   ⚠ TiaWorker 未编译，跳过')
+        return -1
+
+    print('🔌 通过 C# TiaWorker 下载到 PLCSIM...')
+
+    # 先清理残留的 TIA Portal 进程（避免项目锁定）
+    import subprocess as _sp_ui
+    print('   清理 TIA Portal 残留进程...')
+    _sp_ui.run(['cmd.exe', '/c', 'taskkill', '/f', '/im', 'Siemens.Automation.Portal.exe'],
+               capture_output=True, timeout=5)
+    _sp_ui.run(['cmd.exe', '/c', 'taskkill', '/f', '/im', 'Siemens.Automation.Portal.exe'],
+               capture_output=True, timeout=5)
+    import time as _time
+    _time.sleep(5)  # 等 5 秒确保锁释放
+
+    # V21 需要 PLCSIM GUI 窗口在运行，否则扫描不到设备
+    print('   确保 PLCSIM GUI 已启动...')
+    try:
+        from plcsim_api import _ensure_user_interface
+        _ensure_user_interface()
+        _time.sleep(3)  # 给 GUI 窗口留出注册时间
+    except Exception as e:
+        print(f'   ⚠ PLCSIM GUI 启动检查异常（继续）: {e}')
+
+    # 准备 JSON 输入
+    project_path = cfg.tia.project_path
+    input_data = {
+        "ProjectPath": project_path,
+        "InterfaceName": "PN/IE",
+        "TargetIp": target_ip or "10.0.0.1",
+        "DeviceName": "",
+        "TimeoutSec": 120,
+    }
+
+    # 写入临时文件
+    import tempfile as _tf
+    tmp = _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
+    json.dump(input_data, tmp)
+    tmp_path = tmp.name
+    tmp.close()
+
+    try:
+        print(f'   启动 TiaWorker (headless)...')
+        r = _sp.run(
+            [tiaworker_exe, "download", tmp_path],
+            capture_output=True, text=True, timeout=180,
+            encoding='utf-8', errors='replace',
+        )
+        stdout = r.stdout.strip()
+        stderr = r.stderr.strip()
+        if stderr:
+            print(f'   [stderr] {stderr[:300]}')
+
+        if stdout:
+            result = json.loads(stdout)
+            if result.get('status') == 'ok':
+                data = result.get('data', {})
+                if data.get('success'):
+                    print(f'   ✅ TiaWorker 下载成功！')
+                    return 0
+                elif data.get('note') == 'auto':
+                    print(f'   ⚠ TiaWorker: {data.get("message", "需要手动确认")}')
+                    print(f'   回退到其他下载方式...')
+                    return -1
+                else:
+                    print(f'   ❌ TiaWorker 下载失败: {data.get("message", "未知错误")}')
+                    return 1
+            else:
+                print(f'   ❌ TiaWorker 返回错误: {result.get("error", "未知")}')
+                return 1
+        else:
+            print('   ⚠ TiaWorker 无输出，回退')
+            return -1
+    except json.JSONDecodeError as e:
+        print(f'   ⚠ TiaWorker 输出解析失败: {e}')
+        print(f'   原始输出: {stdout[:200] if stdout else "(空)"}')
+        return -1
+    except _sp.TimeoutExpired:
+        print('   ❌ TiaWorker 超时（180s）')
+        return 1
+    except Exception as e:
+        print(f'   ⚠ TiaWorker 异常: {e}')
+        return -1
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
 def _ensure_admin() -> bool:
     """确保以管理员权限运行。如不是，提示用户以管理员身份重新运行。
 
@@ -311,6 +454,7 @@ def main():
         return 1
 
     compile_first = '--compile-first' in sys.argv
+    force_tiaworker = '--tiaworker' in sys.argv
     force_python = '--python' in sys.argv
     force_ui = '--ui' in sys.argv
     target_ip = ''
@@ -322,7 +466,7 @@ def main():
         if a == '--ip' and i + 1 < len(args):
             i += 1
             target_ip = args[i]
-        elif a in ('--compile-first', '--ui', '--python'):
+        elif a in ('--compile-first', '--ui', '--python', '--tiaworker'):
             pass
         elif a.startswith('--'):
             print(f'未知参数: {a}')
@@ -339,6 +483,8 @@ def main():
     # ── 主下载策略 ──
     if force_ui:
         return download_via_ui(compile_first)
+    if force_tiaworker:
+        return _try_download_via_tiaworker(compile_first, target_ip)
     if force_python:
         rc = _try_download_via_python(compile_first, target_ip)
         if rc == 0:
@@ -346,12 +492,19 @@ def main():
         print(f'\n⚠ Python API 下载失败')
         return 1
 
-    # 默认策略：Python API → UI Automation → 手动
-    print(f'📥 下载策略: Python API → UI Automation → 手动指引')
+    # 默认策略：TiaWorker → Python API → UI Automation → 手动
+    print(f'📥 下载策略: TiaWorker(C#) → Python API → UI Automation → 手动指引')
     print()
-    rc = _try_download_via_python(compile_first, target_ip)
+    rc = _try_download_via_tiaworker(compile_first, target_ip)
     if rc == 0:
         return 0
+
+    if rc == -1:
+        print()
+        print(f'⚠ TiaWorker 不可用，切换至 Python API...')
+        rc = _try_download_via_python(compile_first, target_ip)
+        if rc == 0:
+            return 0
 
     if rc == -1:
         print()
