@@ -6,11 +6,11 @@
 
 # ── TIA Portal ──
 tia:
-  version: "V18"  # 当前使用 V18（V21 需要手动升级项目）
-  # TIA 项目文件 (.ap18)
-  project_path: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\demo.ap18}"
+  version: "V21"  # TIA Portal V21
+  # TIA 项目文件 (.ap21)
+  project_path: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21\\demo_V21.ap21}"
   # TIA Portal 安装目录（Openness API DLL 所在）
-  install_dir: "${TIA_INSTALL_DIR:D:\\TIA BEN TI\\Portal V18}"
+  install_dir: "${TIA_INSTALL_DIR:D:\\TIA BEN TI\\Portal V21}"
   # 仿真/输出文件目录（XML、SVG、SCL 均输出到此）
   output_dir: "${TIA_OUTPUT_DIR:D:\\TIA FANG ZHEN}"
 
