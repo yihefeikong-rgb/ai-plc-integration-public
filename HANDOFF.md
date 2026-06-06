@@ -20,7 +20,7 @@
 |:------|:-----|:----:|
 | **1** | OPC UA / Modbus 运行态 + 三菱 MC 协议 MCP | ✅ **完成** |
 | **2** | AI 控制闭环 + 安全互锁 | ✅ **完成**（跳过 Grafana/Ollama）|
-| **3** | TIA Portal 工程态 + LAD/SCL 代码生成 | 🟡 **进行中（90%）** |
+| **3** | TIA Portal 工程态 + LAD/SCL 代码生成 | 🟡 **进行中（95% — 权限问题已修复，待端到端验证）** |
 | **4** | 工业机器人 | ❌ 未开始 |
 | **5** | 统一编排 | ❌ 未开始 |
 
@@ -36,10 +36,20 @@
 - **plcsim_api.py V8.0 迁移** + Runtime Manager 自动启动 ✅
 - **Golden restore 验证通过** ✅
 
+**本次会话（2026-06-06）修复**:
+- ✅ **headless 编译阻塞修复**: `ensure_service_initialized()` 不再 taskkill GUI 进程（headless 模式依赖 IPC 通道，杀死 GUI 会摧毁通道）
+- ✅ **管理员权限修复**: 发现 TIA Portal Openness API 所有模式都需要管理员权限。入口脚本改为自提权（`_ensure_admin()` + `ShellExecuteW runas`），编译改用 GUI 模式
+- ✅ **GUI 模式编译**: `download_to_plcsim.py` 和 `run_end2end.py` 均改为 GUI 模式编译
+- ✅ **UAC 提权启动**: TIA Portal 启动改用 `ShellExecuteW runas`，非 admin 进程正常提权
+- ✅ **tasklist 兼容修复**: 全部 `tasklist` 调用改用 `cmd.exe /c` 避免 Git Bash 参数转发
+- ✅ **集成测试**: 新增 `tests/test_download_flow.py`（18 个测试，16 通过）
+- ✅ **批处理启动器**: 新增 `run_p3_complete.bat` 一键端到端流水线
+- ✅ **文档更新**: HANDOFF.md / SESSION_SUMMARY.md 已更新
+
 **待解决**:
-- TIA Portal headless 编译阻塞（"Connection to TiaPortal failed"）— 需要先手动启动一次 TIA Portal GUI 完成初始化
-- 端到端下载测试（需 headless 修复后或手动开 GUI 后跑 `download_to_plcsim.py --compile-first`）
-- Factory I/O 自动化验证（下载闭环通后）
+- 端到端下载验证 — 需以管理员身份运行 `run_p3_complete.bat` 或从管理员终端执行
+- Factory I/O 自动化验证 — 下载闭环通后才能跑
+- ConveyorControl 的 IO 偏移量（当前使用 %I0.0，config 配置 io_offset=10）
 - V21 Openness 迁移（搁置，DLL 拆分问题太大）
 
 ---
@@ -126,15 +136,24 @@ factory_io.driver_mode: "plcsim"  # Softbus 模式
 
 ```bash
 # 测试套件
-"D:/Python3/python.exe" -m pytest tests/ mcp-servers/mitsubishi-mcp/test_mc_protocol.py -v
+"D:/Python3/python.exe" -m pytest tests/ mcp-servers/tia-mcp/test_cartgen.py tests/test_download_flow.py -v
+
+# 下载流程测试
+"D:/Python3/python.exe" -m pytest tests/test_download_flow.py -v
+
+# P3 端到端流水线（一键批处理，自动提权）
+run_p3_complete.bat
+
+# 或手动步骤（从管理员终端）:
+"D:/Python3/python.exe" mcp-servers/tia-mcp/download_to_plcsim.py --compile-first
 
 # 查看 PLCSIM 实例
 "D:/Python3/python.exe" mcp-servers/tia-mcp/plcsim_api.py list
 
 # 从黄金备份恢复
-"D:/Python3/python.exe" mcp-servers/tia-mcp/plcsim_api.py restore factoryio1 \
+"D:/Python3/python.exe" mcp-servers/tia-mcp/plcsim_api.py restore factoryio \
   "D:/PLC cheng xu/TIA PLC CHENG XU/demo/factory_io1_golden.zip" \
-  "D:/PLC cheng xu/TIA PLC CHENG XU/demo/factoryio_persist" 10.0.0.1
+  "D:/PLC cheng xu/TIA PLC CHENG XU/demo/plcsim_storage" 10.0.0.1
 
 # 下载到 PLCSIM（编译+下载）
 "D:/Python3/python.exe" mcp-servers/tia-mcp/download_to_plcsim.py --compile-first
@@ -155,6 +174,12 @@ cd mcp-servers/tia-mcp/CartGen && dotnet run --project CartGen.csproj -- templat
 ---
 
 ## 六、关键发现与经验
+
+### TIA Portal Openness — 管理员权限（新发现）
+- `TiaPortal(WithoutUserInterface)` 和 `TiaPortal(WithUserInterface)` **都需要管理员权限**
+- `ensure_service_initialized()` 启动 GUI 后**不能杀死** — headless 模式依赖同一 IPC 通道
+- 启动 TIA Portal 也必须提权：`ShellExecuteW(None, "runas", ...)` 而非 `subprocess.Popen`
+- Python 入口脚本应自提权：`_ensure_admin()` 检测 → `ShellExecuteW runas` → 退出
 
 ### PLCSIM Advanced V8.0
 - Runtime Manager 必须运行才能 PowerOn（已修复：自动启动）
