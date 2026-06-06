@@ -81,58 +81,47 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
     """通过 Python tia_session + DownloadProvider API 下载。
 
     流程:
-      1. 确保 TIA Portal GUI 正在运行（编译和下载都需要）
-      2. GUI 模式编译 — tia_session(mode="gui") 附加到运行中 Portal
-      3. GUI 模式下载 — 通过 DownloadProvider API 下载到 PLCSIM
+      1. 确保 TIA Portal GUI 正在运行（仅一次）
+      2. 单个 GUI 模式会话 — tia_session(mode="gui") 附加到运行中 Portal
+      3. 在同一个会话内：先编译（可选），再下载到 PLCSIM
       4. 失败则返回 -1 触发 UI Automation fallback
 
     注意:
       - 始终使用 GUI 模式而非 headless，因为 WithoutUserInterface 需要管理员权限
-      - 编译和下载在同一 GUI 会话中完成
+      - 编译和下载在同一个 GUI 会话中完成，避免重复 attach/detach
     """
     from tia_session import tia_session
 
     print('🔌 通过 Python API 下载到 PLCSIM...')
     print()
 
-    # Step 1: GUI 模式编译
-    # 注意：TIA Portal WithoutUserInterface (headless) 模式需要管理员权限，
-    # 而 WithUserInterface (GUI) 模式可以附加到已运行的 Portal 进程。
-    # 因此编译和下载都使用 GUI 模式，确保无需提升权限。
-    if compile_first:
-        # 确保 TIA Portal GUI 运行中
-        if not _ensure_tia_gui_running():
-            print('⚠ 无法启动 TIA Portal GUI，切换至 UI Automation')
-            return -1
-
-        print('📦 编译中...')
-        with tia_session(mode="gui") as (project, plc_sw):
-            if not plc_sw:
-                print('❌ 未找到 PLC 设备')
-                return 1
-            from Siemens.Engineering.Compiler import ICompilable
-            compiler = plc_sw.GetService[ICompilable]()
-            cr = compiler.Compile()
-            if cr.ErrorCount > 0:
-                print(f'   ❌ 编译失败: Errors={cr.ErrorCount}')
-                return 1
-            print(f'   ✅ 编译成功: Warnings={cr.WarningCount}')
-            project.Save()
-        print()
-
-    # Step 2: 确保 TIA Portal GUI 运行中（如果上一步已启动则直接返回）
+    # 确保 TIA Portal GUI 运行中（仅启动一次，编译和下载共用同一会话）
     if not _ensure_tia_gui_running():
-        print('⚠ 无法启动 TIA Portal GUI，切换到 UI Automation')
+        print('⚠ 无法启动 TIA Portal GUI，切换至 UI Automation')
         return -1
 
-    # Step 3: GUI 模式下载（PLCSIM 虚拟网卡需要 GUI 会话）
-    print('📥 连接 TIA Portal GUI 并下载...')
+    # 单个 GUI 会话：先编译（可选），后下载
+    print('📥 连接 TIA Portal GUI...')
     try:
         with tia_session(mode="gui") as (project, plc_sw):
             if not plc_sw:
                 print('❌ 未找到 PLC 设备')
                 return 1
 
+            # ── Step 1: 编译（可选） ──
+            if compile_first:
+                print('📦 编译中...')
+                from Siemens.Engineering.Compiler import ICompilable
+                compiler = plc_sw.GetService[ICompilable]()
+                cr = compiler.Compile()
+                if cr.ErrorCount > 0:
+                    print(f'   ❌ 编译失败: Errors={cr.ErrorCount}')
+                    return 1
+                print(f'   ✅ 编译成功: Warnings={cr.WarningCount}')
+                project.Save()
+                print()
+
+            # ── Step 2: 下载到 PLCSIM ──
             from Siemens.Engineering.Download import (
                 DownloadProvider, DownloadConfigurationDelegate,
                 DownloadOptions, DownloadResultState,
