@@ -181,10 +181,13 @@ def force_cleanup(name: str):
     当 PLCSIM Advanced GUI 中出现无法删除的残留实例（如 IP 显示 0.0.0.0），
     或同名实例删除后自动恢复时，使用此函数完全清理。
 
+    ⚠ 注意：这会同时删除 PLCSIM 实例对应的 golden backup 文件（如果有）。
+
     清理项目:
       1. 通过 API 注销实例（UnregisterInstance）
-      2. 删除存储路径下的实例数据
-      3. 删除 ProgramData\\Siemens\\PLCSIMADV 下的残留缓存
+      2. 删除该实例的持久化存储目录下的所有文件（如 plcsim_storage/*）
+      3. 删除 golden backup 文件
+      4. 删除 ProgramData\\Siemens\\PLCSIMADV 下的残留缓存
 
     Args:
         name: 实例名称（如 "factoryio"）
@@ -197,36 +200,64 @@ def force_cleanup(name: str):
         if instance is not None:
             print(f"   API 注销 '{name}'...")
             _ensure_off(instance)
+            # 先读取 StoragePath（用于后续清理）
+            try:
+                sp = instance.StoragePath
+                if sp:
+                    print(f"   实例存储路径: {sp}")
+            except Exception:
+                sp = None
             instance.UnregisterInstance()
             print(f"   ✅ 已 API 注销")
     except Exception as e:
         print(f"   ⚠ API 注销异常（可忽略）: {e}")
+        sp = None
 
-    # 2. 清理常用存储路径
+    # 2. 清理持久化存储目录（PLCSIM 实例数据直接存在根下，不是子目录！）
+    known_storages = set()
     try:
         from config_loader import cfg
-        project_storage = os.path.join(os.path.dirname(cfg.tia.project_path), "plcsim_storage")
+        known_storages.add(os.path.join(os.path.dirname(cfg.tia.project_path), "plcsim_storage"))
     except Exception:
-        project_storage = None
-    known_storages = []
-    if project_storage:
-        known_storages.append(project_storage)
-    known_storages += [
-        r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\plcsim_storage",
-        r"D:\PLC cheng xu\TIA PLC CHENG XU\demo\plcsim_storage",
-    ]
-    for sp in known_storages:
-        for item in [name, f"{name}_persist", name.lower()]:
-            item_path = os.path.join(sp, item)
-            if os.path.exists(item_path):
-                try:
-                    import shutil
-                    shutil.rmtree(item_path, ignore_errors=True)
-                    print(f"   ✅ 已删除存储: {item_path}")
-                except Exception as e:
-                    print(f"   ⚠ 删除失败: {e}")
+        pass
+    known_storages.add(r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\plcsim_storage")
+    known_storages.add(r"D:\PLC cheng xu\TIA PLC CHENG XU\demo\plcsim_storage")
+    # 如果 API 返回了 StoragePath 也加上
+    if sp:
+        known_storages.add(sp)
 
-    # 3. 清理 ProgramData 下的实例缓存
+    for sp_path in known_storages:
+        if not os.path.exists(sp_path):
+            continue
+        # 这个目录就是该实例的完整持久化数据，全部删除
+        import shutil
+        for entry in os.listdir(sp_path):
+            entry_path = os.path.join(sp_path, entry)
+            try:
+                if os.path.isfile(entry_path):
+                    os.remove(entry_path)
+                else:
+                    shutil.rmtree(entry_path, ignore_errors=True)
+                print(f"   🗑 已删除: {entry_path}")
+            except Exception as e:
+                print(f"   ⚠ 删除失败 {entry_path}: {e}")
+
+    # 3. 删除 golden backup 文件
+    known_goldens = [
+        os.path.join(os.path.dirname(p), f"factory_io1_golden.zip") for p in known_storages
+    ] + [
+        r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\factory_io1_golden.zip",
+        r"D:\PLC cheng xu\TIA PLC CHENG XU\demo\factory_io1_golden.zip",
+    ]
+    for gz in known_goldens:
+        if gz and os.path.exists(gz):
+            try:
+                os.remove(gz)
+                print(f"   🗑 已删除 golden: {gz}")
+            except Exception as e:
+                print(f"   ⚠ 删除 golden 失败 {gz}: {e}")
+
+    # 4. 清理 ProgramData 下的实例缓存
     progdata = r"C:\ProgramData\Siemens\PLCSIMADV"
     if os.path.exists(progdata):
         for entry in os.listdir(progdata):
@@ -238,11 +269,45 @@ def force_cleanup(name: str):
                     else:
                         import shutil
                         shutil.rmtree(entry_path, ignore_errors=True)
-                    print(f"   ✅ 已清理 ProgramData: {entry_path}")
+                    print(f"   🗑 已清理 ProgramData: {entry_path}")
                 except Exception as e:
                     print(f"   ⚠ 清理失败: {e}")
 
-    print(f"[plcsim] ✅ 强制清理完成。请重启 PLCSIM Advanced GUI。")
+    # 4. 清理注册表中的实例记录
+    # PLCSIM Advanced 会在注册表中缓存实例列表，导致 GUI 重启后仍然显示
+    import winreg
+    for reg_root, reg_desc in [
+        (winreg.HKEY_LOCAL_MACHINE, "HKLM"),
+        (winreg.HKEY_CURRENT_USER, "HKCU"),
+    ]:
+        for subkey in [
+            r"SOFTWARE\Siemens\PLCSIMADV\RegisteredInstances",
+            r"SOFTWARE\Siemens\PLCSIMADV\Instances",
+            r"SOFTWARE\Siemens\PLCSIMADV",
+        ]:
+            try:
+                key = winreg.OpenKey(reg_root, subkey, 0, winreg.KEY_ALL_ACCESS)
+                # 枚举子项删包含 name 的
+                try:
+                    i = 0
+                    while True:
+                        sub_name = winreg.EnumKey(key, i)
+                        if name.lower() in sub_name.lower():
+                            sub_path = f"{subkey}\\{sub_name}"
+                            winreg.DeleteKey(reg_root, sub_path)
+                            print(f"   🗑 已删除注册表: {reg_desc}\\{sub_path}")
+                            i -= 1  # 删除后索引前移
+                        i += 1
+                except OSError:
+                    pass  # 枚举结束
+                winreg.CloseKey(key)
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                print(f"   ⚠ 注册表清理异常 {reg_desc}\\{subkey}: {e}")
+
+    print(f"[plcsim] ✅ 强制清理完成。重启 PLCSIM Advanced GUI 后实例应完全消失。")
+    print(f"   ⚠ golden backup 已被删除，需要在新建实例后重建。")
 
 
 def _ensure_user_interface():
