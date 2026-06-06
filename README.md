@@ -46,6 +46,7 @@ ai-plc-integration/
 ├── tests/                          # 测试套件（pytest）
 ├── 环境/                           # 仿真环境（Python venv）
 ├── start_all.py                    # ⭐ 一键启动：PLCSIM + Factory I/O + TIA MCP
+├── p3_flow.py                      # ⭐ P3 端到端：编译 + 下载 + FIO（TCP/IP）
 ├── run_gateway.py                  # 启动边缘网关
 ├── auto_full_pipeline.py           # 完整自动化流程脚本
 ├── check_progress.py               # 自动进度检测
@@ -98,8 +99,8 @@ instance = restore_instance(
     name="factoryio",
     golden_zip="D:\\backup\\factory_io1_golden.zip",
     storage_path="D:\\persist\\factoryio",
-    ip="10.0.0.1",
-    interface="tcpip",   # PLCSIM 或 TCPIP
+    ip="192.168.0.1",
+    interface="tcpip",   # TCP/IP 模式（Factory I/O 要求）
 )
 # 实例已 RUN ✅
 ```
@@ -112,18 +113,31 @@ python start_all.py --tia-only   # 仅启动 TIA MCP Server
 python start_all.py stop          # 停止所有
 ```
 
+### 端到端下载
+
+```bash
+python p3_flow.py                 # 完整流程：PLCSIM → 编译 → 下载 → FIO
+python p3_flow.py --download-only # 仅编译 + 下载
+```
+
+### 清理残留实例
+
+```bash
+python plcsim_api.py purge factoryio   # 强制清理残留实例数据
+```
+
 ## 📊 当前进度
 
 | 阶段 | 内容 | 状态 |
 |------|------|:----:|
 | **1** | OPC UA + Modbus 运行态基础 | ✅ 完成 |
 | **2** | AI 控制闭环 + 安全互锁 + Grafana | ✅ 完成 |
-| **3** | ⭐ TIA Portal 工程态 + LAD/SCL 生成 | 🟡 主要完成 |
+| **3** | ⭐ TIA Portal 工程态 + LAD/SCL 生成 | ✅ 完成 |
 | └─ | PLCSIM 首次下载限制突破（golden.zip 归档/恢复）| ✅ |
 | └─ | CartGen 18 模板全通过 | ✅ |
-| └─ | TIA Portal V21 升级适配 | ✅ |
-| └─ | TCP/IP 虚拟网卡配置 | ❌ 待解决 |
-| └─ | Factory I/O 自动连接 | ❌ 待解决 |
+| └─ | TIA Portal V21 升级适配 + DLL 拆分 | ✅ |
+| └─ | TCP/IP 模式切换 + Factory I/O 连接 | ✅ |
+| └─ | TiaWorker C# 桥接 + 端到端脚本 p3_flow.py | ✅ |
 | **4** | 工业机器人（ABB/UR） | 🔲 |
 | **5** | 统一编排 + 安全加固 | 🔲 |
 
