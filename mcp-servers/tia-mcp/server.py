@@ -598,6 +598,16 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
 {description}"""
 
 if __name__ == "__main__":
+    # 检查管理员权限 — TIA Portal Openness API 需要管理员权限
+    import ctypes
+    if not ctypes.windll.shell32.IsUserAnAdmin():
+        print('⚠' * 30)
+        print('⚠ TIA Portal Openness API 需要管理员权限！')
+        print('⚠ 请以管理员身份运行此服务器:')
+        print('⚠   "D:/Python3/python.exe" server.py')
+        print('⚠' * 30)
+        print()
+
     print(f"[TiaMCP] TIA Worker: {TIA_WORKER}")
     print(f"[TiaMCP] 默认项目: {cfg.tia.project_path}")
     print(f"[TiaMCP] DeepSeek: {'OK' if cfg.deepseek.api_key else '(未配置)'}")

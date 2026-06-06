@@ -3,6 +3,8 @@
 
 下载策略（按优先级）:
   1. Python API — 通过 Openness API DownloadProvider 直接下载（已验证）
+     编译使用 GUI 模式（附加到运行中 Portal，无需管理员权限）
+     下载使用 GUI 模式（PLCSIM 虚拟网卡需要 GUI 会话）
   2. UI Automation — 模拟 GUI 点击下载（后备，需 TIA Portal GUI 打开）
   3. 手动指引 — 如果以上均不可用
 
@@ -20,145 +22,21 @@ from config_loader import cfg
 TIA_PROJECT = cfg.tia.project_path
 
 
-def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -> int:
-    """通过 Python tia_session + DownloadProvider API 下载。
-
-    headless 模式编译，GUI 模式下载（PLCSIM 网卡需要 GUI 会话）。
-    如果 TIA Portal GUI 未运行，返回 -1 触发 UI Automation fallback。
-    """
-    from tia_session import tia_session
-
-    print('🔌 通过 Python API 下载到 PLCSIM...')
-    print()
-
-    # Step 1: headless 编译
-    if compile_first:
-        print('📦 编译中...')
-        with tia_session(mode="headless") as (project, plc_sw):
-            if not plc_sw:
-                print('❌ 未找到 PLC 设备')
-                return 1
-            from Siemens.Engineering.Compiler import ICompilable
-            compiler = plc_sw.GetService[ICompilable]()
-            cr = compiler.Compile()
-            if cr.ErrorCount > 0:
-                print(f'   ❌ 编译失败: Errors={cr.ErrorCount}')
-                return 1
-            print(f'   ✅ 编译成功: Warnings={cr.WarningCount}')
-            project.Save()
-        print()
-
-    # Step 2: GUI 模式下载（PLCSIM 虚拟网卡需要 GUI 会话）
-    print('📥 尝试 GUI 模式下载...')
-    try:
-        with tia_session(mode="gui") as (project, plc_sw):
-            if not plc_sw:
-                print('❌ 未找到 PLC 设备')
-                return 1
-
-            from Siemens.Engineering.Download import DownloadProvider, DownloadConfigurationDelegate, DownloadOptions, DownloadResultState
-
-            dev = project.Devices[0]
-
-            def find_dp(item, depth=0):
-                if depth > 5: return None
-                try:
-                    dp = item.GetService[DownloadProvider]()
-                    if dp: return dp
-                except: pass
-                for child in item.DeviceItems:
-                    r = find_dp(child, depth+1)
-                    if r: return r
-                return None
-
-            dp = find_dp(dev)
-            if dp is None:
-                print('❌ DownloadProvider 不可用')
-                return -1
-
-            # 配置 PLCSIM 连接
-            cc = dp.Configuration
-            mode = cc.Modes.Find("PN/IE")
-            if mode is None:
-                print('❌ 未找到 PN/IE')
-                return -1
-
-            pc_iface = None
-            for i in mode.PcInterfaces:
-                if 'PLCSIM' in str(i.Name).upper():
-                    pc_iface = i
-                    break
-            pc_iface = pc_iface or (mode.PcInterfaces[0] if mode.PcInterfaces.Count > 0 else None)
-            if pc_iface is None:
-                print('❌ 未找到可用网卡')
-                return -1
-
-            target = pc_iface.TargetInterfaces[0] if pc_iface.TargetInterfaces.Count > 0 else None
-            if target is None:
-                print('❌ 未找到目标 PLC')
-                return -1
-
-            # 指定 IP
-            ip = target_ip or '10.0.0.1'
-            addr = target.Addresses.Create(ip)
-
-            print(f'   网卡: {pc_iface.Name}')
-            print(f'   目标: {target.Name} @ {ip}')
-
-            def on_pre(c):
-                try:
-                    p = c.GetType().GetProperty('CurrentSelection')
-                    if p:
-                        p.SetValue(c, p.PropertyType.GetEnumValues().GetValue(0), None)
-                except: pass
-
-            def on_post(c):
-                try:
-                    p = c.GetType().GetProperty('CurrentSelection')
-                    if p:
-                        p.SetValue(c, p.PropertyType.GetEnumValues().GetValue(0), None)
-                except: pass
-
-            print('📥 正在下载到 PLCSIM...')
-            result = dp.Download(
-                target, addr,
-                DownloadConfigurationDelegate(on_pre),
-                DownloadConfigurationDelegate(on_post),
-                DownloadOptions.Software
-            )
-            success = result.State == DownloadResultState.Success
-            print(f'   状态: {result.State}, 错误: {result.ErrorCount}')
-            if success:
-                print('✅ 下载成功！')
-                project.Save()
-                return 0
-            else:
-                print(f'⚠ 下载状态: {result.State}')
-                project.Save()
-                return 0
-    except Exception as e:
-        msg = str(e)
-        print(f'⚠ 下载异常: {msg[:200]}')
-        if 'Connection to TiaPortal failed' in msg:
-            print('   TIA Portal GUI 未运行')
-        return -1
-
-
 def _ensure_tia_gui_running(timeout_sec: int = 120) -> bool:
     """确保 TIA Portal GUI 正在运行。
 
-    如果不在运行，通过 PortalBA.exe 启动它。
+    如果不在运行，通过 PortalBA.exe 启动它（支持 UAC 提权）。
     启动后等待 TIA Portal 完全加载完成。
 
     Returns:
         True 表示 TIA Portal GUI 可用，False 表示启动失败
     """
-    import subprocess, time
+    import subprocess, time, ctypes
 
-    # 检查是否已在运行
+    # 检查是否已在运行（用 cmd.exe 避免 git bash 参数转发问题）
     r = subprocess.run(
-        'tasklist /fi "IMAGENAME eq Siemens.Automation.Portal.exe" /fo csv /nh',
-        shell=True, capture_output=True, text=True, encoding='gbk', errors='replace',
+        ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe', '/fo', 'csv', '/nh'],
+        capture_output=True, text=True, encoding='gbk', errors='replace',
     )
     if r.stdout and 'Siemens.Automation.Portal.exe' in r.stdout:
         print('   ✅ TIA Portal GUI 已在运行')
@@ -171,14 +49,23 @@ def _ensure_tia_gui_running(timeout_sec: int = 120) -> bool:
         return False
 
     print(f'   🚀 启动 TIA Portal GUI (最多等 {timeout_sec}s)...')
-    subprocess.Popen([tia_bin, '/T', cfg.tia.project_path])
+    is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+    if is_admin:
+        subprocess.Popen([tia_bin, '/T', cfg.tia.project_path])
+    else:
+        # TIA Portal 需要管理员权限，用 ShellExecuteW runas 弹出 UAC 提权
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", tia_bin,
+            f'"/T" "{cfg.tia.project_path}"',
+            None, 1
+        )
 
     # 轮询等待进程出现
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         r = subprocess.run(
-            'tasklist /fi "IMAGENAME eq Siemens.Automation.Portal.exe" /fo csv /nh',
-            shell=True, capture_output=True, text=True, encoding='gbk', errors='replace',
+            ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe', '/fo', 'csv', '/nh'],
+            capture_output=True, text=True, encoding='gbk', errors='replace',
         )
         if r.stdout and 'Siemens.Automation.Portal.exe' in r.stdout:
             print('   ✅ TIA Portal GUI 已启动，等待项目加载...')
@@ -194,20 +81,32 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
     """通过 Python tia_session + DownloadProvider API 下载。
 
     流程:
-      1. headless 编译（可选）
-      2. 自动启动 TIA Portal GUI（如未运行）
-      3. attach → DownloadProvider API 下载到 PLCSIM
+      1. 确保 TIA Portal GUI 正在运行（编译和下载都需要）
+      2. GUI 模式编译 — tia_session(mode="gui") 附加到运行中 Portal
+      3. GUI 模式下载 — 通过 DownloadProvider API 下载到 PLCSIM
       4. 失败则返回 -1 触发 UI Automation fallback
+
+    注意:
+      - 始终使用 GUI 模式而非 headless，因为 WithoutUserInterface 需要管理员权限
+      - 编译和下载在同一 GUI 会话中完成
     """
     from tia_session import tia_session
 
     print('🔌 通过 Python API 下载到 PLCSIM...')
     print()
 
-    # Step 1: headless 编译
+    # Step 1: GUI 模式编译
+    # 注意：TIA Portal WithoutUserInterface (headless) 模式需要管理员权限，
+    # 而 WithUserInterface (GUI) 模式可以附加到已运行的 Portal 进程。
+    # 因此编译和下载都使用 GUI 模式，确保无需提升权限。
     if compile_first:
+        # 确保 TIA Portal GUI 运行中
+        if not _ensure_tia_gui_running():
+            print('⚠ 无法启动 TIA Portal GUI，切换至 UI Automation')
+            return -1
+
         print('📦 编译中...')
-        with tia_session(mode="headless") as (project, plc_sw):
+        with tia_session(mode="gui") as (project, plc_sw):
             if not plc_sw:
                 print('❌ 未找到 PLC 设备')
                 return 1
@@ -221,7 +120,7 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
             project.Save()
         print()
 
-    # Step 2: 确保 TIA Portal GUI 运行中
+    # Step 2: 确保 TIA Portal GUI 运行中（如果上一步已启动则直接返回）
     if not _ensure_tia_gui_running():
         print('⚠ 无法启动 TIA Portal GUI，切换到 UI Automation')
         return -1
@@ -378,7 +277,50 @@ def download_via_ui(compile_first: bool = False) -> int:
         return 1
 
 
+def _ensure_admin() -> bool:
+    """确保以管理员权限运行。如不是，提示用户以管理员身份重新运行。
+
+    TIA Portal Openness API (TiaPortal) 需要管理员权限，无论 headless 还是 GUI 模式。
+    如果当前不是管理员，尝试通过 ShellExecuteW runas 自提权（会弹出 UAC 对话框）。
+    提权后原进程退出，新进程以管理员身份运行。
+
+    Returns:
+        True 表示已具有管理员权限，False 表示提权失败或用户取消
+    """
+    import ctypes
+    if ctypes.windll.shell32.IsUserAnAdmin():
+        return True
+
+    print()
+    print('╔' + '═' * 58 + '╗')
+    print('║ ⚠ TIA Portal Openness API 需要管理员权限                    ║')
+    print('║    正在通过 UAC 请求提权...                                 ║')
+    print('╚' + '═' * 58 + '╝')
+    print()
+
+    # 通过 ShellExecuteW runas 启动新进程（会弹出 UAC 对话框）
+    script = os.path.abspath(sys.argv[0])
+    args = ' '.join(f'"{a}"' if ' ' in a else a for a in sys.argv[1:])
+    ret = ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", sys.executable, f'"{script}" {args}', None, 1
+    )
+    # ShellExecuteW 返回值 > 32 表示成功
+    if ret <= 32:
+        print('⚠ UAC 提权失败或用户取消。')
+        print()
+        print('请手动以管理员身份运行:')
+        print(f'   "D:/Python3/python.exe" {script} {" ".join(sys.argv[1:])}')
+        print()
+        print('或者以管理员身份打开命令提示符 (Win+X → 终端(管理员))')
+        return False
+    sys.exit(0)
+
+
 def main():
+    # 检查管理员权限 — TIA Portal Openness API 需要管理员权限
+    if not _ensure_admin():
+        return 1
+
     compile_first = '--compile-first' in sys.argv
     force_python = '--python' in sys.argv
     force_ui = '--ui' in sys.argv

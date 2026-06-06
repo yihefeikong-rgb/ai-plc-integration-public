@@ -63,26 +63,34 @@ def step_launch_tia():
 
     # 检查是否已在运行
     r = subprocess.run(
-        'tasklist /fi "IMAGENAME eq Siemens.Automation.Portal.exe" /nh',
-        shell=True, capture_output=True, text=True,
+        ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe', '/fo', 'csv', '/nh'],
+        capture_output=True, text=True,
     )
     if "Siemens.Automation.Portal" in r.stdout:
         log("  TIA Portal 已在运行")
         return True
 
-    # 用 cmd.exe start 启动（新窗口，用户桌面可见）
-    subprocess.run(
-        f'start "" "{TIA_EXE}"',
-        shell=True, cwd=os.path.dirname(TIA_EXE),
-    )
+    # 用 ShellExecuteW runas 提权启动（TIA Portal 需要管理员权限）
+    log("  请求 UAC 提权启动 TIA Portal...")
+    import ctypes
+    is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+    if is_admin:
+        subprocess.run(
+            f'start "" "{TIA_EXE}"',
+            shell=True, cwd=os.path.dirname(TIA_EXE),
+        )
+    else:
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", TIA_EXE, "", None, 1
+        )
     log("  启动命令已发送，等待窗口加载...")
 
     # 等 TIA Portal 启动（最多 2 分钟）
     for i in range(24):
         time.sleep(5)
         r = subprocess.run(
-            'tasklist /fi "IMAGENAME eq Siemens.Automation.Portal.exe" /nh',
-            shell=True, capture_output=True, text=True,
+            ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe', '/fo', 'csv', '/nh'],
+            capture_output=True, text=True,
         )
         if "Siemens.Automation.Portal" in r.stdout:
             log(f"  TIA Portal 已启动（{i*5 + 5}s）")
@@ -94,12 +102,12 @@ def step_launch_tia():
 
 
 def step_compile():
-    """headless 编译项目"""
-    log("Step 3: 编译项目（headless）...")
+    """编译项目（GUI 模式 — 附加到运行中的 TIA Portal）"""
+    log("Step 3: 编译项目...")
     sys.path.insert(0, BASE)
     from tia_session import tia_session
 
-    with tia_session(TIA_PROJECT) as (project, plc_sw):
+    with tia_session(TIA_PROJECT, mode="gui") as (project, plc_sw):
         from Siemens.Engineering.Compiler import ICompilable
         if not plc_sw:
             log("  ❌ 未找到 PLC 设备")
@@ -151,6 +159,20 @@ def step_update_golden():
 
 
 def main():
+    # 检查管理员权限 — TIA Portal Openness API 需要管理员权限
+    import ctypes
+    if not ctypes.windll.shell32.IsUserAnAdmin():
+        log("⚠ TIA Portal Openness API 需要管理员权限。正在请求 UAC 提权...")
+        script = os.path.abspath(sys.argv[0])
+        args = ' '.join(f'"{a}"' if ' ' in a else a for a in sys.argv[1:])
+        ret = ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", sys.executable, f'"{script}" {args}', None, 1
+        )
+        if ret <= 32:
+            log("⚠ UAC 提权失败。请以管理员身份运行:")
+            log(f'   "D:/Python3/python.exe" {script} {" ".join(sys.argv[1:])}')
+        return ret if ret > 32 else 1
+
     log("=" * 50)
     log("端到端自动化开始")
     log("=" * 50)

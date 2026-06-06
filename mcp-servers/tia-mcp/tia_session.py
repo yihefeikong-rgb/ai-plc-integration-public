@@ -33,8 +33,8 @@ def _kill_tia_processes():
     """
     try:
         r = subprocess.run(
-            'tasklist /fi "IMAGENAME eq Siemens.Automation.Portal.exe" /fo csv /nh',
-            shell=True, capture_output=True, text=True,
+            ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe', '/fo', 'csv', '/nh'],
+            capture_output=True, text=True,
             encoding='gbk', errors='replace',
         )
         if not r.stdout:
@@ -47,8 +47,8 @@ def _kill_tia_processes():
                     # 检查该进程有无主窗口（有窗口的是 GUI 实例，不能杀）
                     try:
                         check = subprocess.run(
-                            f'tasklist /fi "PID eq {pid}" /fi "WINDOWTITLE ne n/a" /fo csv /nh',
-                            shell=True, capture_output=True, text=True,
+                            ['cmd.exe', '/c', 'tasklist', '/fi', f'PID eq {pid}', '/fi', 'WINDOWTITLE ne n/a', '/fo', 'csv', '/nh'],
+                            capture_output=True, text=True,
                             encoding='gbk', errors='replace',
                         )
                         if check.stdout and check.stdout.strip():
@@ -76,6 +76,93 @@ def _find_plc_software(project):
             except Exception:
                 pass
     return None
+
+
+def ensure_service_initialized(timeout_sec: int = 120) -> bool:
+    """确保 TIA Portal 后台服务已初始化，headless 连接可用。
+
+    TIA Portal Openness WithoutUserInterface 模式需要 IPC 通道。
+    该通道在第一次 GUI 启动后自动初始化且保持存活。
+    如果 headless 连接失败，启动 GUI 来初始化服务并保持 GUI 运行
+    （headless 模式依赖同一 IPC 通道，杀死 GUI 会同时摧毁通道）。
+
+    注意：WithoutUserInterface 模式需要管理员权限（请求的操作需要提升）。
+    如果运行 Python 的进程没有管理员权限，headless 模式将不可用。
+    在这种情况下应使用 tia_session(mode="gui") 附加到运行中的 Portal 进程。
+
+    Returns:
+        True 表示服务已就绪，False 表示无法初始化
+    """
+    import subprocess, time, sys
+
+    # 1) 先试探 headless 连接
+    try:
+        import clr
+        from config_loader import cfg
+        _tia_dir = cfg.tia.install_dir
+        _tia_ver = cfg.tia.version
+        clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\Siemens.Engineering.dll')
+        clr.AddReference(rf'{_tia_dir}\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
+        from Siemens.Engineering import TiaPortal, TiaPortalMode
+
+        tia = TiaPortal(TiaPortalMode.WithoutUserInterface)
+        tia.Dispose()
+        print('   ✅ TIA Portal 服务已就绪')
+        return True
+    except Exception as e:
+        msg = str(e)
+        if 'Connection to TiaPortal failed' not in msg and 'OpennessAccessException' not in msg:
+            # 不是连接问题，可能是其他错误
+            print(f'   ⚠ headless 检查异常（非连接问题）: {msg[:100]}')
+            return True  # 让调用方决定
+
+    # 2) 连接失败 → 启动 TIA Portal GUI 初始化服务
+    print('   🚀 TIA Portal 服务未初始化，启动 GUI 来初始化...')
+    try:
+        from config_loader import cfg
+        tia_bin = os.path.join(cfg.tia.install_dir, 'Bin', 'Siemens.Automation.Portal.exe')
+    except Exception:
+        tia_bin = r'D:\TIA BEN TI\Portal V18\Bin\Siemens.Automation.Portal.exe'
+
+    if not os.path.exists(tia_bin):
+        print(f'   ❌ 未找到 TIA Portal: {tia_bin}')
+        return False
+
+    # 启动 GUI（不带项目参数，只为了初始化服务）
+    # TIA Portal 需要管理员权限，非 admin 进程需要用 ShellExecuteW runas 提权
+    import ctypes
+    is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+    if is_admin:
+        subprocess.Popen([tia_bin], shell=True)
+    else:
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", tia_bin, "", None, 1
+        )
+    print(f'   ⏳ 等待 TIA Portal 初始化 (最多 {timeout_sec}s)...')
+
+    deadline = time.time() + timeout_sec
+    started = False
+    while time.time() < deadline:
+        r = subprocess.run(
+            ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe', '/fo', 'csv', '/nh'],
+            capture_output=True, text=True, encoding='gbk', errors='replace',
+        )
+        if r.stdout and 'Siemens.Automation.Portal.exe' in r.stdout:
+            started = True
+            break
+        time.sleep(3)
+
+    if not started:
+        print('   ⚠ TIA GUI 未能在超时内启动')
+        return False
+
+    # 等 TIA 完全加载（包括插件、服务注册）
+    print('   ⏳ 等待 TIA Portal 完全加载...')
+    time.sleep(20)
+
+    # 3) 验证 headless 连接（GUI 保持打开 — headless 模式依赖同一 IPC 通道）
+    print('   ✅ TIA Portal GUI 已启动，后台服务就绪')
+    return True
 
 
 @contextmanager
@@ -119,6 +206,10 @@ def tia_session(project_path: str = None, mode: str = "headless"):
     clr.AddReference(rf'{_tia_dir}\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
     from Siemens.Engineering import TiaPortal, TiaPortalMode
     from System.IO import FileInfo
+
+    # headless 模式下先确保服务已初始化
+    if mode == "headless":
+        ensure_service_initialized()
 
     tia_mode = TiaPortalMode.WithUserInterface if mode == "gui" else TiaPortalMode.WithoutUserInterface
     tia = TiaPortal(tia_mode)

@@ -112,17 +112,29 @@ def list_io_map_fbs(include_all_fbs: bool = False) -> list:
             return []
 
         fb_list = []
+        io_map_names = set()
+
+        # 第一遍：收集 IO_Map_* FB 名称
         for block in plc_sw.BlockGroup.Blocks:
             name = str(block.Name)
             if name.startswith('IO_Map_'):
+                # IO_Map_ConveyorControl → ConveyorControl
+                underlying = name[len('IO_Map_'):]
+                io_map_names.add(underlying)
                 fb_list.append(name)
-            elif include_all_fbs:
-                # 包含所有非系统 FB
+
+        if include_all_fbs:
+            # 第二遍：收集非 IO_Map_* FB，排除已被包装的原始 FB
+            for block in plc_sw.BlockGroup.Blocks:
+                name = str(block.Name)
+                if name.startswith('IO_Map_'):
+                    continue
                 type_id = str(block.TypeIdentifier) if hasattr(block, 'TypeIdentifier') else ''
                 is_fb = 'FB' in type_id or 'FunctionBlock' in type_id
                 is_system = any(name.startswith(p) for p in SYSTEM_PREFIXES)
                 is_program_block = 'ProgramBlock' in type_id
-                if (is_fb or is_program_block) and not is_system and name not in fb_list:
+                is_already_wrapped = name in io_map_names
+                if (is_fb or is_program_block) and not is_system and not is_already_wrapped and name not in fb_list:
                     fb_list.append(name)
         return sorted(fb_list)
 
