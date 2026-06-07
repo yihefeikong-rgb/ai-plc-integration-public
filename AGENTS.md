@@ -42,6 +42,7 @@
 - **TCP/IP 模式**: 需先安装 PLCSIM 虚拟网卡（VirtualSwitchMisconfigured）
 - **`start_all.py`** 中 PLCSIM 内部实例名 `factory io1` 与 Factory IO 要求的 `factoryio` 不同（已统一为 `factoryio`）
 - `auto.cfg` 中 `auto_connect = True` 有时不生效，需在 Factory IO 控制台手动重设（已添加 `scene.start_in_run_mode = True`）
+- **Factory I/O 报 `Error Code:-4, DoesNotExist`**：双条件触发（1）PLCSIM Advanced Online Access 必须为 **TCP/IP** 模式而非 Softbus（V8.0 注册后只读，需 GUI 一次性切换）（2）auto.cfg 中 `instance_name` 值必须用**单引号**括起来，如 `instance_name = 'factoryio'`，否则解析为变量名导致值为空
 - `AppData\Local\Temp` 常被 TIA/PLCSIM 缓存塞满，需定期清理（约 6.8GB）：`del %TEMP%\*.* /s /q`（注意！清理前关掉所有打开的程序）
 - `mitsubishi-mcp/` 无硬件，`robot-mcp/` 未实现
 - **golden backup 路径**：V21 项目 golden 位于 `demo_V21\`，start_all.py 已自动检测
