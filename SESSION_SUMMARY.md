@@ -1,6 +1,6 @@
 # AI 接入 PLC — 项目总结
 
-> 最后更新: 2026-06-11（P4 robot-mcp 就绪，SCL 外部源阻塞）
+> 最后更新: 2026-06-11（知识库搭建完成，13条知识入库）
 
 ---
 
@@ -16,14 +16,77 @@
 
 ---
 
-## 已知阻塞（历史）
+## 2026-06-11 全量审查修复
 
-### ~~PLCSIM Advanced V8.0 许可证问题 (2026-06-06 已解决)~~ ✅
+### 审查范围
+6 大领域 17 项检查（安全/代码质量/测试/架构/文档/P4）
 
-~~- **现象**: `PowerOn()` 报 `Error Code: -30, LicenseNotFound`~~
-~~- **原因**: PLCSIM Advanced 试用期可能已过（14天），或从 V5.0 升级后许可证不兼容~~
-~~- **影响**: 无法通过 API 恢复/创建 PLCSIM 实例，端到端流水线阻塞~~
-- **解决**: 用户已确认许可证恢复正常，`PowerOn()` 不再报 -30，端到端流水线可正常运行（2026-06-07）
+### 修复统计
+
+| 类别 | 项数 | 关键操作 |
+|:-----|:----:|:---------|
+| 安全修复 | 3 | 删除重复 `.env`；更换泄漏 API Key；`start_all.py` 加管理员检测+PID锁 |
+| 审计日志统一 | 1 | 3 份 audit.py → `mcp_common/audit.py`；6 个调用文件改 import |
+| 测试加固 | 3 | 重命名伪测试；conftest.py 5 标记体系；硬件依赖自动跳过 |
+| 死代码清理 | 2 | 删除 11 文件（5 diag_tag_api + 4 废弃脚本 + 2 杂物） |
+| 大文件拆分 | 1 | `plcsim_api.py` 902→5 文件（入口+instance/backup/network/common） |
+| 路径配置迁移 | 1 | 硬编码路径移入 config.yaml；start_all/auto_full_pipeline 改用 cfg |
+| robot 工具重命名 | 1 | 7 工具 纯动词→动词_名词；同步 deploy_pnp/测试/文档 |
+| 文档同步 | 4 | SESSION/AGENTS/phase-3.md/README |
+
+### 文件变更
+- **49 files changed, 3345 insertions(+), 2251 deletions(-)**
+- 新增: robot-mcp (7文件), plcsim 子模块 (4文件), P4 文档, 测试
+- 删除: 5 diag_tag_api + 4 废弃脚本 + tia-mcp 残留
+
+---
+
+## 2026-06-11 知识库搭建（第二轮）
+
+### personal-knowledge-db 集成
+- 发现并连接 `personal-knowledge-db` MCP 服务器（SQLite + FTS5 + Embedding + RRF 混合搜索）
+- 项目审查：遍历全部源码、文档、配置文件，识别 10 大知识领域
+- 外部搜索：使用 Exa + Context7 搜索 TIA Openness、PLCSIM API、IEC 61131-3、MC 协议、OPC UA、FastMCP、PyModbus、安全标准等官方文档
+- 批量入库：共 **13 条结构化工控知识** 写入 knowledge-db
+
+### 入库内容（13条）
+| 分类 | 内容 | 来源 |
+|:-----|:-----|:-----|
+| TIA Portal Openness | API 概述、对象模型、编译接口 | Siemens 官方文档 |
+| PLCSIM Advanced V8.0 | API 工作流、IInstance 接口 | Siemens 手册 + 教程 |
+| IEC 61131-3 SCL | 语法、适用场景、最佳实践 | IEC 标准 + 技术博客 |
+| 三菱 MC 协议 | 3E 帧格式、软元件地址 | Mitsubishi 官方手册 |
+| OPC UA + asyncua | 协议概述、Python 库用法 | asyncua 文档 |
+| Factory I/O 集成 | 标准版 + Advanced 版设置 | Factory I/O 官方文档 |
+| FastMCP 框架 | 三种原语、传输模式、模板 | FastMCP 官方教程 |
+| Modbus TCP + PyModbus | 数据模型、功能码、帧格式 | PyModbus 官方文档 |
+| 工业安全标准 | 急停电路、互锁规则、SIL/PL | IEC/ISO 标准文档 |
+| PyRI 机器人 | 架构、I/O 映射、已知阻塞 | 开源项目参考 |
+| 项目进度状态 | Phase 状态、阻塞、测试统计 | 本仓库 |
+| MCP 服务器架构 | 6 个服务器详情 | 本仓库 |
+
+### 敏感信息检查
+- `.env` 中的 DEEPSEEK_API_KEY — ✅ 已被 `.gitignore` 忽略，未跟踪
+- 硬编码 IP — 均为默认占位值（192.168.0.1/10.0.0.1），无真实设备 IP
+- 无私钥、无 GitHub Token、无数据库连接串 — ✅ 安全
+
+---
+
+## 已知阻塞
+
+### PLCSIM 相关
+- ~~PLCSIM Advanced V8.0 许可证问题~~ ✅ 已解决
+- PowerOff 后实例无法再次启动，必须重启电脑
+
+### TIA Portal 相关
+- 首次下载硬件配置必须在 TIA Portal GUI 手动完成
+- 所有 Openness API 调用需要管理员权限
+- 每次下载需重新扫描设备（西门子已知行为）
+
+### P4 阻塞
+- SCL 外部源文件不支持 `AT %I`/`AT %Q` 语法
+- 需要在 TIA Portal GUI 中手工创建标签表 + 块编辑器粘贴 SCL
+- robot-mcp 代码已就绪但未在真实环境运行验证
 
 ---
 
@@ -39,98 +102,37 @@
 | `tests/test_robot_mcp.py` | 7 | OPC UA 连接、I/O 映射、安全互锁 |
 | `mcp-servers/mitsubishi-mcp/test_mc_protocol.py` | 54 | 帧结构、响应解析 |
 | `mcp-servers/tia-mcp/test_cartgen.py` | 5 | 21 模板 + CartGen 编译 |
-| **总计** | **156** | |
-
----
-
-## 本次会话修复
-
-| Bug | 文件 | 影响 |
-|:----|:-----|:-----|
-| `_kill_tia_processes()` 杀全部 Siemens 进程 | `tia_session.py` | 误杀 GUI TIA Portal + PLCSIM |
-| 项目已打开时 `Open()` 冲突 | `tia_session.py` | 连接 TIA Portal 卡死 |
-| 编译 State=Warning 被拒绝 | `download_to_plcsim.py` | 0 错误编译被判断失败 |
-| 自己 new TiaPortal 和已打开 GUI 冲突 | `download_to_plcsim.py` | 连接卡死 |
-| 没有超时机制 | `download_to_plcsim.py` | 卡住无法中断 |
-| `is_bit_device("TN0")` 误判 | `mc_protocol.py` | TN/CN 被当成位设备 |
-
-### 本次会话（2026-06-06）修复
-
-| Bug | 文件 | 影响 |
-|:----|:-----|:-----|
-| `ensure_service_initialized()` 启动 GUI 后立即 taskkill | `tia_session.py` | 杀死 IPC 通道，headless 永远连不上 |
-| headless 模式需要管理员权限 | `download_to_plcsim.py` | `TiaPortal(WithoutUserInterface)` 报"需要提升" |
-| 编译用 headless 模式，非 admin 时报错 | `download_to_plcsim.py` | 编译永远失败，无法完成下载 |
-| run_end2end.py 编译仍用 headless | `run_end2end.py` | 端到端脚本编译失败 |
-| tasklist 在 Git Bash 中参数被转发 | 全部 `tasklist` 调用 | `/fi` 被转为 `C:/Program Files/Git/fi` |
-| 非 admin 进程无法启动 TIA Portal | `download_to_plcsim.py`, `tia_session.py` | `subprocess.Popen` 报 WinError 740 |
-
-### 本次会话（2026-06-06 第2次）修复
-
-| Bug | 文件 | 影响 |
-|:----|:-----|:-----|
-| `run_p3_complete.bat` 是 LF+UTF-8 编码 | `run_p3_complete.bat` | cmd.exe 无法解析，显示乱码和"不是内部或外部命令" |
-| emoji 在 GBK 控制台报 UnicodeEncodeError | `download_to_plcsim.py` 等 5 个文件 | 43 处 emoji 在有中文 Windows 控制台崩溃 |
-| 缺少独立的 golden backup 脚本 | — | 批处理中无法通过单行 Python 调用 archive |
+| **总计** | **156** | **151 passed, 5 skipped, 0 failed** |
 
 ---
 
 ## 快速命令
 
 ```bash
-# 测试（全部）
-python -m pytest tests/ mcp-servers/mitsubishi-mcp/test_mc_protocol.py -v
+# 测试（全部离线）
+"d:/python3/python.exe" -m pytest tests/ mcp-servers/mitsubishi-mcp/test_mc_protocol.py -v
 
-# 测试（P3 下载流程）
-python -m pytest tests/test_download_flow.py -v
-
-# P3 端到端流水线（管理员身份运行！）
-run_p3_complete.bat                    # 完整流水线
-run_p3_complete.bat --no-compile       # 跳过编译，仅下载
-
-# 或手动步骤（从管理员终端）
-python mcp-servers/tia-mcp/download_to_plcsim.py --compile-first
-
-# 一键启动（PLCSIM + TIA + Factory IO）
+# 一键启动（PLCSIM + Factory IO + TIA MCP）
 python start_all.py
+python start_all.py stop
 
-# 边缘网关（AI 控制循环）
-python run_gateway.py
+# 完整自动化流水线（管理员身份运行）
+python auto_full_pipeline.py
 
 # TIA MCP Server（需管理员权限）
 cd mcp-servers/tia-mcp && python server.py
 
 # PLCSIM 管理
 python mcp-servers/tia-mcp/plcsim_api.py list
-python mcp-servers/tia-mcp/plcsim_api.py restore factoryio ^
-  "D:/PLC cheng xu/TIA PLC CHENG XU/demo/factory_io1_golden.zip" ^
-  "D:/PLC cheng xu/TIA PLC CHENG XU/demo/plcsim_storage" 10.0.0.1
+python mcp-servers/tia-mcp/plcsim_api.py restore factoryio <zip> <storage_path> <ip>
+
+# Robot MCP
+python mcp-servers/robot-mcp/server.py
+python mcp-servers/robot-mcp/verify_pick_and_place.py
+
+# 边缘网关
+python run_gateway.py
 ```
-
-> **⚠ 重要提示**: TIA Portal Openness API（无论 headless 还是 GUI 模式）需要管理员权限。
-> 请从"以管理员身份运行"的命令提示符或 PowerShell 中执行上述命令。
-
----
-
-## ⚡ 关键约束
-
-### 管理员权限（新发现！）
-TIA Portal Openness API 的所有模式（`WithoutUserInterface` 和 `WithUserInterface`）都需要**管理员权限**。非 admin 进程调用 `TiaPortal()` 会报 "请求的操作需要提升"。
-- Python 脚本入口已添加自提权检测（`ShellExecuteW runas`）
-- 启动 TIA Portal GUI 也从 `subprocess.Popen` 改为 `ShellExecuteW runas`
-- 所有 `tasklist` 调用改用 `cmd.exe /c` 避免 Git Bash 参数转发问题
-
-### PLCSIM PowerOff 铁律
-任何方式的 PowerOff 后实例无法再次启动，**必须重启电脑**。
-更新程序时：TIA Portal 切 STOP → 下载 → 切回 RUN。
-
-### 首次下载限制
-首次下载硬件配置必须在 **TIA Portal GUI 手动完成**。
-首次后可用 golden backup + API 自动化（已验证）。
-
-### 实例名
-当前统一使用 `factoryio`（无空格）：config.yaml、golden backup、场景文件均已一致。
-（之前不一致的 `factory io1` 已在之前会话中修复）
 
 ---
 
@@ -138,29 +140,12 @@ TIA Portal Openness API 的所有模式（`WithoutUserInterface` 和 `WithUserIn
 
 | 目录 | 说明 |
 |:-----|:-----|
-| `docs/` | Phase 1-3 文档齐全 |
-| `mcp-servers/tia-mcp/` | TIA Portal + CartGen + PLCSIM API |
+| `docs/` | Phase 1-4 文档齐全 |
+| `mcp-servers/tia-mcp/` | TIA Portal + CartGen + PLCSIM API（已拆分5模块） |
+| `mcp-servers/robot-mcp/` | 机器人 MCP 服务端（7 工具，P4 开发中） |
 | `mcp-servers/opcua-mcp/` | OPC UA 读写服务 |
-| `mcp-servers/mitsubishi-mcp/` | 三菱 MC 协议（**已完成**） |
-| `mcp-servers/robot-mcp/` | 机器人 MCP 服务端（P4 基础完成） |
+| `mcp-servers/modbus-mcp/` | Modbus 读写服务 |
+| `mcp-servers/mitsubishi-mcp/` | 三菱 MC 协议（已完成） |
 | `edge-gateway/` | AI 控制循环 + 数据采集 |
 | `safety/` | 审计 + 写入校验 + 互锁规则 |
 | `tests/` | 97 测试 + 根目录 59 测试 |
-
----
-
-## P4 当前状态（2026-06-07 — SCL 外部源语法踩坑）
-
-### SCL 外部源文件语法限制（关键发现）
-TIA Portal V21 的外部源文件解析器有严格的语法限制，与块编辑器内部不同：
-- `TITLE` 值不加引号：`TITLE = Pick & Place Control`
-- `{ S7_Optimized_Access := 'TRUE' }` 必须紧接 `TITLE` 后、`VERSION` 前
-- **不支持 `AT %I` / `AT %Q`** — 引用 I/O 须用标签名 `"I0.8"`
-- 单个 SCL 文件可包含 `FUNCTION_BLOCK` + `DATA_BLOCK` + `ORGANIZATION_BLOCK`
-
-已验证可导入模板：
-- `mcp-servers/tia-mcp/ConveyorControl_OB1.scl` — 不使用 AT，纯引用标签名称
-
-### P4 资产就绪
-- **robot-mcp 服务端**（7 MCP 工具 + 双协议后端）— 就绪
-- **PLCSIM 部署** — 阻塞（需 TIA GUI 手动创建 I/O 标签表，然后在块编辑器粘贴 SCL，编译下载）
