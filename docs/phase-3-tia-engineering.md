@@ -41,22 +41,24 @@
 
 ---
 
-## 🚧 待解决
+## ✅ 已解决
 
 ### TCP/IP 虚拟网卡配置
-- **问题**: `VirtualSwitchMisconfigured` (-50) 错误
-- **原因**: PLCSIM Advanced TCP/IP 模式需要 "Siemens PLCSIM Virtual Ethernet Adapter"
-- **解决**: 在 PLCSIM Advanced GUI → Settings → 创建虚拟网卡
-- **替代**: 当前在 Softbus 模式下运行，不影响 LAD 生成和导入
+- **状态**: ✅ 已解决 — `start_all.py` 和 `p3_flow.py` 自动检测并切换 TCP/IP 模式
+- PLCSIM Advanced GUI → Settings 虚拟网卡创建后，API 自动选择 TCP/IP 模式
+- `plcsim_api.py` 通过 `switch_to_tcpip()` 和 `ip` 参数实现
+- 启动命令: `python start_all.py` 自动配置
 
 ### Factory I/O 自动连接
-- 需要 TCP/IP 模式 + `auto.cfg` 配置文件
+- **状态**: ✅ 已解决 — 通过 `auto.cfg` 自动配置
 - 文件位置: `Documents\Factory IO\auto.cfg`
-- 格式: 指定场景 + PLC 类型 + IP 地址
+- 启动脚本: `python scripts/launch_factory_io.py` 自动生成 `auto.cfg`
+- `start_all.py` 中内置 Factory I/O 自动启动流程
 
 ### 三端一键启动脚本
-- 目标: `python start_all.py` 启动 PLCSIM + TIA + Factory I/O
-- 流程: restore_instance → start Factory I/O → start TIA Openness
+- **状态**: ✅ 已实现 — `python start_all.py`
+- 流程: restore_instance → start Factory I/O → start TIA MCP Server
+- 支持子命令: `--plcsim-only`, `--factory-only`, `--tia-only`, `--with-robot`
 
 ---
 
@@ -129,7 +131,7 @@ dotnet run --project CartGen/CartGen.csproj -- templates/电机正反转.json
 python generate_custom.py  # 改 DESCRIPTION 变量
 
 # 启动 TIA MCP Server
-python server.py
+cd mcp-servers/tia-mcp && python server.py
 ```
 
 ---

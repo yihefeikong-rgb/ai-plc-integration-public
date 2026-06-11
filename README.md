@@ -30,10 +30,10 @@ ai-plc-integration/
 │   │   ├── batch_gen_all.py        # 批量生成流水线
 │   │   ├── download_to_plcsim.py / dl_plcsim_gui.py  # 下载到 PLCSIM
 │   │   ├── test_dl_plcsim_gui.py / test_restore.py   # 测试
-│   │   └── fix_tia_protection.py   # TIA 项目保护设置修复
+│   │   └── diagnose_download.py    # 下载诊断工具
 │   ├── opcua-mcp/                  # OPC UA 运行时 MCP（西门子）
 │   ├── modbus-mcp/                 # Modbus TCP MCP
-│   └── mitsubishi-mcp/             # 三菱 MC 协议 MCP（开发中）
+│   └── mitsubishi-mcp/             # 三菱 MC 协议 MCP（✅ 已完成）
 ├── edge-gateway/                   # 边缘网关（InfluxDB + 数据采集 + AI 决策）
 ├── plc-code-templates/             # AI 生成 PLC 代码 Prompt 模板（SCL）
 │   └── siemens-scl/                # 电机控制/传送带/PID/搅拌器/交通灯等
@@ -138,7 +138,14 @@ python plcsim_api.py purge factoryio   # 强制清理残留实例数据
 | └─ | TIA Portal V21 升级适配 + DLL 拆分 | ✅ |
 | └─ | TCP/IP 模式切换 + Factory I/O 连接 | ✅ |
 | └─ | TiaWorker C# 桥接 + 端到端脚本 p3_flow.py | ✅ |
-| **4** | 工业机器人（ABB/UR） | 🔲 |
+| **4** | 工业机器人 MCP (Pick & Place / OPC UA) | 🟡 开发中 |
+| └─ | robot-mcp 服务器 (7 工具) | ✅ 完成 |
+| └─ | Pick & Place (Basic) 场景 I/O 映射 | ✅ 完成 |
+| └─ | 安全复位/急停互锁/异常恢复 | ✅ 完成 |
+| └─ | docs/phase-4-robot.md 文档 | ✅ 完成 |
+| └─ | 集成到 start_all.py --with-robot | ✅ 完成 |
+| └─ | 集成测试 tests/test_robot_mcp.py | ✅ 完成 |
+| └─ | 真实硬件/PyRI/RoboDK 升级 | 🔲 待定 |
 | **5** | 统一编排 + 安全加固 | 🔲 |
 
 ## 🖥️ TIA MCP 工具链架构
@@ -184,7 +191,8 @@ TIA Portal 项目 → 编译 → PLCSIM 仿真 → Factory I/O 可视化
 - **`start_all.py`** 中实例名 `factory io1` 与 Factory I/O 要求的 `factoryio` 不同
 - **CartGen**: 不支持并联分支（parallelElements），自保持用 Set/Reset 模式
 - **三菱 MCP**: 无硬件测试环境
-- **工业机器人**: 待接入
+- **Pick & Place (Basic)**: 机械臂 I/O 时序需根据实际场景微调（延迟等待时间）
+- **RoboDK 升级**: 后续阶段，当前聚焦 Factory I/O 内置场景
 
 ## 🔒 安全
 

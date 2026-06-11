@@ -1,0 +1,23 @@
+{
+    "tagTableName": "PickAndPlace_IO",
+    "tags": [
+        {"name": "I0_0", "dataType": "Bool", "address": "%I0.0", "comment": "Item at entry — 入口有料传感器"},
+        {"name": "I0_1", "dataType": "Bool", "address": "%I0.1", "comment": "Item at exit — 出口有料传感器"},
+        {"name": "I0_2", "dataType": "Bool", "address": "%I0.2", "comment": "Moving X — X轴极限传感器"},
+        {"name": "I0_3", "dataType": "Bool", "address": "%I0.3", "comment": "Moving Z — Z轴极限传感器"},
+        {"name": "I0_4", "dataType": "Bool", "address": "%I0.4", "comment": "Item detected — 夹爪抓取检测"},
+        {"name": "I0_5", "dataType": "Bool", "address": "%I0.5", "comment": "Start button — 启动按钮"},
+        {"name": "I0_6", "dataType": "Bool", "address": "%I0.6", "comment": "Reset button — 复位按钮"},
+        {"name": "I0_7", "dataType": "Bool", "address": "%I0.7", "comment": "Stop button — 停止按钮"},
+        {"name": "I0_8", "dataType": "Bool", "address": "%I0.8", "comment": "Emergency stop — 急停"},
+        {"name": "I0_9", "dataType": "Bool", "address": "%I0.9", "comment": "Auto/Manual — 模式选择"},
+        {"name": "Q0_0", "dataType": "Bool", "address": "%Q0.0", "comment": "Entry conveyor — 入口传送带"},
+        {"name": "Q0_1", "dataType": "Bool", "address": "%Q0.1", "comment": "Exit conveyor — 出口传送带"},
+        {"name": "Q0_2", "dataType": "Bool", "address": "%Q0.2", "comment": "Move X — 机械臂X轴伸出/缩回"},
+        {"name": "Q0_3", "dataType": "Bool", "address": "%Q0.3", "comment": "Move Z — 机械臂Z轴下降/上升"},
+        {"name": "Q0_4", "dataType": "Bool", "address": "%Q0.4", "comment": "Grab — 夹爪抓紧/松开"},
+        {"name": "Q0_5", "dataType": "Bool", "address": "%Q0.5", "comment": "Start light — 启动指示灯"},
+        {"name": "Q0_6", "dataType": "Bool", "address": "%Q0.6", "comment": "Reset light — 复位指示灯"},
+        {"name": "Q0_7", "dataType": "Bool", "address": "%Q0.7", "comment": "Stop light — 停止指示灯"}
+    ]
+}

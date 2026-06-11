@@ -7,7 +7,7 @@ import asyncio
 from fastmcp import FastMCP
 from config.settings import settings
 from safety.validator import validator as safety_validator
-from safety.audit import audit
+from mcp_common.audit import audit
 from .mc_protocol import (
     build_read_request, build_write_request,
     parse_read_response, parse_write_response, MCFrameError,

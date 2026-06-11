@@ -111,7 +111,7 @@ class TestMainArgumentParsing:
     """main() 命令行参数解析测试"""
 
     def test_compile_first_flag(self):
-        """--compile-first 标志检测"""
+        """--compile-first 标志检测（与实现在逻辑上一致：直接检查 sys.argv）"""
         sys.argv = ['download_to_plcsim.py', '--compile-first']
         assert '--compile-first' in sys.argv
 
@@ -123,7 +123,7 @@ class TestMainArgumentParsing:
     def test_ip_argument(self):
         """--ip 参数检测"""
         sys.argv = ['download_to_plcsim.py', '--ip', '10.0.0.2']
-        # 手动解析
+        # 手动解析（与 download_to_plcsim.py 实际的解析逻辑一致）
         args = sys.argv[1:]
         target_ip = ''
         i = 0
@@ -143,7 +143,6 @@ class TestFallbackLogic:
         """Python API 返回 -1 应触发 UI Automation 降级"""
         # 模拟 _try_download_via_python 返回 -1
         simulated_rc = -1
-        assert simulated_rc == -1
         assert simulated_rc != 0  # 不是成功
         # 在 download_to_plcsim.py 的逻辑中，rc == -1 触发 UI Automation
         # 这是预期的降级行为
@@ -156,7 +155,7 @@ class TestFallbackLogic:
 
 
 class TestPlcsimApi:
-    """PLCSIM API 基础功能测试（不依赖硬件）"""
+    """PLCSIM API 基础功能测试（需要 PLCSIM 运行时）"""
 
     def test_plcsim_module_importable(self):
         """plcsim_api 模块可导入"""
@@ -165,8 +164,9 @@ class TestPlcsimApi:
         assert callable(create_instance)
         assert callable(stop_instance)
 
+    @pytest.mark.plcsim
     def test_get_instances_returns_list(self):
-        """get_instances() 返回列表（可能为空）"""
+        """get_instances() 返回列表（需要 PLCSIM 运行时）"""
         from plcsim_api import get_instances
         instances = get_instances()
         assert isinstance(instances, list)

@@ -9,7 +9,7 @@ sys.path.insert(0, str(PROJECT / "edge-gateway" / "src"))
 
 from pymodbus.client import ModbusTcpClient
 from config.settings import settings
-from safety.audit import audit
+from mcp_common.audit import audit
 from ai_client import ai
 
 

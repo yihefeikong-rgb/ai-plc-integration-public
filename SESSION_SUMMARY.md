@@ -1,6 +1,6 @@
 # AI 接入 PLC — 项目总结
 
-> 最后更新: 2026-06-06（第 2 次会话）
+> 最后更新: 2026-06-11（P4 robot-mcp 就绪，SCL 外部源阻塞）
 
 ---
 
@@ -10,26 +10,20 @@
 |:------|:-----|:----:|
 | **1** | OPC UA / Modbus 运行态 + 三菱 MC 协议 MCP | ✅ 完成 |
 | **2** | AI 控制闭环 + 安全互锁 | ✅ 完成（Grafana/Ollama 跳过） |
-| **3** | TIA Portal 工程态 + LAD/SCL 生成 | 🟡 **P3 闭环修复完成，遇 PLCSIM V8.0 许可证问题阻塞** |
-| **4** | 工业机器人 | ❌ 未开始 |
+| **3** | TIA Portal 工程态 + LAD/SCL 生成 | ✅ **完成（V21 全链路：编译→下载→仿真→FIO）** |
+| **4** | 工业机器人 | 🟡 开发中（robot-mcp 已就绪，SCL 外部源阻塞） |
 | **5** | 统一编排 | ❌ 未开始 |
 
 ---
 
-## 已知阻塞
+## 已知阻塞（历史）
 
-### PLCSIM Advanced V8.0 许可证问题 (2026-06-06)
+### ~~PLCSIM Advanced V8.0 许可证问题 (2026-06-06 已解决)~~ ✅
 
-- **现象**: `PowerOn()` 报 `Error Code: -30, LicenseNotFound`
-- **原因**: PLCSIM Advanced 试用期可能已过（14天），或从 V5.0 升级后许可证不兼容
-- **影响**: 无法通过 API 恢复/创建 PLCSIM 实例，端到端流水线阻塞
-- **代码改善**: `plcsim_api.py` 已添加 `-30` 错误码映射 + 详细中文诊断帮助
-- **解决方案优先级**:
-  1. 检查 PLCSIM Advanced GUI → License/About → 确认试用状态
-  2. 重新安装 PLCSIM Advanced V8.0 刷新 14 天试用
-  3. 改用 TIA Portal V18 内置 PLCSIM Basic 仿真（免费，无需独立许可证）
-  4. 使用 OpenPLC Docker 仿真（完全免费）
-  5. 购买 PLCSIM Advanced 正式许可证
+~~- **现象**: `PowerOn()` 报 `Error Code: -30, LicenseNotFound`~~
+~~- **原因**: PLCSIM Advanced 试用期可能已过（14天），或从 V5.0 升级后许可证不兼容~~
+~~- **影响**: 无法通过 API 恢复/创建 PLCSIM 实例，端到端流水线阻塞~~
+- **解决**: 用户已确认许可证恢复正常，`PowerOn()` 不再报 -30，端到端流水线可正常运行（2026-06-07）
 
 ---
 
@@ -38,12 +32,14 @@
 | 测试文件 | 数量 | 内容 |
 |:---------|:----:|:-----|
 | `tests/test_config_loader.py` | 22 | 环境变量、路径识别、Schema 校验 |
-| `tests/test_edge_gateway.py` | 29 | 变化检测、阈值判定（**新增**） |
+| `tests/test_edge_gateway.py` | 29 | 变化检测、阈值判定 |
 | `tests/test_safety_audit.py` | 7 | 链式哈希、防篡改 |
 | `tests/test_safety_validator.py` | 14 | 急停禁用、熔断、值跳变 |
-| `mcp-servers/mitsubishi-mcp/test_mc_protocol.py` | 54 | 帧结构、响应解析（**新增**） |
+| `tests/test_download_flow.py` | 21 | 下载流程、管理员检测、PLCSIM API |
+| `tests/test_robot_mcp.py` | 7 | OPC UA 连接、I/O 映射、安全互锁 |
+| `mcp-servers/mitsubishi-mcp/test_mc_protocol.py` | 54 | 帧结构、响应解析 |
 | `mcp-servers/tia-mcp/test_cartgen.py` | 5 | 21 模板 + CartGen 编译 |
-| **总计** | **131** | |
+| **总计** | **156** | |
 
 ---
 
@@ -146,7 +142,25 @@ TIA Portal Openness API 的所有模式（`WithoutUserInterface` 和 `WithUserIn
 | `mcp-servers/tia-mcp/` | TIA Portal + CartGen + PLCSIM API |
 | `mcp-servers/opcua-mcp/` | OPC UA 读写服务 |
 | `mcp-servers/mitsubishi-mcp/` | 三菱 MC 协议（**已完成**） |
-| `mcp-servers/robot-mcp/` | 机器人（未开始） |
+| `mcp-servers/robot-mcp/` | 机器人 MCP 服务端（P4 基础完成） |
 | `edge-gateway/` | AI 控制循环 + 数据采集 |
 | `safety/` | 审计 + 写入校验 + 互锁规则 |
-| `tests/` | 83 测试 + 根目录 48 测试 |
+| `tests/` | 97 测试 + 根目录 59 测试 |
+
+---
+
+## P4 当前状态（2026-06-07 — SCL 外部源语法踩坑）
+
+### SCL 外部源文件语法限制（关键发现）
+TIA Portal V21 的外部源文件解析器有严格的语法限制，与块编辑器内部不同：
+- `TITLE` 值不加引号：`TITLE = Pick & Place Control`
+- `{ S7_Optimized_Access := 'TRUE' }` 必须紧接 `TITLE` 后、`VERSION` 前
+- **不支持 `AT %I` / `AT %Q`** — 引用 I/O 须用标签名 `"I0.8"`
+- 单个 SCL 文件可包含 `FUNCTION_BLOCK` + `DATA_BLOCK` + `ORGANIZATION_BLOCK`
+
+已验证可导入模板：
+- `mcp-servers/tia-mcp/ConveyorControl_OB1.scl` — 不使用 AT，纯引用标签名称
+
+### P4 资产就绪
+- **robot-mcp 服务端**（7 MCP 工具 + 双协议后端）— 就绪
+- **PLCSIM 部署** — 阻塞（需 TIA GUI 手动创建 I/O 标签表，然后在块编辑器粘贴 SCL，编译下载）

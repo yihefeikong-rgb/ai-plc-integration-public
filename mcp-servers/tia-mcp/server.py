@@ -154,6 +154,7 @@ def import_scl_file(
     scl_code: str,
     block_name: str,
     project_path: str = "",
+    tags: str = "",
 ) -> dict:
     """将 SCL 源代码导入 TIA Portal 项目并生成程序块。
 
@@ -163,11 +164,26 @@ def import_scl_file(
         scl_code: SCL 源代码 (FUNCTION_BLOCK ... END_FUNCTION_BLOCK)
         block_name: 程序块名称 (如 "MotorControl"，与 SCL 代码中的名称一致)
         project_path: TIA 项目路径，留空使用默认值
+        tags: 可选，JSON 格式的标签列表，在导入 SCL 前先创建标签。
+              格式: '[{"name":"I0_8","dataType":"Bool","address":"%I0.8","comment":"急停"},...]'
     """
     try:
         path = _resolve_path(project_path)
     except ValueError as e:
         return {"status": "error", "error": str(e)}
+
+    # 可选：先创建 PLC 标签（否则 SCL 中引用的标签名会报"未定义"）
+    if tags:
+        try:
+            tag_list = json.loads(tags)
+            from create_plc_tags import create_tags
+            tag_result = create_tags(path, tag_list)
+            if tag_result.get("status") != "ok":
+                return {"status": "error",
+                        "error": f"标签创建失败: {tag_result.get('error')}",
+                        "tag_result": tag_result}
+        except json.JSONDecodeError as e:
+            return {"status": "error", "error": f"tags 参数 JSON 解析失败: {e}"}
 
     # 写入临时 .scl 文件
     scl_dir = Path(tempfile.gettempdir()) / "tia-scl"
@@ -179,6 +195,40 @@ def import_scl_file(
         "ProjectPath": path,
         "SclFilePath": str(scl_file),
     })
+
+
+@mcp.tool()
+def create_plc_tags(
+    tags_json: str,
+    project_path: str = "",
+    tag_table_name: str = "PickAndPlace_IO",
+) -> dict:
+    """在 TIA Portal 项目中批量创建 PLC 标签（幂等，已存在则跳过）。
+
+    用于在导入 SCL 外部源文件之前创建所需的 I/O 标签，
+    解决 SCL 中引用标签名（如 "I0_8"）因"未定义"而编译失败的问题。
+
+    Args:
+        tags_json: JSON 格式的标签列表。
+                   格式: '[{"name":"I0_8","dataType":"Bool","address":"%I0.8","comment":"急停"},...]'
+        project_path: TIA 项目路径，留空使用默认值
+        tag_table_name: 标签表名称，默认 "PickAndPlace_IO"
+
+    Returns:
+        {"status": "ok", "created": N, "skipped": N, "errors": [...]}
+    """
+    try:
+        path = _resolve_path(project_path)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+    try:
+        tag_list = json.loads(tags_json)
+    except json.JSONDecodeError as e:
+        return {"status": "error", "error": f"tags_json 解析失败: {e}"}
+
+    from create_plc_tags import create_tags
+    return create_tags(path, tag_list, tag_table_name)
 
 
 @mcp.tool()

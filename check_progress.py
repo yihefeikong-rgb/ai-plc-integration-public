@@ -268,7 +268,7 @@ def check_modules():
         ("Phase 1", "OPC UA/Modbus 运行态", ["mcp-servers/opcua-mcp", "mcp-servers/modbus-mcp", "mcp-servers/mitsubishi-mcp"]),
         ("Phase 2", "AI 控制闭环 + 安全", ["safety", "run_gateway.py"]),
         ("Phase 3", "TIA Portal 工程态", ["mcp-servers/tia-mcp", "mcp-servers/tia-mcp/CartGen", "mcp-servers/tia-mcp/download_to_plcsim.py"]),
-        ("Phase 4", "工业机器人", []),
+        ("Phase 4", "工业机器人", ["mcp-servers/robot-mcp", "mcp-servers/robot-mcp/server.py", "mcp-servers/robot-mcp/deploy_pnp.py"]),
         ("Phase 5", "统一编排", []),
     ]
 

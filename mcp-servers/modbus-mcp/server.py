@@ -7,7 +7,7 @@ from fastmcp import FastMCP
 from pymodbus.client import ModbusTcpClient
 from config.settings import settings
 from safety.validator import validator as safety_validator
-from safety.audit import audit
+from mcp_common.audit import audit
 
 mcp = FastMCP("modbus-plc")
 _client: ModbusTcpClient | None = None

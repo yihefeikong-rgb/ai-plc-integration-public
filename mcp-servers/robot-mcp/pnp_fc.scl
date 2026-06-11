@@ -1,0 +1,74 @@
+FUNCTION_BLOCK "PnP_Control"
+TITLE = Pick & Place Control
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR
+    bRunEnabled : Bool := TRUE;
+END_VAR
+
+BEGIN
+    // Emergency stop monitoring
+    // When estop (I0.8) is pressed, force all outputs to OFF
+    // In normal mode, do NOT write outputs - robot-mcp controls them directly
+
+    IF NOT "I0_8" THEN
+        "Q0_0" := FALSE;
+        "Q0_1" := FALSE;
+        "Q0_2" := FALSE;
+        "Q0_3" := FALSE;
+        "Q0_4" := FALSE;
+        "Q0_5" := FALSE;
+        "Q0_6" := TRUE;
+        "Q0_7" := FALSE;
+        bRunEnabled := FALSE;
+        RETURN;
+    END_IF;
+
+    // After estop release, wait for reset (I0.6) to re-enable
+    IF NOT bRunEnabled THEN
+        "Q0_5" := FALSE;
+        "Q0_6" := TRUE;
+        IF "I0_6" THEN
+            bRunEnabled := TRUE;
+            "Q0_6" := FALSE;
+        END_IF;
+        RETURN;
+    END_IF;
+
+    // Normal operation: only update indicator lights
+    // Robot-mcp controls Q0.0-Q0.4 (conveyors, arm, gripper) directly via hardware
+    "Q0_5" := "I0_5";
+    "Q0_7" := "I0_7";
+END_FUNCTION_BLOCK
+
+
+DATA_BLOCK "DB_PnP_Control"
+TITLE = Instance DB for PnP_Control
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+  "PnP_Control"
+BEGIN
+END_DATA_BLOCK
+
+
+ORGANIZATION_BLOCK "Main"
+TITLE = Main Program
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_TEMP
+    OB1_EV_CLASS : Byte;
+    OB1_SCAN_1 : Byte;
+    OB1_PRIORITY : Byte;
+    OB1_OB_NUMBR : Byte;
+    OB1_RESERVED_1 : Byte;
+    OB1_RESERVED_2 : Byte;
+    OB1_PREV_CYCLE : Int;
+    OB1_MIN_CYCLE : Int;
+    OB1_MAX_CYCLE : Int;
+END_VAR
+
+BEGIN
+    "DB_PnP_Control"();
+END_ORGANIZATION_BLOCK

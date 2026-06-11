@@ -73,6 +73,8 @@ nul
 .pytest_cache/
 /test_*.py           # 仅根目录的临时测试文件
 test_storage/
+.coverage
+coverage.xml
 
 # PLCSIM keeper PID 文件
 *.pid

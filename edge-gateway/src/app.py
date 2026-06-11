@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config.settings import settings
-from safety.audit import audit
+from mcp_common.audit import audit
 from .ai_client import ai
 
 try:

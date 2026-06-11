@@ -10,6 +10,8 @@ import sys
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 def test_dl_plcsim_gui_usage_no_args():
     """验证无参数时返回 usage 信息"""
@@ -128,6 +130,7 @@ print(f'OK timeout={timeout}')
     assert r.returncode == 0
 
 
+@pytest.mark.desktop
 def test_import_uiautomation():
     """验证 uiautomation 库可以导入"""
     r = subprocess.run(
@@ -139,6 +142,7 @@ def test_import_uiautomation():
     assert "OK" in r.stdout
 
 
+@pytest.mark.desktop
 def test_uiautomation_basic_function():
     """测试 uiautomation 基础功能可用（不访问真实控件）"""
     code = """
@@ -163,6 +167,7 @@ print(f'EnumOK: {count > 0}')
     assert "EnumOK" in r.stdout
 
 
+@pytest.mark.desktop
 def test_uiautomation_find_window():
     """测试 uiautomation 能枚举所有顶级窗口（验证 COM 环境可用）"""
     code = """

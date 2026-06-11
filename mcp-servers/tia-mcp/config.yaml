@@ -56,10 +56,25 @@ simulation:
     slot: 1
     port: 102
 
+  # 黄金备份（PLCSIM 实例存档）
+  golden_backup:
+    # V21（高版本优先）
+    v21_dir: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21}"
+    # V18（回退）
+    v18_dir: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo}"
+    # golden zip 文件路径（使用 v21_dir 的父目录推导，走 env resolve）
+    zip_path: "${V21_DIR:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21}/factory_io1_golden.zip"
+    # PLCSIM 实例存储目录
+    storage_path: "${V21_DIR:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21}/plcsim_storage"
+
 # ── Factory I/O ──
 factory_io:
   # Factory I/O 安装路径
   install_dir: "${FACTORY_IO_DIR:D:\\Factory IO}"
+  # Factory I/O 可执行文件路径
+  exe_path: "${FACTORY_IO_DIR:D:\\Factory IO}\\Factory IO.exe"
+  # 场景文件路径
+  scene_path: "${FIO_SCENE_PATH:C:\\Users\\huangxinyang\\Documents\\Factory IO\\My Scenes\\测试.factoryio}"
   # 导出的 CSV I/O 映射文件
   csv_output: "D:\\TIA FANG ZHEN\\factory_io_mapping.csv"
 

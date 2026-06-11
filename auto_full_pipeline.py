@@ -68,7 +68,7 @@ def step1_check_environment():
         return False
     
     # 检查 Factory I/O
-    fio_path = r"D:\Factory IO\Factory IO.exe"
+    fio_path = cfg.factory_io.exe_path
     if os.path.exists(fio_path):
         log(f"Factory I/O ✓", "ok")
     else:
@@ -228,27 +228,28 @@ def step4_start_plcsim():
                     plcsim_api.stop_instance('factoryio')
         
         # 使用 plcsim_api 的 restore_instance
-        golden_zip = cfg.tia.project_path.replace(os.path.basename(cfg.tia.project_path), "factory_io1_golden.zip")
-        storage_path = cfg.tia.project_path.replace(os.path.basename(cfg.tia.project_path), "plcsim_storage")
-        
+        golden_zip = cfg.simulation.golden_backup.zip_path
+        storage_path = cfg.simulation.golden_backup.storage_path
+        plc_ip = cfg.simulation.advanced.plc_ip
+
         if os.path.exists(golden_zip):
             log(f"从 golden backup 恢复...")
             instance = plcsim_api.restore_instance(
                 name='factoryio',
                 golden_zip=golden_zip,
                 storage_path=storage_path,
-                ip='192.168.0.1',
+                ip=plc_ip,
                 interface='tcpip'
             )
             if instance:
-                log(f"PLCSIM 运行中: 192.168.0.1 ✓", "ok")
+                log(f"PLCSIM 运行中: {plc_ip} ✓", "ok")
                 return True
         else:
             log("未找到 golden backup，创建新实例...")
-            instance = plcsim_api.create_instance('factoryio', '192.168.0.1', '255.255.255.0')
+            instance = plcsim_api.create_instance('factoryio', plc_ip, '255.255.255.0')
             if instance:
                 instance.Run()
-                log(f"PLCSIM 运行中: 192.168.0.1 ✓", "ok")
+                log(f"PLCSIM 运行中: {plc_ip} ✓", "ok")
                 return True
         
         log("PLCSIM 启动失败", "error")
@@ -265,8 +266,8 @@ def step5_connect_factory_io():
     print(f"{BLUE}步骤4: 连接 Factory I/O{RESET}")
     print(f"{BLUE}{'='*60}{RESET}\n")
     
-    fio_path = r"D:\Factory IO\Factory IO.exe"
-    
+    fio_path = cfg.factory_io.exe_path
+
     if not os.path.exists(fio_path):
         log("Factory I/O 未安装，跳过", "warn")
         return True

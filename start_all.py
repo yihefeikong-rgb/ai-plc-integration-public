@@ -8,6 +8,8 @@
     python start_all.py --factory-only     # 仅启动 Factory I/O
     python start_all.py --tia-only         # 仅启动 TIA MCP
     python start_all.py stop               # 停止所有
+    python start_all.py --with-robot         # 启动全部 + Robot MCP
+    python start_all.py --robot-only         # 仅启动 Robot MCP
 """
 import sys
 import os
@@ -15,25 +17,34 @@ import subprocess
 import time
 import json
 import argparse
+import asyncio
+import ctypes
+import os.path as op
 
 # ── 路径配置 ──
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 TIA_MCP_DIR = os.path.join(PROJECT_ROOT, "mcp-servers", "tia-mcp")
 PLCSIM_API = os.path.join(TIA_MCP_DIR, "plcsim_api.py")
 SERVER_PY = os.path.join(TIA_MCP_DIR, "server.py")
+ROBOT_MCP_DIR = os.path.join(PROJECT_ROOT, "mcp-servers", "robot-mcp")
+ROBOT_SERVER_PY = os.path.join(ROBOT_MCP_DIR, "server.py")
+
+# 从 config.yaml 加载配置
+sys.path.insert(0, TIA_MCP_DIR)
+from config_loader import cfg as _cfg
 
 # 优先使用 V21 路径，失败则回退到 V18
-V21_DIR = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21"
-V18_DIR = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo"
+V21_DIR = _cfg.simulation.golden_backup.v21_dir
+V18_DIR = _cfg.simulation.golden_backup.v18_dir
 
-GOLDEN_ZIP = os.path.join(V21_DIR, "factory_io1_golden.zip")
-STORAGE_PATH = os.path.join(V21_DIR, "plcsim_storage")
+GOLDEN_ZIP = _cfg.simulation.golden_backup.zip_path
+STORAGE_PATH = _cfg.simulation.golden_backup.storage_path
 GOLDEN_ZIP_V18 = os.path.join(V18_DIR, "factory_io1_golden.zip")
 STORAGE_PATH_V18 = os.path.join(V18_DIR, "plcsim_storage")
 
-PLC_IP = "192.168.0.1"  # TCP/IP 模式，与 PLCSIM Advanced 一致
-FIO_SCENE = r"C:\Users\huangxinyang\Documents\Factory IO\My Scenes\测试.factoryio"
-FIO_EXE = r"D:\Factory IO\Factory IO.exe"
+PLC_IP = _cfg.simulation.advanced.plc_ip
+FIO_SCENE = _cfg.factory_io.scene_path
+FIO_EXE = _cfg.factory_io.exe_path
 
 # ── 后台进程管理 ──
 _procs = []
@@ -41,6 +52,64 @@ _procs = []
 
 def log(msg):
     print(f"  [{time.strftime('%H:%M:%S')}] {msg}")
+
+
+# ── PID 文件锁：防止并发执行 ──
+LOCK_FILE = op.join(PROJECT_ROOT, "start_all.lock")
+
+
+def _acquire_lock() -> int | None:
+    """
+    尝试获取 PID 锁。
+    返回当前进程的 PID 表示成功获取锁，返回 None 表示已有其他实例在运行。
+    """
+    if op.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE) as f:
+                old_pid = int(f.read().strip())
+        except (ValueError, OSError):
+            old_pid = None
+        if old_pid is not None:
+            try:
+                os.kill(old_pid, 0)  # 检查进程是否存在
+                log(f"另一个 start_all.py 实例正在运行 (PID={old_pid}), 退出")
+                return None
+            except OSError:
+                # 进程已死，清理旧锁
+                pass
+    try:
+        with open(LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+        return os.getpid()
+    except OSError:
+        return None
+
+
+def _release_lock():
+    if op.exists(LOCK_FILE):
+        try:
+            os.remove(LOCK_FILE)
+        except OSError:
+            pass
+
+
+def check_admin():
+    """检查当前是否以管理员权限运行，非管理员时打印警告并询问是否继续。"""
+    try:
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        is_admin = False
+    if not is_admin:
+        print("  [!] 警告：当前没有以管理员权限运行。")
+        print("  [!] PLCSIM Advanced 需要管理员权限才能正常操作虚拟网卡。")
+        try:
+            resp = input("  是否继续? (y/N): ").strip().lower()
+            if resp != "y":
+                print("  已退出")
+                sys.exit(0)
+        except (EOFError, KeyboardInterrupt):
+            print("\n  已退出")
+            sys.exit(0)
 
 
 def check_golden():
@@ -195,14 +264,51 @@ def stop_all():
     log("✅  全部停止")
 
 
+def start_robot_mcp(scene: str = "Pick & Place (Basic)"):
+    """启动 Robot MCP Server（Phase 4 工业机器人控制）"""
+    if not os.path.exists(ROBOT_SERVER_PY):
+        log(f"⚠️  Robot MCP 未安装: {ROBOT_SERVER_PY}")
+        return False
+
+    log(f"启动 Robot MCP Server (场景: {scene}) ...")
+    proc = subprocess.Popen(
+        [sys.executable, ROBOT_SERVER_PY, "--scene", scene],
+        cwd=ROBOT_MCP_DIR,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    _procs.append(("Robot MCP", proc))
+    log(f"✅  Robot MCP Server 已启动 (PID={proc.pid})")
+    time.sleep(2)
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="三端一键启动")
     parser.add_argument("mode", nargs="?", default="all",
-                        choices=["all", "plcsim", "factory", "tia", "stop"],
+                        choices=["all", "plcsim", "factory", "tia", "stop", "robot"],
                         help="启动模式")
     parser.add_argument('--nowait', action='store_true',
                         help='启动后不等待子进程（不保持前台）')
+    parser.add_argument('--with-robot', action='store_true',
+                        help='同时启动 Robot MCP Server（Phase 4）')
+    parser.add_argument('--robot-only', action='store_true',
+                        help='仅启动 Robot MCP Server')
+    parser.add_argument('--robot-scene', default='Pick & Place (Basic)',
+                        choices=['Pick & Place (Basic)', 'Palletizer'],
+                        help='Robot MCP 场景 (默认: Pick & Place (Basic))')
     args = parser.parse_args()
+
+    # ── 管理员权限检测 ──
+    check_admin()
+
+    # ── PID 文件锁（stop 模式不获取锁） ──
+    if args.mode != "stop":
+        pid = _acquire_lock()
+        if pid is None:
+            sys.exit(1)
+    else:
+        pid = None
 
     print("=" * 50)
     print("  三端一键启动 — AI 接入 PLC")
@@ -210,51 +316,58 @@ def main():
 
     if args.mode == "stop":
         stop_all()
+        _release_lock()
         return
 
-    # ── 启动顺序：PLCSIM → Factory I/O → TIA MCP ──
-    # PLCSIM 必须先于 Factory I/O，因为 Factory I/O 通过 auto.cfg 自动连接到 PLCSIM 实例
+    try:
+        # ── 启动顺序：PLCSIM → Factory I/O → TIA MCP ──
+        # PLCSIM 必须先于 Factory I/O，因为 Factory I/O 通过 auto.cfg 自动连接到 PLCSIM 实例
 
-    if args.mode in ("all", "plcsim"):
-        if check_golden():
-            if start_plcsim():
-                log("PLCSIM 就绪，等待 3 秒让仿真稳定...")
-                time.sleep(3)
+        if args.mode in ("all", "plcsim"):
+            if check_golden():
+                if start_plcsim():
+                    log("PLCSIM 就绪，等待 3 秒让仿真稳定...")
+                    time.sleep(3)
+                else:
+                    log("⚠️  PLCSIM 启动失败，后续可能无法连接")
             else:
-                log("⚠️  PLCSIM 启动失败，后续可能无法连接")
-        else:
-            log("⏸  跳过 PLCSIM（无黄金备份）")
+                log("⏸  跳过 PLCSIM（无黄金备份）")
 
-    if args.mode in ("all", "factory"):
-        start_factory_io()
+        if args.mode in ("all", "factory"):
+            start_factory_io()
 
-    if args.mode in ("all", "tia"):
-        start_tia_mcp()
+        if args.mode in ("all", "tia"):
+            start_tia_mcp()
 
-    print("\n" + "=" * 50)
-    log("启动完成！运行状态:")
-    for name, proc in _procs:
-        alive = proc.poll() is None
-        log(f"  {'🟢' if alive else '🔴'} {name}")
-    # 检查 PLCSIM 实例
-    try:
-        sys.path.insert(0, TIA_MCP_DIR)
-        from plcsim_api import get_instances
-        for inst in get_instances():
-            log(f"  {'🟢' if inst['state']=='run' else '🟡'} PLCSIM: {inst['name']} ({inst['state']})")
-    except Exception:
-        pass
-    print("=" * 50)
+        if args.with_robot or args.mode == "robot":
+            start_robot_mcp(args.robot_scene)
 
-    if args.nowait:
-        return
+        print("\n" + "=" * 50)
+        log("启动完成！运行状态:")
+        for name, proc in _procs:
+            alive = proc.poll() is None
+            log(f"  {'🟢' if alive else '🔴'} {name}")
+        # 检查 PLCSIM 实例
+        try:
+            sys.path.insert(0, TIA_MCP_DIR)
+            from plcsim_api import get_instances
+            for inst in get_instances():
+                log(f"  {'🟢' if inst['state']=='run' else '🟡'} PLCSIM: {inst['name']} ({inst['state']})")
+        except Exception:
+            pass
+        print("=" * 50)
 
-    print("\n按 Ctrl+C 停止所有服务")
+        if args.nowait:
+            return
 
-    # 保持进程存活
-    try:
-        while _procs:
-            time.sleep(1)
-            _procs = [(n, p) for n, p in _procs if p.poll() is None]
-    except KeyboardInterrupt:
-        stop_all()
+        print("\n按 Ctrl+C 停止所有服务")
+
+        # 保持进程存活
+        try:
+            while _procs:
+                time.sleep(1)
+                _procs = [(n, p) for n, p in _procs if p.poll() is None]
+        except KeyboardInterrupt:
+            stop_all()
+    finally:
+        _release_lock()

@@ -3,7 +3,7 @@ import os
 import tempfile
 import pytest
 
-from safety.audit import AuditLogger
+from mcp_common.audit import AuditLogger
 
 
 @pytest.fixture

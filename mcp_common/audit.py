@@ -145,12 +145,16 @@ class AuditLogger:
 
 _audit_logger: Optional[AuditLogger] = None
 
+# 便捷单例引用（兼容: from mcp_common.audit import audit）
+audit: AuditLogger = None  # type: ignore  # 首次访问时惰性初始化
+
 
 def get_audit_logger(log_path: str = "") -> AuditLogger:
     """获取全局审计日志单例"""
-    global _audit_logger
+    global _audit_logger, audit
     if _audit_logger is None:
         _audit_logger = AuditLogger(log_path)
+        audit = _audit_logger
     return _audit_logger
 
 
