@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 import sys
+import argparse
 import tempfile
 import os
 from pathlib import Path
@@ -25,6 +26,23 @@ except ImportError:
     _HAS_SVG = False
 
 mcp = FastMCP("tia-portal")
+
+# ── 认证 ───────────────────────────────────────────────
+_AUTH_TOKEN = ""
+
+
+def _check_auth(token: str = "") -> bool:
+    """验证 auth token（空 token 表示未启用认证，直接通过）"""
+    if not _AUTH_TOKEN:
+        return True
+    return token == _AUTH_TOKEN
+
+
+def _require_auth(token: str = "") -> None:
+    """如果认证未通过则抛出异常"""
+    if not _check_auth(token):
+        raise PermissionError("认证失败：无效的 auth token")
+
 
 TIA_WORKER = Path(__file__).parent / "bin" / "TiaWorker.exe"
 LAD_CREATOR = Path(__file__).parent / "lad_creator.py"
@@ -100,28 +118,8 @@ def _gen_scl_via_deepseek(description: str, template: str) -> dict:
 ```
 只返回 JSON，不要其他内容。"""
 
-    import requests
-
-    api_key = cfg.deepseek.api_key
-    if not api_key:
-        return {"status": "error", "error": "未找到 DEEPSEEK_API_KEY（请在 .env 或 config.yaml 中设置）"}
-
-    resp = requests.post(
-        cfg.deepseek.api_url,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": cfg.deepseek.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": cfg.deepseek.temperature,
-            "max_tokens": cfg.deepseek.max_tokens,
-        },
-        timeout=cfg.deepseek.timeout_sec,
-    )
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
+    resp = _deepseek_chat([{"role": "user", "content": prompt}])
+    content = resp["choices"][0]["message"]["content"]
 
     if "```json" in content:
         content = content.split("```json")[1].split("```")[0]
@@ -136,12 +134,14 @@ def _gen_scl_via_deepseek(description: str, template: str) -> dict:
 
 
 @mcp.tool()
-def list_devices(project_path: str = "") -> dict:
+def list_devices(project_path: str = "", auth_token: str = "") -> dict:
     """列出 TIA Portal 项目中的 PLC 设备。
 
     Args:
         project_path: TIA 项目路径 (.ap19 文件)，留空使用默认值
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     try:
         path = _resolve_path(project_path)
         return _run_worker("list-devices", {"ProjectPath": path})
@@ -155,6 +155,7 @@ def import_scl_file(
     block_name: str,
     project_path: str = "",
     tags: str = "",
+    auth_token: str = "",
 ) -> dict:
     """将 SCL 源代码导入 TIA Portal 项目并生成程序块。
 
@@ -166,7 +167,9 @@ def import_scl_file(
         project_path: TIA 项目路径，留空使用默认值
         tags: 可选，JSON 格式的标签列表，在导入 SCL 前先创建标签。
               格式: '[{"name":"I0_8","dataType":"Bool","address":"%I0.8","comment":"急停"},...]'
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     try:
         path = _resolve_path(project_path)
     except ValueError as e:
@@ -202,6 +205,7 @@ def create_plc_tags(
     tags_json: str,
     project_path: str = "",
     tag_table_name: str = "PickAndPlace_IO",
+    auth_token: str = "",
 ) -> dict:
     """在 TIA Portal 项目中批量创建 PLC 标签（幂等，已存在则跳过）。
 
@@ -213,10 +217,12 @@ def create_plc_tags(
                    格式: '[{"name":"I0_8","dataType":"Bool","address":"%I0.8","comment":"急停"},...]'
         project_path: TIA 项目路径，留空使用默认值
         tag_table_name: 标签表名称，默认 "PickAndPlace_IO"
+        auth_token: 认证令牌
 
     Returns:
         {"status": "ok", "created": N, "skipped": N, "errors": [...]}
     """
+    _require_auth(auth_token)
     try:
         path = _resolve_path(project_path)
     except ValueError as e:
@@ -232,12 +238,14 @@ def create_plc_tags(
 
 
 @mcp.tool()
-def compile_project(project_path: str = "") -> dict:
+def compile_project(project_path: str = "", auth_token: str = "") -> dict:
     """编译 TIA Portal 项目。
 
     Args:
         project_path: TIA 项目路径，留空使用默认值
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     try:
         path = _resolve_path(project_path)
         return _run_worker("compile", {"ProjectPath": path})
@@ -251,6 +259,7 @@ def download_to_plcsim(
     compile_first: bool = False,
     method: str = "auto",
     target_ip: str = "",
+    auth_token: str = "",
 ) -> dict:
     """将项目下载到 PLCSIM 仿真 PLC。
 
@@ -264,7 +273,9 @@ def download_to_plcsim(
         compile_first: 下载前先编译
         method: "auto" (自动), "tiaworker", "ui", "manual"
         target_ip: PLCSIM Advanced 的 IP 地址（可选）
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     try:
         path = _resolve_path(project_path)
         from download_to_plcsim import (
@@ -309,16 +320,19 @@ def download_to_plcsim(
 def generate_scl_code(
     description: str,
     template: str = "general",
+    auth_token: str = "",
 ) -> dict:
     """使用 AI 根据自然语言描述生成 SCL 代码。
 
     Args:
         description: 功能描述，如 "三相异步电机正反转控制，含急停和过载保护"
         template: 模板 — motor(电机), conveyor(传送带), pid(PID), general(通用)
+        auth_token: 认证令牌
 
     Returns:
         {"status": "ok", "data": {"scl_code": "...", "block_name": "..."}}
     """
+    _require_auth(auth_token)
     try:
         return _gen_scl_via_deepseek(description, template)
     except Exception as e:
@@ -331,6 +345,7 @@ def generate_and_import(
     block_name: str = "",
     template: str = "general",
     project_path: str = "",
+    auth_token: str = "",
 ) -> dict:
     """一站式：AI 生成 SCL 代码 + 导入到 TIA Portal 项目。
 
@@ -339,8 +354,10 @@ def generate_and_import(
         block_name: 块名称，留空由 AI 自动命名
         template: 代码模板 (motor/conveyor/pid/general)
         project_path: TIA 项目路径
+        auth_token: 认证令牌
     """
-    result = generate_scl_code(description, template)
+    _require_auth(auth_token)
+    result = generate_scl_code(description, template, auth_token=auth_token)
     if result.get("status") != "ok":
         return result
 
@@ -351,10 +368,120 @@ def generate_and_import(
     if not scl:
         return {"status": "error", "error": "AI 未生成有效 SCL 代码"}
 
-    return import_scl_file(scl, name, project_path)
+    return import_scl_file(scl, name, project_path, auth_token=auth_token)
 
 
 # ─── 梯形图 LAD 工具 ─────────────────────────────
+
+
+def _gen_lad_spec(description: str, block_name: str) -> dict:
+    """调用 DeepSeek 生成 LadderSpec JSON + 解析 + Schema 校验"""
+    prompt = _LAD_PROMPT_TEMPLATE.format(description=description)
+    ai_result = _call_deepseek(prompt)
+    content = ai_result["choices"][0]["message"]["content"]
+
+    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
+    raw = json_match.group(1).strip() if json_match else content.strip()
+
+    try:
+        spec = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise json.JSONDecodeError(
+            f"DeepSeek 返回的不是合法 JSON: {e}. 原始内容前200字: {content[:200]}",
+            e.doc, e.pos,
+        )
+
+    if not isinstance(spec, dict):
+        raise ValueError("DeepSeek 返回的不是 JSON 对象")
+    if "networks" not in spec or not isinstance(spec["networks"], list):
+        raise ValueError("JSON 缺少 networks 数组")
+
+    spec.setdefault("blockName", block_name or "AutoGen")
+    spec.setdefault("blockNumber", 100)
+    if block_name:
+        spec["blockName"] = block_name
+
+    validation = validate_ladder_spec(spec)
+    if not validation["valid"]:
+        raise ValueError(f"LadderSpec 格式校验失败: {validation['errors']}")
+
+    return spec
+
+
+def _run_cartgen(spec: dict) -> str:
+    """保存 LadderSpec JSON + 调用 CartGen 生成 SimaticML XML，返回 XML 路径"""
+    tmp_json = os.path.join(tempfile.gettempdir(), f"lad_{spec['blockName']}.json")
+    with open(tmp_json, "w", encoding="utf-8") as f:
+        json.dump(spec, f, ensure_ascii=False, indent=2)
+
+    output_dir = cfg.tia.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+    xml_path = os.path.join(output_dir, f"{spec['blockName']}.xml")
+    dll_path = cfg.cartgen.dll_path
+
+    r = subprocess.run(
+        ["dotnet", "exec", dll_path, tmp_json, xml_path],
+        capture_output=True, timeout=60,
+    )
+    if r.returncode != 0:
+        err_text = r.stderr.decode('utf-8', 'ignore') or r.stdout.decode('utf-8', 'ignore')
+        raise RuntimeError(f"CartGen 失败: {err_text[:500]}")
+
+    return xml_path
+
+
+def _clean_xml(xml_path: str) -> None:
+    """清洗 XML 中空的 MultilingualTextItem 元素（原位覆盖）"""
+    with open(xml_path, "r", encoding="utf-8") as f:
+        xml = f.read()
+    xml = re.sub(
+        r'<MultilingualTextItem[^>]*>\s*<AttributeList>\s*<Culture>[^<]*</Culture>\s*<Text\s*/>\s*</AttributeList>\s*</MultilingualTextItem>\s*',
+        "", xml,
+    )
+    with open(xml_path, "w", encoding="utf-8") as f:
+        f.write(xml)
+
+
+def _import_xml_into_tia(xml_path: str, project_path: str) -> dict:
+    """将 SimaticML XML 导入 TIA Portal"""
+    p = project_path or cfg.tia.project_path
+    if not p:
+        raise ValueError("未指定项目路径，请在 config.yaml 或 .env 中设置 TIA_PROJECT_PATH")
+
+    from tia_session import tia_session
+    from Siemens.Engineering import ImportOptions
+    from Siemens.Engineering.SW import SWImportOptions
+    from Siemens.Engineering.Compiler import ICompilable
+    from System.IO import FileInfo
+
+    with tia_session(p) as (project, plc_sw):
+        if not plc_sw:
+            raise RuntimeError("未找到 PLC 设备")
+
+        plc_sw.BlockGroup.Blocks.Import(
+            FileInfo(xml_path), ImportOptions.Override, SWImportOptions(2))
+        compiler = plc_sw.GetService[ICompilable]()
+        compiler.Compile()
+        project.Save()
+
+    return {"status": "ok"}
+
+
+def _render_lad_svg(spec: dict) -> str:
+    """渲染梯形图 SVG 预览，返回 SVG 字符串（不可用时返回空字符串）"""
+    if not _HAS_SVG:
+        return ""
+    try:
+        return render_svg_preview(spec)
+    except Exception:
+        return ""
+
+
+def _audit_lad_creation(description: str, block_name: str, networks_count: int, result: str) -> None:
+    """记录梯形图创建操作到审计日志"""
+    audit_log("create_ladder_block", user_input=description,
+              block_name=block_name, result=result,
+              networks=networks_count)
 
 
 @mcp.tool()
@@ -362,6 +489,7 @@ def create_ladder_block(
     description: str = "cart3cycle",
     block_name: str = "AutoCart3Cycle",
     project_path: str = "",
+    auth_token: str = "",
 ) -> dict:
     """在 TIA Portal 中创建梯形图 (LAD) 功能块。
 
@@ -373,7 +501,9 @@ def create_ladder_block(
         description: 功能描述，如 "电机正反转，带急停和过载"
         block_name: 块名称
         project_path: TIA 项目路径
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     # 快速命令：直接走硬编码模板
     if description == "cart3cycle":
         result = subprocess.run(
@@ -384,82 +514,20 @@ def create_ladder_block(
         return {"status": "ok" if result.returncode == 0 else "error",
                 "output": lines, "returncode": result.returncode}
 
-    # ── AI 生成 LadderSpec JSON ──
+    # AI 生成流程
     try:
-        # 1. 调 DeepSeek 生成 JSON
-        prompt = _LAD_PROMPT_TEMPLATE.format(description=description)
-        ai_result = _call_deepseek(prompt)
-
-        # 2. 解析 JSON（两次尝试：代码块 → 全文）
-        content = ai_result["choices"][0]["message"]["content"]
-        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
-        if json_match:
-            raw = json_match.group(1).strip()
-        else:
-            raw = content.strip()
-        spec = json.loads(raw)
-
-        # 2b. Schema 校验（DeepSeek 输出不稳定，先校验再传 CartGen）
-        if not isinstance(spec, dict):
-            return {"status": "error", "error": "DeepSeek 返回的不是 JSON 对象"}
-        if "networks" not in spec or not isinstance(spec["networks"], list):
-            return {"status": "error", "error": "JSON 缺少 networks 数组"}
-        spec.setdefault("blockName", block_name or "AutoGen")
-        spec.setdefault("blockNumber", 100)
-        if block_name:
-            spec["blockName"] = block_name
-
-        # 2c. JSON Schema 校验
-        validation = validate_ladder_spec(spec)
-        if not validation["valid"]:
-            return {"status": "error", "error": "LadderSpec 格式校验失败",
-                    "validation_errors": validation["errors"]}
-
-        # 3. 保存到临时 JSON 文件
-        tmp_json = os.path.join(tempfile.gettempdir(), f"lad_{spec['blockName']}.json")
-        with open(tmp_json, "w", encoding="utf-8") as f:
-            json.dump(spec, f, ensure_ascii=False, indent=2)
-
-        # 4. 调 CartGen 生成 XML
-        output_dir = cfg.tia.output_dir
-        os.makedirs(output_dir, exist_ok=True)
-        xml_path = os.path.join(output_dir, f"{spec['blockName']}.xml")
-        dll_path = cfg.cartgen.dll_path
-        r = subprocess.run(["dotnet", "exec", dll_path, tmp_json, xml_path], capture_output=True, timeout=60)
-        if r.returncode != 0:
-            err_text = r.stderr.decode('utf-8', 'ignore') or r.stdout.decode('utf-8', 'ignore')
-            return {"status": "error", "error": f"CartGen 失败: {err_text[:500]}"}
-
-        # 5. 清洗 XML（去空 MultilingualTextItem）
-        with open(xml_path, "r", encoding="utf-8") as f:
-            xml = f.read()
-        xml = re.sub(
-            r'<MultilingualTextItem[^>]*>\s*<AttributeList>\s*<Culture>[^<]*</Culture>\s*<Text\s*/>\s*</AttributeList>\s*</MultilingualTextItem>\s*',
-            "", xml)
-        with open(xml_path, "w", encoding="utf-8") as f:
-            f.write(xml)
-
-        # 6. 导入 TIA Portal
+        spec = _gen_lad_spec(description, block_name)
+        xml_path = _run_cartgen(spec)
+        _clean_xml(xml_path)
         _import_xml_into_tia(xml_path, project_path)
-
-        # 7. SVG 预览
-        svg_preview = ""
-        if _HAS_SVG:
-            try:
-                svg_preview = render_svg_preview(spec)
-            except Exception:
-                pass
-
-        audit_log("create_ladder_block", user_input=description,
-                  block_name=spec.get("blockName"), result="ok",
-                  networks=len(spec.get("networks", [])))
+        svg_preview = _render_lad_svg(spec)
+        _audit_lad_creation(description, spec.get("blockName"),
+                            len(spec.get("networks", [])), "ok")
         return {"status": "ok", "blockName": spec.get("blockName"),
                 "networks": len(spec.get("networks", [])),
-                "xmlPath": xml_path,
-                "svg_preview": svg_preview}
-
+                "xmlPath": xml_path, "svg_preview": svg_preview}
     except json.JSONDecodeError as e:
-        return {"status": "error", "error": f"DeepSeek 返回的不是合法 JSON: {e}. 原始内容前200字: {content[:200] if 'content' in dir() else 'N/A'}"}
+        return {"status": "error", "error": f"DeepSeek 返回的不是合法 JSON: {e}"}
     except ValueError as e:
         return {"status": "error", "error": str(e)}
     except Exception as e:
@@ -474,6 +542,7 @@ def full_pipeline(
     description: str,
     block_name: str = "",
     project_path: str = "",
+    auth_token: str = "",
 ) -> dict:
     """一键全流程：自然语言 → LAD FB → IO_Map → OB1 调用链 → 编译。
 
@@ -483,14 +552,16 @@ def full_pipeline(
         description: 功能描述，如 "电机正反转，带急停和过载保护"
         block_name: 块名称（可选，留空自动生成）
         project_path: TIA 项目路径（可选，留空使用默认）
+        auth_token: 认证令牌
 
     Returns:
         {"status": "ok", "blockName": "...", "steps": [...]}
     """
+    _require_auth(auth_token)
     steps = []
 
     # ── Step 1: 生成 LAD FB ──
-    result = create_ladder_block(description, block_name or "AutoGen", project_path)
+    result = create_ladder_block(description, block_name or "AutoGen", project_path, auth_token=auth_token)
     if result.get("status") != "ok":
         return {"status": "error", "step": "create_ladder_block",
                 "error": result.get("error", "LAD FB 生成失败"),
@@ -558,8 +629,8 @@ def full_pipeline(
             "steps": steps}
 
 
-def _call_deepseek(prompt: str) -> dict:
-    """调用 DeepSeek API"""
+def _deepseek_chat(messages: list) -> dict:
+    """调用 DeepSeek Chat API（公共内部函数）"""
     import requests
     api_key = cfg.deepseek.api_key
     if not api_key:
@@ -567,35 +638,24 @@ def _call_deepseek(prompt: str) -> dict:
     resp = requests.post(
         cfg.deepseek.api_url,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": cfg.deepseek.model, "messages": [{"role": "user", "content": prompt}],
-              "temperature": cfg.deepseek.temperature, "max_tokens": cfg.deepseek.max_tokens},
+        json={
+            "model": cfg.deepseek.model,
+            "messages": messages,
+            "temperature": cfg.deepseek.temperature,
+            "max_tokens": cfg.deepseek.max_tokens,
+        },
         timeout=cfg.deepseek.timeout_sec,
     )
     resp.raise_for_status()
     return resp.json()
 
 
-def _import_xml_into_tia(xml_path: str, project_path: str = ""):
-    """将 SimaticML XML 导入 TIA Portal"""
-    p = project_path or cfg.tia.project_path
-    if not p:
-        raise ValueError("未指定项目路径，请在 config.yaml 或 .env 中设置 TIA_PROJECT_PATH")
+def _call_deepseek(prompt: str) -> dict:
+    """调用 DeepSeek API（兼容旧接口）"""
+    return _deepseek_chat([{"role": "user", "content": prompt}])
 
-    from tia_session import tia_session
-    from Siemens.Engineering import ImportOptions
-    from Siemens.Engineering.SW import SWImportOptions
-    from Siemens.Engineering.Compiler import ICompilable
-    from System.IO import FileInfo
 
-    with tia_session(p) as (project, plc_sw):
-        if not plc_sw:
-            raise RuntimeError("未找到 PLC 设备")
 
-        plc_sw.BlockGroup.Blocks.Import(
-            FileInfo(xml_path), ImportOptions.Override, SWImportOptions(2))
-        compiler = plc_sw.GetService[ICompilable]()
-        compiler.Compile()
-        project.Save()
 
 
 # DeepSeek Prompt 模板
@@ -616,7 +676,7 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
       "title": "网络标题",
       "comment": "逻辑说明",
       "elements": [
-        {{"type": "normally_open|normally_closed|coil|coil_set|coil_reset", "operand": "变量名"}}
+        {{"type": "normally_open|normally_closed|coil|coil_set|coil_reset|timer_on_delay|timer_off_delay", "operand": "变量名"}}
       ]
     }},
     {{
@@ -639,6 +699,19 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
 - 正转/反转必须互锁（正转网络包含 normally_closed oRunRev）
 - 过载保护必须串联 normally_closed iOverload
 
+## 定时器用法
+- 延时接通: {{"type": "timer_on_delay", "operand": "oDone", "timer_instance": "IEC_Timer_0", "preset_time": "T#5S"}}
+- 延时断开: {{"type": "timer_off_delay", "operand": "oDone", "timer_instance": "IEC_Timer_1", "preset_time": "T#3S"}}
+- timer_instance 必须是唯一的（IEC_Timer_0, IEC_Timer_1, ...）
+- preset_time 格式: T#5S (秒), T#100MS (毫秒), T#1M30S (1分30秒)
+- 定时器的 Q 输出通过链式连接驱动后续元素，示例：
+  ```
+  {{"type": "normally_open", "operand": "iStart"}},
+  {{"type": "timer_on_delay", "timer_instance": "IEC_Timer_0", "preset_time": "T#5S"}},
+  {{"type": "coil", "operand": "oDone"}}
+  ```
+  等效于 LAD: || iStart ||--[TON IEC_Timer_0 PT=T#5S]--( ) oDone
+
 ## 变量命名规范
 - 输入: iXxx（iStart, iStop, iOverload 等）
 - 输出: oXxx（oRunFwd, oRunRev, oFault 等）
@@ -648,6 +721,11 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
 {description}"""
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="TIA MCP Server")
+    parser.add_argument("--auth-token", default="", help="认证令牌（可选）")
+    args = parser.parse_args()
+    _AUTH_TOKEN = args.auth_token
+
     # 检查管理员权限 — TIA Portal Openness API 需要管理员权限
     import ctypes
     if not ctypes.windll.shell32.IsUserAnAdmin():

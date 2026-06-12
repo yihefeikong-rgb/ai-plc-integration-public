@@ -18,6 +18,7 @@
 import json
 import hashlib
 import os
+import sys
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
@@ -96,8 +97,9 @@ class AuditLogger:
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 f.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[audit] 审计日志写入失败: {e}", file=sys.stderr)
+            raise
 
         self._prev_hash = entry["hash"]
         return entry

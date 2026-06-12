@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import json
+import argparse
 from pathlib import Path
 from fastmcp import FastMCP
 
@@ -109,6 +110,23 @@ BACKEND = "auto"
 
 # ── FastMCP Server ──────────────────────────────────────────────────
 mcp = FastMCP("robot-mcp")
+
+# ── 认证 ───────────────────────────────────────────────
+_AUTH_TOKEN = ""
+
+
+def _check_auth(token: str = "") -> bool:
+    """验证 auth token（空 token 表示未启用认证，直接通过）"""
+    if not _AUTH_TOKEN:
+        return True
+    return token == _AUTH_TOKEN
+
+
+def _require_auth(token: str = "") -> None:
+    """如果认证未通过则抛出异常"""
+    if not _check_auth(token):
+        raise PermissionError("认证失败：无效的 auth token")
+
 
 # 后端连接
 _opc_client: OPCClient | None = None
@@ -225,6 +243,13 @@ async def write_io(name: str, value: bool) -> dict:
     """写入单个 I/O 点（支持 OPC UA + snap7）"""
     if name not in IO_MAP:
         return {"status": "error", "error": f"未知 I/O: {name}"}
+
+    # 急停安全检查：写入任何输出前先检查急停状态
+    if name.startswith("conveyor_") or name.startswith("arm_") or name == "grab":
+        estop = await read_io("sensor_estop")
+        if estop:
+            return {"status": "error", "error": "急停已触发，禁止写入输出"}
+
     info = IO_MAP[name]
     try:
         if not await ensure_connected():
@@ -298,8 +323,13 @@ async def ensure_disconnected():
 
 
 @mcp.tool()
-async def get_status() -> dict:
-    """获取机器人当前状态：传感器值、急停、连接状态"""
+async def get_status(auth_token: str = "") -> dict:
+    """获取机器人当前状态：传感器值、急停、连接状态
+
+    Args:
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
     try:
         await ensure_connected()
         conn = f"connected ({_backend_type})"
@@ -325,8 +355,13 @@ async def get_status() -> dict:
 
 
 @mcp.tool()
-async def go_home() -> dict:
-    """将机器人恢复到安全起始位置：X收回、Z升起、夹爪松开、传送带停止"""
+async def go_home(auth_token: str = "") -> dict:
+    """将机器人恢复到安全起始位置：X收回、Z升起、夹爪松开、传送带停止
+
+    Args:
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
     try:
         # 1. 松开夹爪
         await write_io("grab", False)
@@ -350,11 +385,15 @@ async def go_home() -> dict:
 
 
 @mcp.tool()
-async def pick_item() -> dict:
+async def pick_item(auth_token: str = "") -> dict:
     """
     从入口传送带拾取物品。
     流程: 等待物料到位 → X伸出 → Z下降 → 夹爪闭合 → Z上升 → X收回
+
+    Args:
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     try:
         # 检查急停
         estop = await read_io("sensor_estop")
@@ -379,7 +418,7 @@ async def pick_item() -> dict:
         await write_io("arm_move_x", True)
         x_ok = await wait_for("sensor_moving_x", True, timeout=3.0)
         if not x_ok:
-            await go_home()
+            await go_home(auth_token=auth_token)
             return {"status": "error", "error": "X轴伸出超时，已回位"}
         await asyncio.sleep(0.3)
 
@@ -387,7 +426,7 @@ async def pick_item() -> dict:
         await write_io("arm_move_z", True)
         z_ok = await wait_for("sensor_moving_z", True, timeout=3.0)
         if not z_ok:
-            await go_home()
+            await go_home(auth_token=auth_token)
             return {"status": "error", "error": "Z轴下降超时，已回位"}
         await asyncio.sleep(0.3)
 
@@ -399,7 +438,7 @@ async def pick_item() -> dict:
         detected = await read_io("sensor_item_detected")
         if not detected:
             await write_io("grab", False)
-            await go_home()
+            await go_home(auth_token=auth_token)
             return {"status": "error", "error": "抓取失败（未检测到物料），已复位"}
 
         # 4. Z轴上升
@@ -414,16 +453,20 @@ async def pick_item() -> dict:
 
         return {"status": "ok", "action": "pick", "message": "物料已抓取，机械臂已收回"}
     except Exception as e:
-        await go_home()
+        await go_home(auth_token=auth_token)
         return {"status": "error", "error": f"抓取异常: {e}，已复位"}
 
 
 @mcp.tool()
-async def place_item() -> dict:
+async def place_item(auth_token: str = "") -> dict:
     """
     将抓取的物料放置到出口传送带。
     流程: X伸出 → Z下降 → 夹爪松开 → Z上升 → X收回 → 启动出口传送带
+
+    Args:
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     try:
         estop = await read_io("sensor_estop")
         if estop:
@@ -464,12 +507,12 @@ async def place_item() -> dict:
 
         return {"status": "ok", "action": "place", "message": "物料已放置到出口，已运走"}
     except Exception as e:
-        await go_home()
+        await go_home(auth_token=auth_token)
         return {"status": "error", "error": f"放置异常: {e}，已复位"}
 
 
 @mcp.tool()
-async def move_arm_to(position: str) -> dict:
+async def move_arm_to(position: str, auth_token: str = "") -> dict:
     """
     将机械臂移动到指定位置。
 
@@ -481,7 +524,9 @@ async def move_arm_to(position: str) -> dict:
         - "retract" → 仅X收回（回入口位置）
         - "lower"   → 仅Z下降
         - "raise"   → 仅Z上升
+      auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     valid = ["home", "pick", "extend", "retract", "lower", "raise"]
     if position not in valid:
         return {"status": "error", "error": f"无效位置: {position}。可选: {', '.join(valid)}"}
@@ -523,27 +568,29 @@ async def move_arm_to(position: str) -> dict:
         return {"status": "ok", "action": "move_to", "position": position,
                 "message": f"机械臂已移动到 {position}"}
     except Exception as e:
-        await go_home()
+        await go_home(auth_token=auth_token)
         return {"status": "error", "error": f"移动异常: {e}，已复位"}
 
 
 @mcp.tool()
-async def run_pick_cycle(count: int = 1) -> dict:
+async def run_pick_cycle(count: int = 1, auth_token: str = "") -> dict:
     """
     执行完整的 pick-and-place 循环（自动重复）。
 
     参数:
       count: 循环次数（1-10，默认1次）
+      auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     count = max(1, min(count, 10))
     results = []
     try:
         for i in range(count):
-            pick_result = await pick_item()
+            pick_result = await pick_item(auth_token=auth_token)
             results.append({"cycle": i + 1, "step": "pick", "result": pick_result})
             if pick_result.get("status") != "ok":
                 break
-            place_result = await place_item()
+            place_result = await place_item(auth_token=auth_token)
             results.append({"cycle": i + 1, "step": "place", "result": place_result})
             if place_result.get("status") != "ok":
                 break
@@ -551,12 +598,12 @@ async def run_pick_cycle(count: int = 1) -> dict:
         return {"status": "ok", "cycles_completed": len([r for r in results if r["result"].get("status") == "ok"]),
                 "total_requested": count, "details": results}
     except Exception as e:
-        await go_home()
+        await go_home(auth_token=auth_token)
         return {"status": "error", "error": f"循环异常: {e}", "partial_results": results}
 
 
 @mcp.tool()
-async def control_conveyor(direction: str = "stop") -> dict:
+async def control_conveyor(direction: str = "stop", auth_token: str = "") -> dict:
     """
     控制传送带。
 
@@ -564,7 +611,9 @@ async def control_conveyor(direction: str = "stop") -> dict:
       direction: "entry" → 入口传送带启动
                  "exit"  → 出口传送带启动
                  "stop"  → 全部停止
+      auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     try:
         if direction == "entry":
             await write_io("conveyor_entry", True)
@@ -585,9 +634,9 @@ async def control_conveyor(direction: str = "stop") -> dict:
 # ═════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Robot MCP Server — 工业机器人控制")
+    parser.add_argument("--auth-token", default="",
+                        help="认证令牌（可选）")
     parser.add_argument("--endpoint", default=None,
                         help=f"OPC UA 端点 (默认: {OPCUA_ENDPOINT})")
     parser.add_argument("--ip", default=PLC_IP,
@@ -599,6 +648,7 @@ if __name__ == "__main__":
                         choices=["Pick & Place (Basic)", "Palletizer"],
                         help="Factory I/O 场景 (默认: Pick & Place (Basic))")
     args = parser.parse_args()
+    _AUTH_TOKEN = args.auth_token
 
     if args.endpoint:
         OPCUA_ENDPOINT = args.endpoint

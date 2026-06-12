@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fix the corrupted settings.json backup and write a clean version."""
-import json
+import json, os
 
-src = "C:/Users/huangxinyang/.claude/settings.json.invalid-1780573405546-62e4b9"
-dst = "C:/Users/huangxinyang/.claude/settings.json"
+user_home = os.path.expanduser("~")
+src = os.path.join(user_home, ".claude", "settings.json.invalid-1780573405546-62e4b9")
+dst = os.path.join(user_home, ".claude", "settings.json")
 
 with open(src, encoding="utf-8") as f:
     raw = f.read()
@@ -15,17 +16,20 @@ with open(src, encoding="utf-8") as f:
 # Pattern: root="C:\...\" -> root='C:\...'
 import re
 
+user_name = os.path.basename(os.path.expanduser("~"))
+user_home_slash = os.path.expanduser("~").replace("\\", "/")
+plugin_cache = f"{user_home_slash}/.claude/plugins/cache/plc-mcp-kit/plc-mcp-kit/1.0.0/scripts/hooks/"
+user_home_backslash_escaped = f"C:\\\\Users\\\\{user_name}"
+
 # Fix both escaped and unescaped versions
-raw = raw.replace('root="C:\\\\Users', "root='C:\\\\Users")
+raw = raw.replace(f'root="{user_home_backslash_escaped}', f"root='{user_home_backslash_escaped}")
 raw = raw.replace('1.0.0";', "1.0.0';")
-raw = raw.replace('root=\\"C:\\\\Users', "root=\\'C:\\\\Users")
+raw = raw.replace(f'root=\\"{user_home_backslash_escaped}', f"root=\\'{user_home_backslash_escaped}")
 raw = raw.replace('1.0.0\\";', "1.0.0\\';")
 
 # Also handle any remaining path issues
-raw = raw.replace(
-    'C:/Users/huangxinyang/.claude/scripts/hooks/',
-    'C:/Users/huangxinyang/.claude/plugins/cache/plc-mcp-kit/plc-mcp-kit/1.0.0/scripts/hooks/'
-)
+old_hooks_path = f"{user_home_slash}/.claude/scripts/hooks/"
+raw = raw.replace(old_hooks_path, plugin_cache)
 
 # Validate JSON
 try:

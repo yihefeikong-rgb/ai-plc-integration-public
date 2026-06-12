@@ -51,14 +51,25 @@ def _ensure_tia_gui_running(timeout_sec: int = 120) -> bool:
         return False
 
     print(f'   🚀 启动 TIA Portal GUI (最多等 {timeout_sec}s)...')
+
+    # 校验 project_path 合法性（防命令注入）
+    tia_project_path = cfg.tia.project_path
+    if not os.path.exists(tia_project_path):
+        print(f'   ⚠ 项目路径不存在: {tia_project_path}')
+        return False
+    valid_exts = ('.ap21', '.ap19', '.ap18')
+    if not tia_project_path.lower().endswith(valid_exts):
+        print(f'   ⚠ 项目路径扩展名不合法（应为 {valid_exts}）: {tia_project_path}')
+        return False
+
     is_admin = ctypes.windll.shell32.IsUserAnAdmin()
     if is_admin:
-        subprocess.Popen([tia_bin, '/T', cfg.tia.project_path])
+        subprocess.Popen([tia_bin, '/T', tia_project_path])
     else:
         # TIA Portal 需要管理员权限，用 ShellExecuteW runas 弹出 UAC 提权
         ctypes.windll.shell32.ShellExecuteW(
             None, "runas", tia_bin,
-            f'"/T" "{cfg.tia.project_path}"',
+            f'"/T" "{tia_project_path}"',
             None, 1
         )
 

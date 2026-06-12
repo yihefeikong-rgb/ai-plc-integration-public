@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Globalization;
 using SimaticML.API;
 using SimaticML.Blocks.FlagNet;
+using SimaticML.Blocks.FlagNet.nPart;
 using SimaticML.Blocks;
 using SimaticML.Enums;
 
@@ -91,6 +92,18 @@ class Program
 
     static SimaticPart? CreatePart(ElementSpec elem, Dictionary<string, SimaticVariable> varMap)
     {
+        // Timer elements don't require an operand in varMap
+        if (elem.Type == "timer_on_delay" || elem.Type == "timer_off_delay")
+        {
+            var partType = elem.Type == "timer_on_delay" ? PartType.TON : PartType.TOF;
+            return new TimerPart(partType)
+            {
+                InstanceAddress = elem.TimerInstance,
+                InstanceScope = SimaticVariableScope.GLOBAL_VARIABLE,
+                PT = CreateTimeLiteral(elem.PresetTime),
+            };
+        }
+
         if (string.IsNullOrEmpty(elem.Operand) || !varMap.TryGetValue(elem.Operand, out var var)) return null;
         return elem.Type switch
         {
@@ -101,6 +114,12 @@ class Program
             "coil_reset" => new ResetCoilPart() { Operand = var },
             _ => null,
         };
+    }
+
+    static SimaticVariable? CreateTimeLiteral(string? timeExpr)
+    {
+        if (string.IsNullOrEmpty(timeExpr)) return null;
+        return new SimaticLiteralConstant(SimaticDataType.TIMER, timeExpr);
     }
 
     static SimaticDataType ToDataType(string t) => (t?.ToUpper()) switch
@@ -116,4 +135,4 @@ class LadderSpec { public string BlockName { get; set; } = "AutoGen"; public int
 class InterfaceSpec { public List<VariableSpec>? Inputs { get; set; } public List<VariableSpec>? Outputs { get; set; } public List<VariableSpec>? Local { get; set; } }
 class VariableSpec { public string Name { get; set; } = ""; public string Type { get; set; } = "Bool"; public string? Comment { get; set; } }
 class NetworkSpec { public string? Title { get; set; } public string? Comment { get; set; } public List<ElementSpec>? Elements { get; set; } public List<ElementSpec>? ParallelElements { get; set; } }
-class ElementSpec { public string Type { get; set; } = "normally_open"; public string? Operand { get; set; } public string? Symbol { get; set; } }
+class ElementSpec { public string Type { get; set; } = "normally_open"; public string? Operand { get; set; } public string? Symbol { get; set; } public string? TimerInstance { get; set; } public string? PresetTime { get; set; } }

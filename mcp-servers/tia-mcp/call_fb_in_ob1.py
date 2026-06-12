@@ -30,10 +30,14 @@ def generate_combined_scl(fb_names: list) -> str:
     instances = []
     instance_calls = []
     for i, fb in enumerate(fb_names):
-        # IO_Map_MotorForwardReverse → ioMap_MotorForwardReverse
-        # ConveyorControl → ioMap_ConveyorControl
-        base = fb.replace('IO_Map_', '')
-        inst_name = 'ioMap_' + base
+        if fb.startswith('IO_Map_'):
+            # IO_Map_MotorForwardReverse → ioMap_MotorForwardReverse
+            base = fb.replace('IO_Map_', '')
+            inst_name = 'ioMap_' + base
+        else:
+            # ConveyorControl → inst_ConveyorControl
+            base = fb
+            inst_name = 'inst_' + base
         instances.append(f'    {inst_name} : "{fb}";')
         instance_calls.append(f'    {inst_name}();')
 
@@ -228,8 +232,11 @@ def insert_fb_calls(fb_names: list):
         print()
         print(f'   调用链: OB1 → MasterIO_DB → MasterIO')
         for n in valid_fbs:
-            base = n.replace('IO_Map_', '')
-            inst = 'ioMap_' + base
+            if n.startswith('IO_Map_'):
+                base = n.replace('IO_Map_', '')
+                inst = 'ioMap_' + base
+            else:
+                inst = 'inst_' + n
             print(f'                         ├─ {inst} → {n}')
         print()
         print(f'   下一步:')
@@ -237,6 +244,38 @@ def insert_fb_calls(fb_names: list):
         print(f'   2. 强制表: %I15.0=1 → %Q15.0 响应')
         print('=' * 55)
         return 0
+
+
+def ensure_conveyor_called():
+    """确保 ConveyorControl FB501 在 OB1 调用链中。
+
+    如果尚未调用，先检查 ConveyorControl 是否在项目中，
+    然后通过 insert_fb_calls 将其加入调用链。
+    """
+    from tia_session import tia_session
+
+    try:
+        with tia_session(TIA_PROJECT) as (project, plc_sw):
+            if not plc_sw:
+                return {"status": "error", "error": "未找到 PLC 设备"}
+
+            # 检查 ConveyorControl 是否存在
+            existing = set()
+            for block in plc_sw.BlockGroup.Blocks:
+                existing.add(str(block.Name))
+
+            if "ConveyorControl" not in existing:
+                return {"status": "error", "error": "ConveyorControl FB 不在项目中，请先生成"}
+
+            # 检查 MasterIO 是否已包含 ConveyorControl
+            has_masterio = "MasterIO" in existing
+            if has_masterio:
+                print("   ✅ MasterIO 已存在（可能已包含 ConveyorControl）")
+
+            # 调用 insert_fb_calls 加入调用链
+            return insert_fb_calls(["ConveyorControl"])
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 def main():
@@ -265,6 +304,9 @@ def main():
         for fb in fbs:
             print(f'   • {fb}')
         return insert_fb_calls(fbs)
+
+    if sys.argv[1] == '--ensure-conveyor':
+        return ensure_conveyor_called()
 
     # 手动指定 FB 名称
     fb_names = sys.argv[1:]

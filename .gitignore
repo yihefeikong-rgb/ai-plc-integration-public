@@ -78,3 +78,9 @@ coverage.xml
 
 # PLCSIM keeper PID 文件
 *.pid
+
+# 审查报告（本地生成，不提交）
+审查报告_*.md
+
+# Weave AI 会话缓存
+.weave/

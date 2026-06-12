@@ -74,7 +74,7 @@ factory_io:
   # Factory I/O 可执行文件路径
   exe_path: "${FACTORY_IO_DIR:D:\\Factory IO}\\Factory IO.exe"
   # 场景文件路径
-  scene_path: "${FIO_SCENE_PATH:C:\\Users\\huangxinyang\\Documents\\Factory IO\\My Scenes\\测试.factoryio}"
+  scene_path: "${FIO_SCENE_PATH:}"
   # 导出的 CSV I/O 映射文件
   csv_output: "D:\\TIA FANG ZHEN\\factory_io_mapping.csv"
 

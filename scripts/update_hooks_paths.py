@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
 """Update settings.json hook paths from global dir to plugin cache."""
-import re
+import re, os
 
-settings_path = "C:/Users/huangxinyang/.claude/settings.json"
+settings_path = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
 
 with open(settings_path, encoding="utf-8") as f:
     content = f.read()
 
-# Old paths in settings.json (mixed \\ and /)
-old_base_escaped = "C:\\Users\\huangxinyang\\.claude/scripts/hooks/"
-new_base_escaped = "C:\\Users\\huangxinyang\\.claude/plugins/cache/plc-mcp-kit/plc-mcp-kit/1.0.0/scripts/hooks/"
+user_home = os.path.expanduser("~").replace("\\", "\\\\")
+user_home_normal = os.path.expanduser("~")
 
-old_base_normal = "C:/Users/huangxinyang/.claude/scripts/hooks/"
-new_base_normal = "C:/Users/huangxinyang/.claude/plugins/cache/plc-mcp-kit/plc-mcp-kit/1.0.0/scripts/hooks/"
+# Old paths in settings.json (mixed \\ and /)
+old_base_escaped = f"C:\\\\{user_home[2:]}\\.claude/scripts/hooks/"
+new_base_escaped = f"C:\\\\{user_home[2:]}\\.claude/plugins/cache/plc-mcp-kit/plc-mcp-kit/1.0.0/scripts/hooks/"
+
+old_base_normal = f"{user_home_normal}/.claude/scripts/hooks/"
+new_base_normal = f"{user_home_normal}/.claude/plugins/cache/plc-mcp-kit/plc-mcp-kit/1.0.0/scripts/hooks/"
 
 content = content.replace(old_base_escaped, new_base_escaped)
 content = content.replace(old_base_normal, new_base_normal)
 
 # Replace the Stop hook inline JS root-finding logic
-# The inline JS searches for ECC plugin - replace with direct path to our plugin
-plugin_root = "C:\\\\Users\\\\huangxinyang\\\\.claude\\\\plugins\\\\cache\\\\plc-mcp-kit\\\\plc-mcp-kit\\\\1.0.0"
+plugin_root = f"{user_home}\\\\.claude\\\\plugins\\\\cache\\\\plc-mcp-kit\\\\plc-mcp-kit\\\\1.0.0"
 
 # Pattern: the const root function that scans for ECC
 js_pattern = r'const root=\(\(\)=>\{.*?\}\(\).*?const script=path\.join\(root,rel\);'

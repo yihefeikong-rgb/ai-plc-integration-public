@@ -12,6 +12,7 @@ from pathlib import Path
 
 from config.settings import settings
 from mcp_common.audit import audit
+from safety.validator import validator as safety_validator
 from .ai_client import ai
 
 try:
@@ -120,11 +121,20 @@ class EdgeGateway:
             try:
                 decision = json.loads(ai.decide_control(analysis, available))
                 if decision.get("action") == "write":
-                    print(f"[决策] 写入 {decision['target']} = {decision['value']}")
-                    print(f"[原因] {decision.get('reason', 'N/A')}")
-                    audit.log("ai_decision", decision.get("target", ""),
-                              str(decision.get("value")), operator="ai",
-                              detail=decision.get("reason", ""))
+                    result = safety_validator.validate(decision["target"], decision["value"])
+                    if not result.allowed:
+                        print(f"[安全] 阻断写入 {decision['target']} = {decision['value']}: {result.reason}")
+                        audit.log("blocked", decision.get("target", ""),
+                                  str(decision.get("value")), operator="ai",
+                                  detail=result.reason)
+                    else:
+                        if result.needs_confirmation:
+                            print(f"[安全] 警告: {decision['target']} 需要人工确认")
+                        print(f"[决策] 写入 {decision['target']} = {decision['value']}")
+                        print(f"[原因] {decision.get('reason', 'N/A')}")
+                        audit.log("ai_decision", decision.get("target", ""),
+                                  str(decision.get("value")), operator="ai",
+                                  detail=decision.get("reason", ""))
             except json.JSONDecodeError:
                 pass
 

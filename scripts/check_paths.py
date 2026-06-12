@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 import os, sys
 
+user_home = os.path.expanduser("~")
+user_home_backslash = user_home.replace("/", "\\")
+user_home_slash = user_home.replace("\\", "/")
+
 # Try multiple path formats
 paths = [
-    "C:\\Users\\huangxinyang\\.claude\\settings.json",
-    "C:/Users/huangxinyang/.claude/settings.json",
+    os.path.join(user_home, ".claude", "settings.json"),
+    os.path.join(user_home, ".claude", "settings.json"),
     os.path.expanduser("~/.claude/settings.json"),
 ]
 
@@ -22,9 +26,9 @@ if c is None:
     print("ERROR: Could not open settings.json")
     sys.exit(1)
 
-old = "C:/Users/huangxinyang/.claude/scripts/hooks/"
+old = f"{user_home_slash}/.claude/scripts/hooks/"
 old_escaped = old.replace("/", "\\")
-new = "C:/Users/huangxinyang/.claude/plugins/cache/plc-mcp-kit/plc-mcp-kit/1.0.0/scripts/hooks/"
+new = f"{user_home_slash}/.claude/plugins/cache/plc-mcp-kit/plc-mcp-kit/1.0.0/scripts/hooks/"
 
 print(f"old path: {c.count(old)}")
 print(f"old escaped: {c.count(old_escaped)}")

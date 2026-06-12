@@ -136,7 +136,9 @@
             "normally_closed",
             "coil",
             "coil_set",
-            "coil_reset"
+            "coil_reset",
+            "timer_on_delay",
+            "timer_off_delay"
           ],
           "description": "CartGen 支持的元素类型"
         },
@@ -144,6 +146,16 @@
           "type": "string",
           "pattern": "^[a-zA-Z]\\w*$",
           "description": "变量名引用"
+        },
+        "timer_instance": {
+          "type": "string",
+          "pattern": "^[a-zA-Z]\\w*$",
+          "description": "IEC 定时器实例名称，如 IEC_Timer_0"
+        },
+        "preset_time": {
+          "type": "string",
+          "pattern": "^T#|^TIME#",
+          "description": "预设时间，如 T#5S"
         }
       }
     }

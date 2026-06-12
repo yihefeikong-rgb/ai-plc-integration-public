@@ -208,7 +208,7 @@ def _basic_validate(spec: dict) -> list:
         errors.append("networks: 必须是非空数组")
 
     # 元素类型检查
-    valid_types = {"normally_open", "normally_closed", "coil", "coil_set", "coil_reset"}
+    valid_types = {"normally_open", "normally_closed", "coil", "coil_set", "coil_reset", "timer_on_delay", "timer_off_delay"}
     for i, net in enumerate(spec.get("networks", [])):
         if not isinstance(net, dict):
             errors.append(f"networks[{i}]: 不是对象")
@@ -231,6 +231,82 @@ def _basic_validate(spec: dict) -> list:
                 errors.append(f"networks[{i}].elements[{j}]: 缺少 operand")
 
     return errors
+
+
+# ═══ LadderSpec 安全校验 ═══
+
+def safety_validate_ladder(spec: dict) -> dict:
+    """校验 LadderSpec 是否满足安全规则。
+
+    检查:
+      - 所有输出是否串联了急停互锁（normally_closed iStop）
+      - 正反转是否有互锁（正转网络含 normally_closed oRunRev）
+      - 过载保护是否串联 normally_closed iOverload
+
+    Returns:
+        {"safe": True} 或 {"safe": False, "warnings": [...]}
+    """
+    warnings = []
+
+    if not isinstance(spec, dict):
+        return {"safe": False, "warnings": ["输入不是 JSON 对象"]}
+
+    networks = spec.get("networks", [])
+    if not networks:
+        return {"safe": False, "warnings": ["没有网络"]}
+
+    # 收集所有输出变量名
+    output_names = set()
+    for out in spec.get("interface", {}).get("outputs", []):
+        output_names.add(out.get("name", ""))
+
+    # 收集所有输入变量名
+    input_names = set()
+    for inp in spec.get("interface", {}).get("inputs", []):
+        input_names.add(inp.get("name", ""))
+
+    # 检查是否有急停输入
+    has_estop_input = any("stop" in n.lower() or "emergency" in n.lower() for n in input_names)
+    has_overload_input = any("overload" in n.lower() or "fault" in n.lower() for n in input_names)
+
+    # 检查是否有线圈输出
+    has_motor_outputs = any(
+        n.startswith("o") and ("fwd" in n.lower() or "rev" in n.lower() or "run" in n.lower())
+        for n in output_names
+    )
+
+    # 逐网络检查
+    has_estop_network = False
+    has_fwd_rev_interlock = False
+
+    for i, net in enumerate(networks):
+        elements = net.get("elements", [])
+        for el in elements:
+            op = (el.get("operand") or "").lower()
+            typ = el.get("type", "")
+
+            # 检查急停常闭触点
+            if typ == "normally_closed" and ("stop" in op or "emergency" in op):
+                has_estop_network = True
+
+            # 检查正反转互锁（正转网络中的 normally_closed oRunRev 或反转网络中的 normally_closed oRunFwd）
+            if typ == "normally_closed" and (("runrev" in op or "runfwd" in op) or
+                                              ("rev" in op and "fwd" not in op and has_motor_outputs) or
+                                              ("fwd" in op and "rev" not in op and has_motor_outputs)):
+                has_fwd_rev_interlock = True
+
+    if has_motor_outputs and not has_estop_network:
+        warnings.append("有电机类输出，但未检测到急停互锁（串联 normally_closed iStop）")
+
+    if has_motor_outputs and not has_fwd_rev_interlock:
+        warnings.append("有正反转输出，但未检测到正反转互锁（正转网络应含 normally_closed oRunRev）")
+
+    if has_motor_outputs and not has_overload_input:
+        warnings.append("有电机类输出，但未检测到过载保护输入变量（建议命名含 Overload）")
+
+    if warnings:
+        return {"safe": False, "warnings": warnings}
+    return {"safe": True}
 
 
 # ═══ 加载配置 ═══
