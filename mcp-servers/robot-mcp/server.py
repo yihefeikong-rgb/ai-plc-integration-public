@@ -42,6 +42,7 @@ import sys
 import json
 import argparse
 from pathlib import Path
+from typing import Any
 from fastmcp import FastMCP
 
 # ── 通信后端: 优先 OPC UA, 回退 snap7 ──────────────────────────────
@@ -102,6 +103,169 @@ IO_MAP = {
     "stop_light":          {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.7", "byte": 0, "bit": 7, "desc": "停止灯"},
 }
 
+
+class RobotBackend:
+    """机器人 PLC 后端连接管理器（OPC UA + snap7 双协议）"""
+
+    def __init__(self):
+        self._opc_client: Any = None
+        self._snap_client: Any = None
+        self._backend_type: str | None = None
+
+    @property
+    def backend_type(self) -> str | None:
+        return self._backend_type
+
+    async def connect_opcua(self) -> bool:
+        if not HAS_ASYNCUA:
+            return False
+        try:
+            self._opc_client = OPCClient(url=OPCUA_ENDPOINT)
+            await self._opc_client.connect()
+            self._backend_type = "opcua"
+            return True
+        except Exception:
+            self._opc_client = None
+            return False
+
+    def connect_snap7(self) -> bool:
+        if not HAS_SNAP7:
+            return False
+        try:
+            self._snap_client = snap7.client.Client()
+            self._snap_client.connect(PLC_IP, 0, 1)
+            if self._snap_client.get_connected():
+                self._backend_type = "snap7"
+                return True
+        except Exception:
+            pass
+        self._snap_client = None
+        return False
+
+    async def ensure_connected(self) -> bool:
+        if BACKEND == "opcua":
+            if self._opc_client is not None:
+                return True
+            return await self.connect_opcua()
+        if BACKEND == "snap7":
+            if self._snap_client is not None:
+                return True
+            return self.connect_snap7()
+        # auto
+        if self._opc_client is not None:
+            return True
+        if await self.connect_opcua():
+            return True
+        if self._snap_client is not None:
+            return True
+        return self.connect_snap7()
+
+    async def get_client(self):
+        if not await self.ensure_connected():
+            raise RuntimeError(
+                f"无法连接到 PLC {PLC_IP}。请检查:\n"
+                f"  1. PLCSIM Advanced 是否运行\n"
+                f"  2. 实例 factoryio 是否 Start\n"
+                f"  3. OPC UA (端口 {OPCUA_PORT}) 或 S7 (端口 102) 是否可达\n"
+                f"  4. 防火墙是否阻止"
+            )
+
+    async def read_io(self, name: str) -> bool | None:
+        if name not in IO_MAP:
+            return None
+        info = IO_MAP[name]
+        try:
+            if not await self.ensure_connected():
+                return None
+            if self._backend_type == "opcua" and self._opc_client:
+                node = self._opc_client.get_node(info["node"])
+                val = await node.read_value()
+                return bool(val)
+            elif self._backend_type == "snap7" and self._snap_client:
+                area = 0x81 if name.startswith("sensor_") else 0x82
+                data = self._snap_client.read_area(area, 0, info["byte"], 1)
+                return bool(data[0] & (1 << info["bit"]))
+            return None
+        except Exception:
+            return None
+
+    async def write_io(self, name: str, value: bool) -> dict:
+        if name not in IO_MAP:
+            return {"status": "error", "error": f"未知 I/O: {name}"}
+        # 急停安全检查
+        if name.startswith("conveyor_") or name.startswith("arm_") or name == "grab":
+            estop = await self.read_io("sensor_estop")
+            if estop:
+                return {"status": "error", "error": "急停已触发，禁止写入输出"}
+        info = IO_MAP[name]
+        try:
+            if not await self.ensure_connected():
+                return {"status": "error", "error": "未连接到 PLC"}
+            if self._backend_type == "opcua" and self._opc_client:
+                node = self._opc_client.get_node(info["node"])
+                from asyncua import ua
+                await node.write_value(ua.DataValue(ua.Variant(value, ua.VariantType.Boolean)))
+                return {"status": "ok", "io": name, "value": value, "backend": "opcua"}
+            elif self._backend_type == "snap7" and self._snap_client:
+                data = bytearray(self._snap_client.read_area(0x82, 0, info["byte"], 1))
+                if value:
+                    data[0] |= (1 << info["bit"])
+                else:
+                    data[0] &= ~(1 << info["bit"])
+                self._snap_client.write_area(0x82, 0, info["byte"], bytes(data))
+                return {"status": "ok", "io": name, "value": value, "backend": "snap7"}
+            return {"status": "error", "error": "无可用后端"}
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+    async def read_all_inputs(self) -> dict:
+        inputs = {}
+        if self._backend_type == "snap7" and self._snap_client:
+            try:
+                data = self._snap_client.read_area(0x81, 0, 0, 2)
+                for name, info in IO_MAP.items():
+                    if name.startswith("sensor_"):
+                        inputs[name] = bool(data[info["byte"]] & (1 << info["bit"]))
+                return inputs
+            except Exception:
+                pass
+        for name in IO_MAP:
+            if name.startswith("sensor_"):
+                inputs[name] = await self.read_io(name)
+        return inputs
+
+    async def wait_for(self, io_name: str, target: bool, timeout: float = 5.0, interval: float = 0.1) -> bool:
+        try:
+            for _ in range(int(timeout / interval)):
+                val = await self.read_io(io_name)
+                if val == target:
+                    return True
+                await asyncio.sleep(interval)
+        except Exception:
+            pass
+        return False
+
+    async def ensure_disconnected(self):
+        for name in ["conveyor_entry", "conveyor_exit", "arm_move_x", "arm_move_z", "grab"]:
+            try:
+                await self.write_io(name, False)
+            except Exception:
+                pass
+
+    def get_backend_info(self) -> dict:
+        return {
+            "backend": self._backend_type or "not connected",
+            "has_opcua": HAS_ASYNCUA,
+            "has_snap7": HAS_SNAP7,
+            "plc_ip": PLC_IP,
+            "opcua_endpoint": OPCUA_ENDPOINT,
+        }
+
+
+# 全局单例
+backend = RobotBackend()
+
+
 # ── 后端类型 (自动选择) ──────────────────────────────────────────
 # 'auto': 优先 OPC UA, 失败回退 snap7
 # 'opcua': 强制 OPC UA
@@ -128,195 +292,6 @@ def _require_auth(token: str = "") -> None:
         raise PermissionError("认证失败：无效的 auth token")
 
 
-# 后端连接
-_opc_client: OPCClient | None = None
-_snap_client: snap7.client.Client | None = None  # type: ignore
-_backend_type: str | None = None  # 'opcua' 或 'snap7'
-
-
-# ── 后端连接管理（OPC UA + snap7 双协议支持）────────────────────────
-
-def get_backend_info() -> dict:
-    """返回当前后端状态"""
-    return {
-        "backend": _backend_type or "not connected",
-        "has_opcua": HAS_ASYNCUA,
-        "has_snap7": HAS_SNAP7,
-        "plc_ip": PLC_IP,
-        "opcua_endpoint": OPCUA_ENDPOINT,
-    }
-
-
-async def _connect_opcua() -> bool:
-    """连接 OPC UA 后端"""
-    global _opc_client, _backend_type
-    if not HAS_ASYNCUA:
-        return False
-    try:
-        _opc_client = OPCClient(url=OPCUA_ENDPOINT)
-        await _opc_client.connect()
-        _backend_type = "opcua"
-        return True
-    except Exception:
-        _opc_client = None
-        return False
-
-
-def _connect_snap7() -> bool:
-    """连接 snap7 后端"""
-    global _snap_client, _backend_type
-    if not HAS_SNAP7:
-        return False
-    try:
-        _snap_client = snap7.client.Client()
-        _snap_client.connect(PLC_IP, 0, 1)
-        if _snap_client.get_connected():
-            _backend_type = "snap7"
-            return True
-    except Exception:
-        pass
-    _snap_client = None
-    return False
-
-
-async def ensure_connected() -> bool:
-    """确保至少有一种后端连接可用"""
-    global _backend_type, _opc_client, _snap_client
-
-    if BACKEND == "opcua":
-        if _opc_client is not None:
-            return True
-        return await _connect_opcua()
-
-    if BACKEND == "snap7":
-        if _snap_client is not None:
-            return True
-        return _connect_snap7()
-
-    # auto: OPC UA 优先，回退 snap7
-    if _opc_client is not None:
-        return True
-    if await _connect_opcua():
-        return True
-    if _snap_client is not None:
-        return True
-    return _connect_snap7()
-
-
-async def get_client():
-    """保持向后兼容的 get_client（实际调用 ensure_connected）"""
-    if not await ensure_connected():
-        raise RuntimeError(
-            f"无法连接到 PLC {PLC_IP}。请检查:\n"
-            f"  1. PLCSIM Advanced 是否运行\n"
-            f"  2. 实例 factoryio 是否 Start\n"
-            f"  3. OPC UA (端口 {OPCUA_PORT}) 或 S7 (端口 102) 是否可达\n"
-            f"  4. 防火墙是否阻止"
-        )
-
-
-async def read_io(name: str) -> bool | None:
-    """读取单个 I/O 点的值（支持 OPC UA + snap7）"""
-    if name not in IO_MAP:
-        return None
-    info = IO_MAP[name]
-    try:
-        if not await ensure_connected():
-            return None
-
-        if _backend_type == "opcua" and _opc_client:
-            node = _opc_client.get_node(info["node"])
-            val = await node.read_value()
-            return bool(val)
-
-        elif _backend_type == "snap7" and _snap_client:
-            area = 0x81 if name.startswith("sensor_") else 0x82
-            data = _snap_client.read_area(area, 0, info["byte"], 1)
-            return bool(data[0] & (1 << info["bit"]))
-
-        return None
-    except Exception:
-        return None
-
-
-async def write_io(name: str, value: bool) -> dict:
-    """写入单个 I/O 点（支持 OPC UA + snap7）"""
-    if name not in IO_MAP:
-        return {"status": "error", "error": f"未知 I/O: {name}"}
-
-    # 急停安全检查：写入任何输出前先检查急停状态
-    if name.startswith("conveyor_") or name.startswith("arm_") or name == "grab":
-        estop = await read_io("sensor_estop")
-        if estop:
-            return {"status": "error", "error": "急停已触发，禁止写入输出"}
-
-    info = IO_MAP[name]
-    try:
-        if not await ensure_connected():
-            return {"status": "error", "error": "未连接到 PLC"}
-
-        if _backend_type == "opcua" and _opc_client:
-            node = _opc_client.get_node(info["node"])
-            from asyncua import ua
-            await node.write_value(ua.DataValue(ua.Variant(value, ua.VariantType.Boolean)))
-            return {"status": "ok", "io": name, "value": value, "backend": "opcua"}
-
-        elif _backend_type == "snap7" and _snap_client:
-            data = bytearray(_snap_client.read_area(0x82, 0, info["byte"], 1))
-            if value:
-                data[0] |= (1 << info["bit"])
-            else:
-                data[0] &= ~(1 << info["bit"])
-            _snap_client.write_area(0x82, 0, info["byte"], bytes(data))
-            return {"status": "ok", "io": name, "value": value, "backend": "snap7"}
-
-        return {"status": "error", "error": f"无可用后端"}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-
-async def read_all_inputs() -> dict:
-    """批量读取所有输入传感器"""
-    inputs = {}
-    # snap7 优化：一次读 2 字节
-    if _backend_type == "snap7" and _snap_client:
-        try:
-            data = _snap_client.read_area(0x81, 0, 0, 2)
-            for name, info in IO_MAP.items():
-                if name.startswith("sensor_"):
-                    inputs[name] = bool(data[info["byte"]] & (1 << info["bit"]))
-            return inputs
-        except Exception:
-            pass
-    # 逐个读取（OPC UA 或兜底）
-    for name in IO_MAP:
-        if name.startswith("sensor_"):
-            inputs[name] = await read_io(name)
-    return inputs
-
-
-async def wait_for(io_name: str, target: bool, timeout: float = 5.0, interval: float = 0.1) -> bool:
-    """等待 I/O 点变为目标值，超时返回 False"""
-    try:
-        for _ in range(int(timeout / interval)):
-            val = await read_io(io_name)
-            if val == target:
-                return True
-            await asyncio.sleep(interval)
-    except Exception:
-        pass
-    return False
-
-
-async def ensure_disconnected():
-    """确保所有输出复位（安全关停）"""
-    for name in ["conveyor_entry", "conveyor_exit", "arm_move_x", "arm_move_z", "grab"]:
-        try:
-            await write_io(name, False)
-        except Exception:
-            pass
-
-
 # ═════════════════════════════════════════════════════════════════════
 # MCP 工具
 # ═════════════════════════════════════════════════════════════════════
@@ -331,12 +306,12 @@ async def get_status(auth_token: str = "") -> dict:
     """
     _require_auth(auth_token)
     try:
-        await ensure_connected()
-        conn = f"connected ({_backend_type})"
+        await backend.ensure_connected()
+        conn = f"connected ({backend.backend_type})"
     except Exception as e:
         conn = f"error: {e}"
 
-    sensors = await read_all_inputs()
+    sensors = await backend.read_all_inputs()
     position = "unknown"
     if sensors.get("sensor_moving_x") is True:
         position = "extended"
@@ -345,7 +320,7 @@ async def get_status(auth_token: str = "") -> dict:
 
     return {
         "connection": conn,
-        "backend": _backend_type or "none",
+        "backend": backend.backend_type or "none",
         "plc_ip": PLC_IP,
         "scene": "Pick & Place (Basic)",
         "sensors": sensors,
@@ -364,20 +339,20 @@ async def go_home(auth_token: str = "") -> dict:
     _require_auth(auth_token)
     try:
         # 1. 松开夹爪
-        await write_io("grab", False)
+        await backend.write_io("grab", False)
         await asyncio.sleep(0.3)
 
         # 2. Z轴升起（假设上升是 False）
-        await write_io("arm_move_z", False)
+        await backend.write_io("arm_move_z", False)
         await asyncio.sleep(0.5)
 
         # 3. X轴收回（假设收回是 False）
-        await write_io("arm_move_x", False)
+        await backend.write_io("arm_move_x", False)
         await asyncio.sleep(0.5)
 
         # 4. 停止所有传送带
-        await write_io("conveyor_entry", False)
-        await write_io("conveyor_exit", False)
+        await backend.write_io("conveyor_entry", False)
+        await backend.write_io("conveyor_exit", False)
 
         return {"status": "ok", "position": "home", "message": "机器人已回到起始位置"}
     except Exception as e:
@@ -396,59 +371,59 @@ async def pick_item(auth_token: str = "") -> dict:
     _require_auth(auth_token)
     try:
         # 检查急停
-        estop = await read_io("sensor_estop")
+        estop = await backend.read_io("sensor_estop")
         if estop:
             return {"status": "error", "error": "急停已触发，无法执行"}
 
         # 检查是否有物料已到位
-        has_item = await read_io("sensor_entry")
+        has_item = await backend.read_io("sensor_entry")
         if not has_item:
             # 尝试运行入口传送带送料
-            await write_io("conveyor_entry", True)
-            arrived = await wait_for("sensor_entry", True, timeout=3.0)
+            await backend.write_io("conveyor_entry", True)
+            arrived = await backend.wait_for("sensor_entry", True, timeout=3.0)
             if not arrived:
-                await write_io("conveyor_entry", False)
+                await backend.write_io("conveyor_entry", False)
                 return {"status": "error", "error": "入口无物料，等待超时。请确保场景已启动且入口有料"}
 
         # 停传送带
-        await write_io("conveyor_entry", False)
+        await backend.write_io("conveyor_entry", False)
         await asyncio.sleep(0.2)
 
         # 1. X轴伸出
-        await write_io("arm_move_x", True)
-        x_ok = await wait_for("sensor_moving_x", True, timeout=3.0)
+        await backend.write_io("arm_move_x", True)
+        x_ok = await backend.wait_for("sensor_moving_x", True, timeout=3.0)
         if not x_ok:
             await go_home(auth_token=auth_token)
             return {"status": "error", "error": "X轴伸出超时，已回位"}
         await asyncio.sleep(0.3)
 
         # 2. Z轴下降
-        await write_io("arm_move_z", True)
-        z_ok = await wait_for("sensor_moving_z", True, timeout=3.0)
+        await backend.write_io("arm_move_z", True)
+        z_ok = await backend.wait_for("sensor_moving_z", True, timeout=3.0)
         if not z_ok:
             await go_home(auth_token=auth_token)
             return {"status": "error", "error": "Z轴下降超时，已回位"}
         await asyncio.sleep(0.3)
 
         # 3. 夹爪闭合
-        await write_io("grab", True)
+        await backend.write_io("grab", True)
         await asyncio.sleep(0.5)
 
         # 确认抓到
-        detected = await read_io("sensor_item_detected")
+        detected = await backend.read_io("sensor_item_detected")
         if not detected:
-            await write_io("grab", False)
+            await backend.write_io("grab", False)
             await go_home(auth_token=auth_token)
             return {"status": "error", "error": "抓取失败（未检测到物料），已复位"}
 
         # 4. Z轴上升
-        await write_io("arm_move_z", False)
-        await wait_for("sensor_moving_z", False, timeout=3.0)
+        await backend.write_io("arm_move_z", False)
+        await backend.wait_for("sensor_moving_z", False, timeout=3.0)
         await asyncio.sleep(0.3)
 
         # 5. X轴收回
-        await write_io("arm_move_x", False)
-        await wait_for("sensor_moving_x", False, timeout=3.0)
+        await backend.write_io("arm_move_x", False)
+        await backend.wait_for("sensor_moving_x", False, timeout=3.0)
         await asyncio.sleep(0.3)
 
         return {"status": "ok", "action": "pick", "message": "物料已抓取，机械臂已收回"}
@@ -468,42 +443,42 @@ async def place_item(auth_token: str = "") -> dict:
     """
     _require_auth(auth_token)
     try:
-        estop = await read_io("sensor_estop")
+        estop = await backend.read_io("sensor_estop")
         if estop:
             return {"status": "error", "error": "急停已触发"}
 
-        has_item = await read_io("sensor_item_detected")
+        has_item = await backend.read_io("sensor_item_detected")
         if not has_item:
             return {"status": "error", "error": "夹爪中无物料，请先执行 pick_item()"}
 
         # 1. X轴伸出（到出口位置）
-        await write_io("arm_move_x", True)
-        await wait_for("sensor_moving_x", True, timeout=3.0)
+        await backend.write_io("arm_move_x", True)
+        await backend.wait_for("sensor_moving_x", True, timeout=3.0)
         await asyncio.sleep(0.3)
 
         # 2. Z轴下降
-        await write_io("arm_move_z", True)
-        await wait_for("sensor_moving_z", True, timeout=3.0)
+        await backend.write_io("arm_move_z", True)
+        await backend.wait_for("sensor_moving_z", True, timeout=3.0)
         await asyncio.sleep(0.3)
 
         # 3. 夹爪松开
-        await write_io("grab", False)
+        await backend.write_io("grab", False)
         await asyncio.sleep(0.5)
 
         # 4. Z轴上升
-        await write_io("arm_move_z", False)
-        await wait_for("sensor_moving_z", False, timeout=3.0)
+        await backend.write_io("arm_move_z", False)
+        await backend.wait_for("sensor_moving_z", False, timeout=3.0)
         await asyncio.sleep(0.3)
 
         # 5. X轴收回
-        await write_io("arm_move_x", False)
-        await wait_for("sensor_moving_x", False, timeout=3.0)
+        await backend.write_io("arm_move_x", False)
+        await backend.wait_for("sensor_moving_x", False, timeout=3.0)
         await asyncio.sleep(0.3)
 
         # 6. 启动出口传送带运走物品
-        await write_io("conveyor_exit", True)
+        await backend.write_io("conveyor_exit", True)
         await asyncio.sleep(2.0)
-        await write_io("conveyor_exit", False)
+        await backend.write_io("conveyor_exit", False)
 
         return {"status": "ok", "action": "place", "message": "物料已放置到出口，已运走"}
     except Exception as e:
@@ -533,37 +508,37 @@ async def move_arm_to(position: str, auth_token: str = "") -> dict:
 
     try:
         if position == "home":
-            await write_io("grab", False)
+            await backend.write_io("grab", False)
             await asyncio.sleep(0.2)
-            await write_io("arm_move_z", False)
+            await backend.write_io("arm_move_z", False)
             await asyncio.sleep(0.3)
-            await write_io("arm_move_x", False)
+            await backend.write_io("arm_move_x", False)
             await asyncio.sleep(0.3)
 
         elif position == "pick":
-            await write_io("arm_move_x", True)
-            await wait_for("sensor_moving_x", True, timeout=3.0)
+            await backend.write_io("arm_move_x", True)
+            await backend.wait_for("sensor_moving_x", True, timeout=3.0)
             await asyncio.sleep(0.2)
-            await write_io("arm_move_z", True)
-            await wait_for("sensor_moving_z", True, timeout=3.0)
+            await backend.write_io("arm_move_z", True)
+            await backend.wait_for("sensor_moving_z", True, timeout=3.0)
             await asyncio.sleep(0.2)
-            await write_io("grab", False)
+            await backend.write_io("grab", False)
 
         elif position == "extend":
-            await write_io("arm_move_x", True)
-            await wait_for("sensor_moving_x", True, timeout=3.0)
+            await backend.write_io("arm_move_x", True)
+            await backend.wait_for("sensor_moving_x", True, timeout=3.0)
 
         elif position == "retract":
-            await write_io("arm_move_x", False)
-            await wait_for("sensor_moving_x", False, timeout=3.0)
+            await backend.write_io("arm_move_x", False)
+            await backend.wait_for("sensor_moving_x", False, timeout=3.0)
 
         elif position == "lower":
-            await write_io("arm_move_z", True)
-            await wait_for("sensor_moving_z", True, timeout=3.0)
+            await backend.write_io("arm_move_z", True)
+            await backend.wait_for("sensor_moving_z", True, timeout=3.0)
 
         elif position == "raise":
-            await write_io("arm_move_z", False)
-            await wait_for("sensor_moving_z", False, timeout=3.0)
+            await backend.write_io("arm_move_z", False)
+            await backend.wait_for("sensor_moving_z", False, timeout=3.0)
 
         return {"status": "ok", "action": "move_to", "position": position,
                 "message": f"机械臂已移动到 {position}"}
@@ -616,14 +591,14 @@ async def control_conveyor(direction: str = "stop", auth_token: str = "") -> dic
     _require_auth(auth_token)
     try:
         if direction == "entry":
-            await write_io("conveyor_entry", True)
-            await write_io("conveyor_exit", False)
+            await backend.write_io("conveyor_entry", True)
+            await backend.write_io("conveyor_exit", False)
         elif direction == "exit":
-            await write_io("conveyor_entry", False)
-            await write_io("conveyor_exit", True)
+            await backend.write_io("conveyor_entry", False)
+            await backend.write_io("conveyor_exit", True)
         else:
-            await write_io("conveyor_entry", False)
-            await write_io("conveyor_exit", False)
+            await backend.write_io("conveyor_entry", False)
+            await backend.write_io("conveyor_exit", False)
         return {"status": "ok", "direction": direction}
     except Exception as e:
         return {"status": "error", "error": str(e)}

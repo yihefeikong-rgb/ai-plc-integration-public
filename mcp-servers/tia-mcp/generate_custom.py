@@ -62,7 +62,7 @@ print()
 # 1. 调 DeepSeek
 import requests
 resp = requests.post(
-    'https://api.deepseek.com/v1/chat/completions',
+    cfg.deepseek.api_url,
     headers={'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json'},
     json={'model': 'deepseek-chat', 'messages': [{'role': 'user', 'content': prompt}],
           'temperature': 0.3, 'max_tokens': 4000},

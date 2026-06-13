@@ -46,8 +46,8 @@ services:
       - MODBUS_HOST=openplc
       - MODBUS_PORT=502
     volumes:
-      - ./mcp-servers:/app/mcp-servers
-      - ./config:/app/config
+      - ./mcp-servers:/app/mcp-servers:ro
+      - ./config:/app/config:ro
       - ./logs:/app/logs
     depends_on:
       - influxdb

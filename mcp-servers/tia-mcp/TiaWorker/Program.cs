@@ -19,6 +19,10 @@ namespace TiaWorker
     {
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
+        // 调试模式开关（环境变量 TIAWORKER_DEBUG=1 启用）
+        private static bool IsDebugEnabled =>
+            string.Equals(Environment.GetEnvironmentVariable("TIAWORKER_DEBUG"), "1", StringComparison.OrdinalIgnoreCase);
+
         // TIA Portal V21 Openness DLL 路径
         // Private=False 编译（避免 CopyLocal 检查），运行时通过 AssemblyResolve 加载
         static readonly string[] _tiaDllPaths = new[]
@@ -242,10 +246,10 @@ namespace TiaWorker
                     }
 
                     // 调试：枚举所有接口
-                    Console.Error.WriteLine($"[TiaWorker] 可用模式: {string.Join(", ", connConfig.Modes.Select(m => m.Name))}");
+                    if (IsDebugEnabled) Console.Error.WriteLine($"[TiaWorker] 可用模式: {string.Join(", ", connConfig.Modes.Select(m => m.Name))}");
                     foreach (var iface in mode.PcInterfaces)
                     {
-                        Console.Error.WriteLine($"[TiaWorker]   接口: {iface.Name}");
+                        if (IsDebugEnabled) Console.Error.WriteLine($"[TiaWorker]   接口: {iface.Name}");
                     }
 
                     // 优先选择 PLCSIM Softbus 接口（不含 "Ethernet"/"Virtual"）
@@ -311,7 +315,7 @@ namespace TiaWorker
                     }
 
                     // 3. 设置下载目标为 PLCSIM Advanced（V21 关键！否则默认找真实硬件）
-                    Console.Error.WriteLine($"[TiaWorker] 设置下载目标为 PLCSIM Advanced...");
+                    if (IsDebugEnabled) Console.Error.WriteLine($"[TiaWorker] 设置下载目标为 PLCSIM Advanced...");
 
                     DownloadConfigurationDelegate preDelegate = (cfg) =>
                     {
@@ -330,14 +334,14 @@ namespace TiaWorker
                                         var selectionsType = currentSelProp.PropertyType;
                                         var plcSimAdv = Enum.Parse(selectionsType, "PlcSimulationAdvanced");
                                         currentSelProp.SetValue(targetObj, plcSimAdv);
-                                        Console.Error.WriteLine("[TiaWorker] ✅ TargetForSoftware = PlcSimulationAdvanced");
+                                        if (IsDebugEnabled) Console.Error.WriteLine("[TiaWorker] ✅ TargetForSoftware = PlcSimulationAdvanced");
                                     }
                                 }
                             }
                         }
                         catch (Exception ex)
                         {
-                            Console.Error.WriteLine($"[TiaWorker] ⚠ 设置 TargetForSoftware 失败: {ex.Message}");
+                            if (IsDebugEnabled) Console.Error.WriteLine($"[TiaWorker] ⚠ 设置 TargetForSoftware 失败: {ex.Message}");
                         }
                     };
 
