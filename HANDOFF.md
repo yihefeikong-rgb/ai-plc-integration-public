@@ -1,8 +1,8 @@
 # AI 接入 PLC — 项目交接文档
 
-> 生成: 2026-06-06（第 6 次更新，TCP/IP 模式切换 + Factory I/O 连接修复）
+> 生成: 2026-06-15（第 7 次更新，纯编排器重构 + 5 级降级链 + TiaWorker GUI 模式）
 > 当前分支: master
-> 最后提交: `ecccdf6` feat: P3 全面修复 — V21 Openness 适配 + PLCSIM V8.0 兼容 + 端到端脚本
+> 最后提交: `a4446ef` Phase4 架构演进: 只读挂载+影子仿真+上下文管理器+统一URL+调试控制
 
 ---
 
@@ -37,17 +37,14 @@
 - **Golden restore 验证通过** ✅
 - ⚠️ ~~PLCSIM V8.0 许可证问题 (Error -30)~~ **用户确认许可证正常**
 
-**本次会话（2026-06-06 第4次 — P3 最终修复）**:
-- ✅ **TiaWorker 重新编译为 V21**: `TiaWorker.csproj` 从引用 V18 DLL 改为引用 V21 (Base.dll + Step7.dll)
-- ✅ **新增 C# TiaWorker 下载路径**: `download_to_plcsim.py` 新增 `_try_download_via_tiaworker()` — 头等下载策略，使用 WithoutUserInterface 模式
-- ✅ **统一接口模式**: 所有脚本统一使用 `softbus`（Factory I/O S7-PLCSIM 驱动要求）
-  - `start_all.py`: `restore_instance(interface="softbus")`
-  - `auto_full_pipeline.py`: 从 `TCPIP` → `softbus`
-- ✅ **Golden 路径修复**: `start_all.py` 优先使用 V21 路径 (`demo_V21\`)，V18 路径作为回退
-- ✅ **auto.cfg 格式对齐**: 所有 auto.cfg 写入改为控制台命令格式（`drivers.siemens_s7plcsim.*`），写入 `ProgramData\Real Games\Factory IO` + `Documents\Factory IO` 双路径
-- ✅ **启动顺序修复**: `start_all.py` 确保 PLCSIM 先启动并等待 3 秒，再启动 Factory I/O
-- ✅ **`auto_full_pipeline.py`**: 新增步骤 3（下载到 PLCSIM），完善步骤命名
-- ✅ **90 个测试全部通过**
+**本次会话（2026-06-15 第5次 — 纯编排器重构 + 5 级降级链）**:
+- ✅ **p3_flow.py 纯编排器重构**: 移除所有 clr/uiautomation 直接导入，所有操作通过子进程调用（TiaWorker.exe / plcsim_api.py CLI / download_to_plcsim.py），彻底解决 COM STA/MTA 线程冲突
+- ✅ **硬编码路径清除**: p3_flow.py 所有路径改为从 `config_loader`（config.yaml）获取
+- ✅ **5 级降级下载链**: `download_to_plcsim.py` 新增 TiaWorker GUI 模式 (`TiaWorker.exe download-gui`)
+  - TiaWorker (headless) → TiaWorker (GUI) → Python API → UI Automation → 手动
+- ✅ **Golden backup 自动更新**: 所有下载路径成功时自动 archive 更新 golden.zip
+- ✅ **新增 --golden-restore 快速恢复**: 跳过所有流程，直接从 golden backup 恢复 PLCSIM
+- ✅ **TiaWorker 新增 download-gui 命令**: 使用 WithUserInterface 模式附加到运行中的 TIA Portal GUI
 
 **不再阻塞的问题**:
 - ~~PLCSIM Advanced V8.0 许可证问题~~ — 用户确认已解决
@@ -104,7 +101,7 @@ mcp-servers/tia-mcp/
 ├── config.yaml               # 主配置（当前: V18 + advanced）
 ├── config_loader.py          # 配置加载器（YAML+环境变量）
 ├── tia_session.py            # TIA Portal 会话管理（headless/gui）
-├── download_to_plcsim.py     # 下载策略（三级降级）
+├── download_to_plcsim.py     # 下载策略（5 级降级：TiaWorker→TiaWorker GUI→Python API→UI→手动）
 ├── dl_plcsim_gui.py          # UI Automation 下载（uiautomation）
 ├── plcsim_api.py             # PLCSIM Advanced V8.0 API 封装
 ├── call_fb_in_ob1.py         # OB1 调用链生成

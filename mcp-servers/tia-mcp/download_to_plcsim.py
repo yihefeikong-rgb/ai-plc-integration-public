@@ -14,7 +14,9 @@
   python download_to_plcsim.py --compile-first        # 下载前先编译
   python download_to_plcsim.py --python               # 强制 Python API 模式
   python download_to_plcsim.py --ui                   # 强制 UI Automation 模式
-  python download_to_plcsim.py --tiaworker            # 强制 TiaWorker C# 模式
+  python download_to_plcsim.py --tiaworker            # 强制 TiaWorker C# headless 模式
+  python download_to_plcsim.py --tiaworker-gui        # 强制 TiaWorker C# GUI 模式
+  python download_to_plcsim.py --golden-restore       # 从 golden backup 快速恢复（不下载）
 """
 
 import sys, os, json, subprocess as _sp, tempfile
@@ -248,6 +250,8 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
             if success:
                 print('✅ 下载成功！')
                 project.Save()
+                print()
+                _update_golden_backup()
                 return 0
             else:
                 print(f'⚠ 下载状态: {result.State}')
@@ -314,6 +318,141 @@ def download_via_ui(compile_first: bool = False) -> int:
         print()
         print('📋 手动下载: 打开 TIA Portal GUI → 右键 PLC_1 → 下载到设备 → 软件')
         return 1
+
+
+def _update_golden_backup():
+    """下载成功后自动更新 golden backup"""
+    try:
+        from plcsim_api import archive_instance
+        project_dir = os.path.dirname(TIA_PROJECT)
+        golden_zip = os.path.join(project_dir, 'factory_io1_golden.zip')
+        storage_path = os.path.join(project_dir, 'plcsim_storage')
+        archive_instance(cfg.factory_io.plcsim_instance, golden_zip, storage_path)
+        print(f'   ✅ Golden backup 已更新: {golden_zip}')
+    except Exception as e:
+        print(f'   ⚠ Golden backup 更新失败（不影响下载）: {e}')
+
+
+def _golden_restore(target_ip: str = "") -> int:
+    """从 golden backup 快速恢复 PLCSIM（绕过下载流程）
+
+    适用于：
+    - 已知 golden backup 已包含最新程序
+    - 只需重置 PLCSIM 到已知状态
+    """
+    print('📦 从 golden backup 快速恢复 PLCSIM...')
+    try:
+        from plcsim_api import restore_instance
+        project_dir = os.path.dirname(TIA_PROJECT)
+        golden_zip = os.path.join(project_dir, 'factory_io1_golden.zip')
+        storage_path = os.path.join(project_dir, 'plcsim_storage')
+        ip = target_ip or '192.168.0.1'
+
+        if not os.path.exists(golden_zip):
+            print(f'   ❌ Golden backup 不存在: {golden_zip}')
+            return 1
+
+        instance = restore_instance(
+            name=cfg.factory_io.plcsim_instance,
+            golden_zip=golden_zip,
+            storage_path=storage_path,
+            ip=ip,
+            interface='tcpip',
+            auto_run=True,
+        )
+        print(f'   ✅ PLCSIM 已恢复: {instance.OperatingState}')
+        return 0
+    except Exception as e:
+        print(f'   ❌ 恢复失败: {e}')
+        return 1
+
+
+def _try_download_via_tiaworker_gui(target_ip: str = "") -> int:
+    """通过 C# TiaWorker 下载到 PLCSIM（GUI 模式，WithUserInterface）
+
+    TiaWorker 使用 WithUserInterface 模式，附加到已运行的 TIA Portal GUI，
+    通过 GUI 模式的 DownloadProvider 下载，比 headless 模式更可靠。
+
+    Returns:
+        0: 成功, 1: 失败, -1: 不可用（触发 fallback）
+    """
+    tiaworker_exe = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'bin', 'TiaWorker.exe'
+    )
+
+    if not os.path.exists(tiaworker_exe):
+        print('   ⚠ TiaWorker 未编译，跳过')
+        return -1
+
+    print('🔌 通过 C# TiaWorker (GUI 模式) 下载到 PLCSIM...')
+
+    # 确保 TIA Portal GUI 已启动
+    if not _ensure_tia_gui_running():
+        print('   ⚠ 无法启动 TIA Portal GUI，跳过 GUI 模式')
+        return -1
+
+    # 准备 JSON 输入
+    project_path = cfg.tia.project_path
+    input_data = {
+        "ProjectPath": project_path,
+        "InterfaceName": "PN/IE",
+        "TargetIp": target_ip or "192.168.0.1",
+        "DeviceName": "",
+        "TimeoutSec": 180,
+    }
+
+    import tempfile as _tf
+    tmp = _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
+    json.dump(input_data, tmp)
+    tmp_path = tmp.name
+    tmp.close()
+
+    try:
+        print(f'   启动 TiaWorker (GUI 模式)...')
+        r = subprocess.run(
+            [tiaworker_exe, "download-gui", tmp_path],
+            capture_output=True, text=True, timeout=200,
+            encoding='utf-8', errors='replace',
+        )
+        stdout = r.stdout.strip()
+        stderr = r.stderr.strip()
+        if stderr:
+            print(f'   [stderr] {stderr[:300]}')
+
+        if stdout:
+            result = json.loads(stdout)
+            if result.get('status') == 'ok':
+                data = result.get('data', {})
+                if data.get('success'):
+                    print(f'   ✅ TiaWorker (GUI) 下载成功！')
+                    _update_golden_backup()
+                    return 0
+                elif data.get('note') in ('gui_confirm', 'auto'):
+                    print(f'   ⚠ TiaWorker (GUI): {data.get("message", "需要 GUI 确认")}')
+                    print(f'   回退到其他下载方式...')
+                    return -1
+                else:
+                    print(f'   ❌ TiaWorker (GUI) 失败: {data.get("message", "未知错误")}')
+                    return 1
+            else:
+                print(f'   ❌ TiaWorker (GUI) 错误: {result.get("error", "未知")}')
+                return 1
+        else:
+            print('   ⚠ TiaWorker (GUI) 无输出，回退')
+            return -1
+    except json.JSONDecodeError as e:
+        print(f'   ⚠ TiaWorker (GUI) 输出解析失败: {e}')
+        print(f'   原始输出: {stdout[:200] if stdout else "(空)"}')
+        return -1
+    except subprocess.TimeoutExpired:
+        print('   ❌ TiaWorker (GUI) 超时（200s）')
+        return 1
+    except Exception as e:
+        print(f'   ⚠ TiaWorker (GUI) 异常: {e}')
+        return -1
+    finally:
+        try: os.unlink(tmp_path)
+        except: pass
 
 
 def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = "") -> int:
@@ -389,6 +528,7 @@ def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = ""
                 data = result.get('data', {})
                 if data.get('success'):
                     print(f'   ✅ TiaWorker 下载成功！')
+                    _update_golden_backup()
                     return 0
                 elif data.get('note') == 'auto':
                     print(f'   ⚠ TiaWorker: {data.get("message", "需要手动确认")}')
@@ -466,8 +606,10 @@ def main():
 
     compile_first = '--compile-first' in sys.argv
     force_tiaworker = '--tiaworker' in sys.argv
+    force_tiaworker_gui = '--tiaworker-gui' in sys.argv
     force_python = '--python' in sys.argv
     force_ui = '--ui' in sys.argv
+    golden_restore_mode = '--golden-restore' in sys.argv
     target_ip = ''
     args = sys.argv[1:]
 
@@ -477,13 +619,18 @@ def main():
         if a == '--ip' and i + 1 < len(args):
             i += 1
             target_ip = args[i]
-        elif a in ('--compile-first', '--ui', '--python', '--tiaworker'):
+        elif a in ('--compile-first', '--ui', '--python', '--tiaworker', '--tiaworker-gui', '--golden-restore'):
             pass
         elif a.startswith('--'):
             print(f'未知参数: {a}')
             print(__doc__)
             return 1
         i += 1
+
+    # ── Golden Restore 模式（不下载，直接从备份恢复 PLCSIM） ──
+    if golden_restore_mode:
+        print('📦 Golden Restore 模式：跳过下载，直接从备份恢复 PLCSIM')
+        return _golden_restore(target_ip)
 
     if not os.path.exists(TIA_PROJECT):
         print(f'❌ 项目不存在: {TIA_PROJECT}')
@@ -496,6 +643,12 @@ def main():
         return download_via_ui(compile_first)
     if force_tiaworker:
         return _try_download_via_tiaworker(compile_first, target_ip)
+    if force_tiaworker_gui:
+        rc = _try_download_via_tiaworker_gui(target_ip)
+        if rc == 0:
+            return 0
+        print(f'\n⚠ TiaWorker GUI 模式失败')
+        return 1
     if force_python:
         rc = _try_download_via_python(compile_first, target_ip)
         if rc == 0:
@@ -503,8 +656,8 @@ def main():
         print(f'\n⚠ Python API 下载失败')
         return 1
 
-    # 默认策略：TiaWorker → Python API → UI Automation → 手动
-    print(f'📥 下载策略: TiaWorker(C#) → Python API → UI Automation → 手动指引')
+    # 默认策略：TiaWorker → TiaWorker GUI → Python API → UI Automation → 手动
+    print(f'📥 下载策略: TiaWorker(C#) → TiaWorker(GUI) → Python API → UI Automation → 手动')
     print()
     rc = _try_download_via_tiaworker(compile_first, target_ip)
     if rc == 0:
@@ -512,7 +665,14 @@ def main():
 
     if rc == -1:
         print()
-        print(f'⚠ TiaWorker 不可用，切换至 Python API...')
+        print(f'⚠ TiaWorker headless 不可用，切换至 TiaWorker GUI 模式...')
+        rc = _try_download_via_tiaworker_gui(target_ip)
+        if rc == 0:
+            return 0
+
+    if rc == -1:
+        print()
+        print(f'⚠ TiaWorker GUI 不可用，切换至 Python API...')
         rc = _try_download_via_python(compile_first, target_ip)
         if rc == 0:
             return 0

@@ -60,6 +60,25 @@
 - 流程: restore_instance → start Factory I/O → start TIA MCP Server
 - 支持子命令: `--plcsim-only`, `--factory-only`, `--tia-only`, `--with-robot`
 
+### P3 端到端编排器（纯子进程架构）
+- **状态**: ✅ 已重构 — `python p3_flow.py`
+- 纯编排器模式：不直接导入 clr/uiautomation，所有操作通过子进程调用
+- 彻底解决 COM STA/MTA 线程模型冲突
+- 支持:
+  ```bash
+  python p3_flow.py                       # 完整流程
+  python p3_flow.py --download-only       # 仅编译+下载
+  python p3_flow.py --skip-compile        # 不编译直接下载
+  python p3_flow.py --golden-restore      # 快速恢复（跳过所有）
+  ```
+
+### 下载策略（5 级降级）
+- **状态**: ✅ 已增强
+- 降级链: TiaWorker(headless) → TiaWorker(GUI) → Python API(GUI) → UI Automation → 手动
+- TiaWorker GUI 模式: `TiaWorker.exe download-gui`（WithUserInterface 附加到运行中 TIA Portal）
+- 所有路径成功时自动更新 golden backup
+- 快速恢复: `python download_to_plcsim.py --golden-restore`
+
 ---
 
 ## 📊 TIA MCP 工具链
@@ -118,11 +137,23 @@ Factory I/O 3D 可视化
 ## 🔧 快速命令
 
 ```bash
-# 查看 PLCSIM 实例
-python plcsim_api.py list
+# PLCSIM 管理
+python plcsim_api.py list                    # 查看实例
+python plcsim_api.py restore factoryio golden.zip ./persist 192.168.0.1  # 从备份恢复
+python plcsim_api.py archive factoryio golden.zip  # 创建黄金备份
+python plcsim_api.py purge factoryio         # 强制清理残留
 
-# 从黄金备份恢复
-python -c "from plcsim_api import restore_instance; restore_instance('plc1', 'golden.zip', './persist')"
+# P3 端到端
+python p3_flow.py                            # 完整流程（PLCSIM→编译→下载→FIO）
+python p3_flow.py --download-only            # 仅编译+下载
+python p3_flow.py --skip-compile             # 不编译直接下载
+python p3_flow.py --golden-restore           # 从 golden 快速恢复（跳过所有）
+
+# 下载（含 5 级降级）
+python download_to_plcsim.py                 # 自动选择最优方式
+python download_to_plcsim.py --tiaworker-gui # 强制 TiaWorker GUI 模式
+python download_to_plcsim.py --golden-restore # 从 golden 快速恢复
+python download_to_plcsim.py --ui            # 强制 UI Automation
 
 # CartGen 测试
 dotnet run --project CartGen/CartGen.csproj -- templates/电机正反转.json
@@ -140,6 +171,8 @@ cd mcp-servers/tia-mcp && python server.py
 
 | 文件 | 说明 |
 |------|------|
+| `p3_flow.py` | P3 端到端编排器（纯子进程，无 clr/uiautomation） |
+| `mcp-servers/tia-mcp/download_to_plcsim.py` | 下载策略（5 级降级 + golden 自动更新） |
 | `mcp-servers/tia-mcp/plcsim_api.py` | PLCSIM .NET API 封装（~550行） |
 | `mcp-servers/tia-mcp/server.py` | FastMCP 服务（~565行） |
 | `mcp-servers/tia-mcp/CartGen/Program.cs` | LAD 生成器（~120行） |

@@ -80,6 +80,8 @@ namespace TiaWorker
                         return Compile(json);
                     case "download":
                         return Download(json);
+                    case "download-gui":
+                        return DownloadGui(json);
                     case "list-devices":
                         return ListDevices(json);
                     default:
@@ -377,6 +379,203 @@ namespace TiaWorker
                     }));
                     return 0;
                 }
+            }
+        }
+
+        static int DownloadGui(string json)
+        {
+            var input = Json.Deserialize<DownloadInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            var interfaceName = input?.InterfaceName ?? "PN/IE";
+            var targetIp = input?.TargetIp ?? "";
+
+            // GUI 模式：附加到已运行的 TIA Portal GUI
+            // WithUserInterface 不会启动新实例，而是附加到现有 GUI 进程
+            try
+            {
+                using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+                {
+                    var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
+                    var device = FindDevice(project, input?.DeviceName);
+
+                    if (device == null)
+                    {
+                        Console.WriteLine(JsonError("Device not found"));
+                        return 1;
+                    }
+
+                    var downloadItem = FindDownloadableItem(device);
+                    if (downloadItem == null)
+                    {
+                        Console.WriteLine(JsonOk(new { note = "no_device", message = "未找到可下载的设备接口" }));
+                        return 0;
+                    }
+
+                    var downloadProvider = downloadItem.GetService<DownloadProvider>();
+                    if (downloadProvider == null)
+                    {
+                        Console.WriteLine(JsonOk(new { note = "no_provider", message = "DownloadProvider 不可用" }));
+                        return 0;
+                    }
+
+                    // 配置下载连接
+                    var connConfig = downloadProvider.Configuration;
+                    var mode = connConfig.Modes.Find(interfaceName);
+                    if (mode == null)
+                    {
+                        Console.WriteLine(JsonOk(new { note = "no_mode", message = $"未找到通信模式 '{interfaceName}'" }));
+                        return 0;
+                    }
+
+                    // 优先选择 PLCSIM Softbus 接口
+                    ConfigurationPcInterface pcInterface = null;
+                    foreach (var iface in mode.PcInterfaces)
+                    {
+                        var name = iface.Name ?? "";
+                        if (name.IndexOf("PLCSIM", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            if (name.IndexOf("Ethernet", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                name.IndexOf("Virtual", StringComparison.OrdinalIgnoreCase) < 0)
+                            {
+                                pcInterface = iface;
+                                break;
+                            }
+                            pcInterface ??= iface;
+                        }
+                    }
+                    pcInterface ??= mode.PcInterfaces.Count > 0 ? mode.PcInterfaces[0] : null;
+
+                    if (pcInterface == null)
+                    {
+                        Console.WriteLine(JsonOk(new { note = "no_interface", message = "未找到可用 PC 接口" }));
+                        return 0;
+                    }
+
+                    // 找目标 PLC 地址
+                    IConfiguration targetConfig = null;
+                    if (!string.IsNullOrEmpty(targetIp))
+                    {
+                        foreach (var subnet in pcInterface.Subnets)
+                        {
+                            try { targetConfig = subnet.Addresses.Find(targetIp); if (targetConfig != null) break; }
+                            catch { }
+                        }
+                    }
+                    targetConfig ??= (pcInterface.TargetInterfaces.Count > 0 ? pcInterface.TargetInterfaces[0] : null);
+
+                    if (targetConfig == null)
+                    {
+                        Console.WriteLine(JsonOk(new { note = "no_target", message = "未找到目标 PLC" }));
+                        return 0;
+                    }
+
+                    // 设置下载目标为 PLCSIM Advanced
+                    try
+                    {
+                        var configType = downloadProvider.Configuration.GetType();
+                        var targetProp = configType.GetProperty("TargetForSoftware");
+                        if (targetProp != null)
+                        {
+                            var targetObj = targetProp.GetValue(downloadProvider.Configuration, null);
+                            if (targetObj != null)
+                            {
+                                var selProp = targetObj.GetType().GetProperty("CurrentSelection");
+                                if (selProp != null)
+                                {
+                                    var enumType = selProp.PropertyType;
+                                    try
+                                    {
+                                        var plcSimAdv = Enum.Parse(enumType, "PlcSimulationAdvanced");
+                                        selProp.SetValue(targetObj, plcSimAdv, null);
+                                    }
+                                    catch
+                                    {
+                                        // 枚举名可能不同，尝试索引方式
+                                        try
+                                        {
+                                            var values = enumType.GetEnumValues();
+                                            if (values.Length > 1)
+                                                selProp.SetValue(targetObj, values.GetValue(1), null);
+                                        }
+                                        catch { }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (IsDebugEnabled) Console.Error.WriteLine($"[TiaWorker] ⚠ 设置 TargetForSoftware 失败: {ex.Message}");
+                    }
+
+                    // 执行下载
+                    try
+                    {
+                        DownloadConfigurationDelegate preDelegate = (cfg) =>
+                        {
+                            try
+                            {
+                                var p = cfg.GetType().GetProperty("TargetForSoftware");
+                                if (p != null)
+                                {
+                                    var obj = p.GetValue(cfg, null);
+                                    if (obj != null)
+                                    {
+                                        var sel = obj.GetType().GetProperty("CurrentSelection");
+                                        if (sel != null)
+                                        {
+                                            try { sel.SetValue(obj, Enum.Parse(sel.PropertyType, "PlcSimulationAdvanced"), null); }
+                                            catch { }
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+                        };
+
+                        var result = downloadProvider.Download(
+                            targetConfig,
+                            preDelegate,
+                            new DownloadConfigurationDelegate(cfg => { }),
+                            DownloadOptions.Software);
+
+                        project.Save();
+
+                        var success = result.State == DownloadResultState.Success;
+                        Console.WriteLine(JsonOk(new
+                        {
+                            success,
+                            state = result.State.ToString(),
+                            errors = result.ErrorCount,
+                            message = success
+                                ? "✅ 已成功下载到 PLCSIM (GUI 模式)"
+                                : $"下载状态: {result.State}，错误: {result.ErrorCount}"
+                        }));
+                        return success ? 0 : 1;
+                    }
+                    catch (Exception ex)
+                    {
+                        // GUI 模式下下载失败（可能是对话框需要确认）
+                        // 返回 0 + note=gui_confirm 触发下一个降级策略
+                        Console.WriteLine(JsonOk(new
+                        {
+                            note = "gui_confirm",
+                            message = $"下载需要 GUI 确认: {ex.Message}",
+                            fallback = "请检查 TIA Portal GUI 窗口，确认下载对话框。"
+                        }));
+                        return 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(JsonError($"附加 TIA Portal GUI 失败: {ex.Message}"));
+                return 1;
             }
         }
 

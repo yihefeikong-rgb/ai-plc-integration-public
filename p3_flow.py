@@ -1,31 +1,47 @@
 #!/usr/bin/env python3
 """
-P3 下载脚本 — V21 → PLCSIM → Factory I/O
+P3 端到端编排器 — V21 → PLCSIM → Factory I/O
 
-关键流程：
-  1. 恢复 PLCSIM golden → RUN + GUI（外部供 FIO 连接）
-  2. API 启动唯一 V21 → 打开项目 → 编译
-  3. uiautomation 切换项目视图 → 点击 PLC 程序块（按钮才变可用）
-     → 直接点击下载（不需启动仿真！PLCSIM 已处于 STOP 待下载状态）
-  4. 启动 Factory I/O
+纯编排器架构：不直接导入 clr / uiautomation，所有 TIA Portal/PLCSIM 操作
+均通过子进程调用，避免 COM 线程模型冲突（STA vs MTA）。
+
+流程:
+  1. PLCSIM golden 恢复 → STOP（待下载状态）
+  2. TiaWorker 编译 + dl_plcsim_gui.py（或 download_to_plcsim.py）下载
+  3. Factory I/O 启动
 
 用法:
     python p3_flow.py                       # 完整流程
-    python p3_flow.py --download-only       # 仅下载
+    python p3_flow.py --download-only       # 仅编译+下载
+    python p3_flow.py --skip-compile        # 不编译直接下载
+    python p3_flow.py --golden-restore      # 从 golden backup 快速恢复（跳过所有）
 """
-import sys, os, subprocess, time, ctypes
+import sys, os, subprocess, time, json, tempfile
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TIA_MCP_DIR = os.path.join(SCRIPT_DIR, "mcp-servers", "tia-mcp")
-GOLDEN_ZIP = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\factory_io1_golden.zip"
-STORAGE_PATH = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\plcsim_storage"
-PROJECT_PATH = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\demo_V21.ap21"
-PLC_IP = "192.168.0.1"
-FIO_EXE = r"D:\Factory IO\Factory IO.exe"
+SCRIPT_DIR = Path(__file__).parent
+TIA_MCP_DIR = SCRIPT_DIR / "mcp-servers" / "tia-mcp"
+
+# ── 配置（从 config_loader 获取，消灭硬编码） ──
+sys.path.insert(0, str(TIA_MCP_DIR))
+from config_loader import cfg
+
+PROJECT_PATH = cfg.tia.project_path
+PLC_IP = cfg.simulation.advanced.plc_ip
+FIO_EXE = cfg.factory_io.exe_path
+PLCSIM_INSTANCE = cfg.factory_io.plcsim_instance
+
+# Golden backup 路径
+GOLDEN_ZIP = os.path.join(os.path.dirname(PROJECT_PATH), 'factory_io1_golden.zip')
+STORAGE_PATH = os.path.join(os.path.dirname(PROJECT_PATH), 'plcsim_storage')
+
+# TiaWorker 路径
+TIAWORKER_EXE = str(TIA_MCP_DIR / "bin" / "TiaWorker.exe")
 
 GREEN='\033[92m'; YELLOW='\033[93m'; RED='\033[91m'; BLUE='\033[94m'; RESET='\033[0m'
+
 def log(msg, l="info"):
     e={"ok":"✅","warn":"🟡","error":"❌","info":"📋","step":"▶","wait":"⏳"}.get(l,"•")
     c={"ok":GREEN,"warn":YELLOW,"error":RED,"info":BLUE}.get(l,"")
@@ -33,250 +49,151 @@ def log(msg, l="info"):
 
 def sep(t): print(f"\n{BLUE}{'='*56}{RESET}\n{BLUE}  {t}{RESET}\n{BLUE}{'='*56}{RESET}\n")
 
-# 保持 API 引用的全局容器（防止 GC 关闭 V21）
-_keepalive = []
-
-def find_ctrl(ctrl, name_substr, depth=15):
-    """在控件树中递归搜索名称包含子串的控件"""
-    if depth < 0: return None
-    try:
-        if name_substr in (ctrl.Name or ''): return ctrl
-    except: pass
-    try:
-        for c in ctrl.GetChildren():
-            r = find_ctrl(c, name_substr, depth-1)
-            if r: return r
-    except: pass
-    return None
-
-def find_ctrl_multi(ctrl, names, depth=12):
-    """搜索匹配多个可能名称的控件"""
-    if depth < 0: return None
-    try:
-        n = ctrl.Name or ''
-        for s in names:
-            if s in n: return ctrl
-    except: pass
-    try:
-        for c in ctrl.GetChildren():
-            r = find_ctrl_multi(c, names, depth-1)
-            if r: return r
-    except: pass
-    return None
-
-def click_in_tree(tia_win, name_substr):
-    """在项目树中找到并点击指定名称的节点"""
-    # 项目树通常在 HardwareNavigationFrame 或 ProjectNavigatorViewFrame 中
-    tree = find_ctrl(tia_win, 'ProjectNavigatorViewFrame')
-    if not tree:
-        tree = find_ctrl(tia_win, 'HardwareNavigationFrame')
-    if not tree:
-        log("未找到项目树", "warn")
-        return False
-    
-    node = find_ctrl(tree, name_substr)
-    if node:
-        node.Click()
-        log(f"已点击 '{name_substr}'", "ok")
-        time.sleep(2)
-        return True
-    else:
-        log(f"树中未找到 '{name_substr}'", "warn")
-        return False
-
 
 # ═══════════════════════════════════════
-#  步骤 1: PLCSIM
+#  步骤 1: PLCSIM golden 恢复
 # ═══════════════════════════════════════
 def step1_plcsim():
-    """恢复 PLCSIM golden → STOP（黄色待下载状态，V21 才能扫描到）"""
-    sep("步骤 1: PLCSIM 仿真（黄色 STOP 待下载状态）")
-    sys.path.insert(0, TIA_MCP_DIR)
-    from plcsim_api import restore_instance, get_instances, _ensure_user_interface
-    # 无条件恢复为 STOP（auto_run=False 不调用 Run，实例停在 STOP 状态）
-    inst = restore_instance(name='factoryio', golden_zip=GOLDEN_ZIP,
-                            storage_path=STORAGE_PATH, ip=PLC_IP,
-                            interface='tcpip', auto_run=False)
-    log(f"PLCSIM: {inst.OperatingState}（黄色待下载，V21 可扫描）", "ok")
-    _ensure_user_interface(); time.sleep(3)
+    """通过 plcsim_api.py CLI 子进程恢复 golden → STOP 待下载状态"""
+    sep("步骤 1: PLCSIM 仿真（STOP 待下载状态）")
+    plcsim_cli = [sys.executable, str(TIA_MCP_DIR / "plcsim_api.py")]
+
+    # 停止旧实例
+    log("停止旧实例（如有）...", "step")
+    subprocess.run([*plcsim_cli, "stop", PLCSIM_INSTANCE],
+                   capture_output=True, timeout=30)
+
+    # 从 golden 恢复
+    log(f"从 golden 恢复: {GOLDEN_ZIP}", "step")
+    r = subprocess.run(
+        [*plcsim_cli, "restore", PLCSIM_INSTANCE, GOLDEN_ZIP, STORAGE_PATH, PLC_IP],
+        capture_output=True, text=True, timeout=60,
+        encoding='utf-8', errors='replace',
+    )
+    if r.returncode != 0:
+        err = r.stderr.strip() or r.stdout.strip()
+        log(f"PLCSIM 恢复失败: {err}", "error")
+        return False
+
+    log("PLCSIM 已恢复（黄色待下载状态）", "ok")
+    # 确保 PLCSIM GUI 窗口在运行（V21 扫描设备需要）
+    subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, %r); "
+         "from plcsim_api import _ensure_user_interface; _ensure_user_interface()" % str(TIA_MCP_DIR)],
+        capture_output=True, timeout=30,
+    )
+    time.sleep(3)
     return True
 
 
 # ═══════════════════════════════════════
 #  步骤 2: 编译 + 下载
 # ═══════════════════════════════════════
-def step2_download():
-    sep("步骤 2: 编译 + 下载到 PLCSIM")
+def step2_compile():
+    """通过 TiaWorker.exe 子进程编译 TIA 项目"""
+    sep("步骤 2a: 编译 TIA 项目")
 
-    import uiautomation as ua
+    if not os.path.exists(TIAWORKER_EXE):
+        log(f"TiaWorker 未编译: {TIAWORKER_EXE}", "error")
+        return False
 
-    # ── 清理残留 V21 ──
-    log("清理 TIA Portal 残留进程...", "step")
-    subprocess.run(['cmd.exe','/c','taskkill','/f','/im','Siemens.Automation.Portal.exe'],
-                   capture_output=True, timeout=10)
-    time.sleep(3)
+    # 准备编译 JSON
+    compile_input = {"ProjectPath": PROJECT_PATH}
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
+    json.dump(compile_input, tmp)
+    tmp_path = tmp.name
+    tmp.close()
 
-    # ── API 启动唯一 V21 + 编译 ──
-    log("加载 Openness DLL...", "step")
-    sys.path.insert(0, TIA_MCP_DIR)
-    from config_loader import cfg
-    import clr
-    td=cfg.tia.install_dir; tv=cfg.tia.version
-    clr.AddReference(rf'{td}\PublicAPI\{tv}\net48\Siemens.Engineering.Base.dll')
-    clr.AddReference(rf'{td}\PublicAPI\{tv}\net48\Siemens.Engineering.Step7.dll')
-    clr.AddReference(rf'{td}\Bin\PublicAPI\Siemens.Engineering.Contract.dll')
-    from Siemens.Engineering import TiaPortal, TiaPortalMode
-    from Siemens.Engineering.Compiler import ICompilable
-    from System.IO import FileInfo
-
-    log("启动 TIA Portal V21（唯一实例）...", "step")
-    tia = TiaPortal(TiaPortalMode.WithUserInterface)
-    _keepalive.append(tia)
-    log("V21 已启动", "ok")
-
-    log("打开项目...", "step")
-    proj = tia.Projects.Open(FileInfo(PROJECT_PATH))
-    log(f"项目: {proj.Name}", "ok")
-    _keepalive.append(proj)
-
-    # 找 PLC 软件 → 编译
-    from Siemens.Engineering.HW.Features import SoftwareContainer
-    plc_sw = None
-    for d in proj.Devices:
-        for i in d.DeviceItems:
+    try:
+        log("启动 TiaWorker 编译...", "step")
+        r = subprocess.run(
+            [TIAWORKER_EXE, "compile", tmp_path],
+            capture_output=True, text=True, timeout=180,
+            encoding='utf-8', errors='replace',
+        )
+        stdout = r.stdout.strip()
+        if stdout:
             try:
-                c = i.GetService[SoftwareContainer]()
-                if c and c.Software and 'PlcSoftware' in c.Software.GetType().FullName:
-                    plc_sw = c.Software; break
-            except: pass
-        if plc_sw: break
-
-    if plc_sw:
-        log("编译中...", "step")
-        comp = plc_sw.GetService[ICompilable]()
-        cr = comp.Compile()
-        log(f"Errors={cr.ErrorCount}, Warnings={cr.WarningCount}", "ok" if cr.ErrorCount==0 else "error")
-        proj.Save()
-    else:
-        log("未找到 PLC 软件", "warn")
-
-    # ── 等 V21 窗口出现 ──
-    log("等待 V21 窗口（最长 60s）...", "wait")
-    deadline = time.time() + 60
-    tia_win = None
-    while time.time() < deadline:
-        for w in ua.GetRootControl().GetChildren():
-            try:
-                if 'ADWorkbench' in (w.Name or ''): tia_win = w; break
-            except: pass
-        if tia_win: break
-        time.sleep(2)
-    if not tia_win: log("V21 窗口未出现", "error"); return False
-    tia_win.SetFocus(); time.sleep(3)
-
-    # ── 切换到项目视图 ──
-    gv = find_ctrl(tia_win, 'GoToProjectView')
-    if gv:
-        log("切换项目视图...", "step")
-        gv.Click()
-        time.sleep(8)
-        # 重新获取窗口引用（视图切换可能改变控件树）
-        tia_win = None
-        for w in ua.GetRootControl().GetChildren():
-            try:
-                if 'ADWorkbench' in (w.Name or ''): tia_win = w; break
-            except: pass
-        if tia_win: tia_win.SetFocus(); time.sleep(3)
-    else:
-        log("已在项目视图", "info")
-
-    if not tia_win:
-        log("V21 窗口丢失", "error"); return False
-
-    # ── 在项目树中点击 PLC 程序块（使按钮变可用！）──
-    # 先找设备树
-    log("在项目树中查找 PLC 程序块...", "step")
-    tree_frame = find_ctrl(tia_win, 'ProjectNavigatorViewFrame')
-    if not tree_frame:
-        tree_frame = find_ctrl(tia_win, 'HardwareNavigationFrame')
-    
-    if tree_frame:
-        # 找 "PLC_1" 或 "程序块" / "Program blocks" 节点并展开点击
-        # 先点 PLC_1 设备
-        plc_node = find_ctrl_multi(tree_frame, ['PLC_1', '[PLC]'])
-        if plc_node:
-            plc_node.Click()
-            log(f"已点击 PLC 节点", "ok"); time.sleep(2)
-            # 然后找程序块 → OB1
-            ob1_node = find_ctrl_multi(tree_frame, ['Main [OB1]', 'OB1', 'Main'])
-            if ob1_node:
-                ob1_node.Click()
-                log("已选中 Main [OB1] — 按钮应已激活", "ok")
-                time.sleep(2)
-            else:
-                # 尝试双击展开
-                try: plc_node.DoubleClick(); time.sleep(3); log("展开 PLC 节点", "info")
-                except: pass
-                ob1_node = find_ctrl_multi(tree_frame, ['Main [OB1]', 'OB1', 'Main'])
-                if ob1_node:
-                    ob1_node.Click(); log("已选中 OB1", "ok"); time.sleep(2)
+                result = json.loads(stdout)
+                if result.get('status') == 'ok':
+                    data = result['data']
+                    if not data.get('success'):
+                        log(f"编译失败: {data.get('errors', '?')} 错误", "error")
+                        return False
+                    log(f"编译成功: Warnings={data.get('warnings', 0)}", "ok")
+                    return True
                 else:
-                    log("未找到 OB1，尝试找其他程序块", "warn")
+                    log(f"编译异常: {result.get('error', '?')}", "error")
+                    return False
+            except json.JSONDecodeError:
+                log(f"编译输出解析失败: {stdout[:200]}", "error")
+                return False
         else:
-            log("未找到 PLC_1 节点", "warn")
-    else:
-        log("未找到项目树框架", "warn")
-
-    # ── 直接点击"下载"（不需要启动仿真！PLCSIM 已处于 STOP 黄色待下载状态）──
-    log("查找下载按钮...", "step")
-    dl_btn = find_ctrl(tia_win, 'Download_ICO_PE')
-    if dl_btn:
-        dl_btn.Click()
-        log("已点击下载", "ok")
-        time.sleep(3)
-    else:
-        log("下载按钮不可用（未选中程序块）", "error")
-        # 试试找其他下载控件
-        dl_alt = find_ctrl(tia_win, 'LoadToTargetSystem')
-        if dl_alt:
-            dl_alt.Click(); log("已点击下载(alt)", "ok"); time.sleep(3)
-        else:
+            log("编译无输出", "error")
             return False
-
-    # ── 处理下载向导 ──
-    log("处理下载向导对话框...", "step")
-    deadline = time.time() + 120
-    done = False
-    while time.time() < deadline:
-        for w in ua.GetRootControl().GetChildren():
-            try:
-                if not w.IsNativeWindow: continue
-                wn = w.Name or ''
-                # 找更多按钮文本
-                for bt in ['下载(D)','下载','确定','OK','是','Yes','继续','完成','Finish','全部下载']:
-                    try:
-                        btn = w.ButtonControl(searchDepth=3, Name=bt)
-                        if btn.Exists():
-                            btn.Click(); time.sleep(0.5)
-                            if bt in ('完成','Finish'): done = True
-                            break
-                    except: pass
-                if done: break
-            except: pass
-        if done: break
-        time.sleep(1)
-
-    if done:
-        log("下载完成！", "ok")
-        proj.Save()
+    except subprocess.TimeoutExpired:
+        log("编译超时（180s）", "error")
+        return False
+    except Exception as e:
+        log(f"编译异常: {e}", "error")
+        return False
+    finally:
         try:
-            from plcsim_api import archive_instance
-            archive_instance('factoryio', GOLDEN_ZIP, STORAGE_PATH)
-            log("Golden backup 已更新", "📦")
-        except: pass
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+def step2_download():
+    """通过 download_to_plcsim.py 子进程下载（含多级降级策略）
+
+    使用 download_to_plcsim.py 作为子进程，它内部有 4 级降级策略：
+      1. TiaWorker (C# headless) → 2. Python API (GUI) → 3. UI Automation → 4. 手动指引
+    """
+    sep("步骤 2b: 下载到 PLCSIM")
+
+    dl_script = str(TIA_MCP_DIR / "download_to_plcsim.py")
+    cmd = [sys.executable, dl_script]
+
+    log("启动下载流程（TiaWorker → Python API → UI Automation → 手动指引）...", "wait")
+    r = subprocess.run(
+        cmd,
+        capture_output=True, text=True, timeout=300,
+        encoding='utf-8', errors='replace',
+    )
+
+    # 打印输出
+    for line in (r.stdout or "").split("\n"):
+        if line.strip():
+            print(f"  {line.strip()}")
+
+    if r.returncode == 0:
+        log("下载成功！", "ok")
         return True
     else:
-        log("下载向导未完成（检查 V21 窗口）", "warn")
+        log("下载失败（查看上方错误信息）", "error")
+        if r.stderr:
+            for line in r.stderr.strip().split("\n"):
+                if line.strip():
+                    log(f"stderr: {line.strip()}", "warn")
+        return False
+
+
+def step2_archive():
+    """下载后更新 golden backup"""
+    sep("步骤 2c: 更新 golden backup")
+    plcsim_cli = [sys.executable, str(TIA_MCP_DIR / "plcsim_api.py")]
+    r = subprocess.run(
+        [*plcsim_cli, "archive", PLCSIM_INSTANCE, GOLDEN_ZIP],
+        capture_output=True, text=True, timeout=60,
+        encoding='utf-8', errors='replace',
+    )
+    if r.returncode == 0:
+        log(f"Golden backup 已更新: {GOLDEN_ZIP}", "ok")
+        return True
+    else:
+        log("Golden backup 更新失败（不影响运行）", "warn")
         return False
 
 
@@ -284,21 +201,33 @@ def step2_download():
 #  步骤 3: Factory I/O
 # ═══════════════════════════════════════
 def step3_fio():
+    """写入 auto.cfg 并启动 Factory I/O"""
     sep("步骤 3: Factory I/O")
-    if not os.path.exists(FIO_EXE): return True
+    fio_exe = str(FIO_EXE)
+    if not os.path.exists(fio_exe):
+        log(f"Factory I/O 未安装: {fio_exe}", "warn")
+        return True  # 非致命
+
     cfg_text = """# Factory I/O auto config — generated by p3_flow.py
 ui.show_welcome_window = False
 scene.start_in_run_mode = True
 drivers.siemens_s7plcsim.auto_connect = True
-drivers.siemens_s7plcsim.instance_name = 'factoryio'
+drivers.siemens_s7plcsim.instance_name = '""" + PLCSIM_INSTANCE + """'
 drivers.siemens_s7plcsim.connection_timeout = 60
 """
-    for p in [r'C:\ProgramData\Real Games\Factory IO\auto.cfg',
-              os.path.join(os.path.expanduser('~'),'Documents','Factory IO','auto.cfg')]:
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p,'w',encoding='utf-8-sig') as f: f.write(cfg_text)
-    log("auto.cfg 已写入", "ok")
-    subprocess.Popen([FIO_EXE], shell=True)
+    for p in [
+        r'C:\ProgramData\Real Games\Factory IO\auto.cfg',
+        os.path.join(os.path.expanduser('~'), 'Documents', 'Factory IO', 'auto.cfg'),
+    ]:
+        try:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, 'w', encoding='utf-8-sig') as f:
+                f.write(cfg_text)
+            log(f"auto.cfg 已写入: {p}", "ok")
+        except Exception as e:
+            log(f"写入 auto.cfg 失败: {e}", "warn")
+
+    subprocess.Popen([fio_exe], shell=True)
     log("Factory I/O 已启动", "ok")
     return True
 
@@ -307,20 +236,70 @@ drivers.siemens_s7plcsim.connection_timeout = 60
 #  Main
 # ═══════════════════════════════════════
 def main():
-    print(f"\n{'='*56}\n  P3 端到端闭环\n{'='*56}\n")
+    print(f"\n{'='*56}\n  P3 端到端闭环（纯编排器模式）\n{'='*56}\n")
+    print(f"  项目: {os.path.basename(PROJECT_PATH)}")
+    print(f"  PLCSIM: {PLCSIM_INSTANCE} @ {PLC_IP}")
+    print(f"  Golden: {os.path.basename(GOLDEN_ZIP)}")
+    print()
+
+    golden_restore = '--golden-restore' in sys.argv
     only_download = '--download-only' in sys.argv
-    r = {}
-    r['plcsim'] = step1_plcsim()
-    if not r['plcsim']: sys.exit(1)
-    r['download'] = step2_download()
-    if not only_download and r['download']:
-        r['fio'] = step3_fio()
+    skip_compile = '--skip-compile' in sys.argv
+
+    # Golden Restore 快速模式：跳过所有流程，直接从备份恢复
+    if golden_restore:
+        print('📦 Golden Restore 模式：跳过编译/下载，直接从备份恢复 PLCSIM')
+        print()
+        dl_script = str(TIA_MCP_DIR / "download_to_plcsim.py")
+        r = subprocess.run(
+            [sys.executable, dl_script, '--golden-restore'],
+            capture_output=True, text=True, timeout=120,
+            encoding='utf-8', errors='replace',
+        )
+        for line in (r.stdout or "").split("\n"):
+            if line.strip():
+                print(f"  {line.strip()}")
+        return 0 if r.returncode == 0 else 1
+
+    results = {}
+
+    # Step 1: PLCSIM
+    results['plcsim'] = step1_plcsim()
+    if not results['plcsim']:
+        log("PLCSIM 步骤失败，终止", "error")
+        sys.exit(1)
+
+    if not only_download:
+        # Step 2a: 编译
+        if not skip_compile:
+            results['compile'] = step2_compile()
+        else:
+            results['compile'] = True
+            log("跳过编译", "info")
+
+    # Step 2b: 下载
+    results['download'] = step2_download()
+
+    if results['download']:
+        # Step 2c: golden backup 更新
+        step2_archive()
+
+    if not only_download:
+        # Step 3: Factory I/O
+        results['fio'] = step3_fio()
+
+    # 汇总
     print(f"\n{BLUE}{'='*56}{RESET}")
-    all_ok = all(r.values())
-    for n, ok in r.items(): log(f"{n}: {'✅' if ok else '❌'}")
-    print(f"\n{GREEN}P3 完成{')' if all_ok else ' 部分失败'}{RESET}")
+    all_ok = all(results.values())
+    for n, ok in results.items():
+        log(f"{n}: {'✅' if ok else '❌'}")
+    print(f"\n{GREEN}P3 完成{' ✅' if all_ok else ' ⚠ 部分失败'}{RESET}")
     return 0 if all_ok else 1
 
+
 if __name__ == '__main__':
-    try: sys.exit(main())
-    except KeyboardInterrupt: print("\n⚠ 中断"); sys.exit(1)
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("\n⚠ 中断")
+        sys.exit(1)
