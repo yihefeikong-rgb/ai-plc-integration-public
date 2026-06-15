@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Collections.Generic;
 using System.Web.Script.Serialization;
 using Siemens.Engineering;
 using Siemens.Engineering.HW;
@@ -84,6 +85,12 @@ namespace TiaWorker
                         return DownloadGui(json);
                     case "list-devices":
                         return ListDevices(json);
+                    case "create-block":
+                        return CreateBlock(json);
+                    case "export-block":
+                        return ExportBlock(json);
+                    case "import-block":
+                        return ImportBlock(json);
                     default:
                         Console.WriteLine(JsonError($"Unknown command: {command}"));
                         return 1;
@@ -631,6 +638,264 @@ namespace TiaWorker
             }
         }
 
+        static int CreateBlock(string json)
+        {
+            var input = Json.Deserialize<CreateBlockInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.BlockName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or BlockName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found in project"));
+                    return 1;
+                }
+
+                var blocks = plcSoftware.BlockGroup.Blocks;
+                var inputBlockType = (input.BlockType ?? "FB").ToUpperInvariant();
+                var inputLanguage = (input.Language ?? "LAD").ToUpperInvariant();
+
+                PlcBlock block;
+
+                // 策略 1：V21 CreateFB(name, isAutoNumbered, number, ProgrammingLanguage)
+                var createFbMethod = blocks.GetType().GetMethod("CreateFB");
+                if (createFbMethod != null && inputBlockType == "FB")
+                {
+                    var langParamType = createFbMethod.GetParameters()[3].ParameterType;
+                    var langValue = ResolveEnumByName(langParamType, inputLanguage);
+                    if (langValue == null)
+                    {
+                        Console.WriteLine(JsonError($"Invalid Language: {inputLanguage}. Supported: LAD, FBD, SCL, STL"));
+                        return 1;
+                    }
+
+                    var autoNum = input.BlockNumber <= 0;
+                    var number = input.BlockNumber > 0 ? input.BlockNumber : 0;
+
+                    if (IsDebugEnabled)
+                        Console.Error.WriteLine($"[TiaWorker] V21 CreateFB: name={input.BlockName}, auto={autoNum}, num={number}, lang={inputLanguage}");
+
+                    block = (PlcBlock)createFbMethod.Invoke(blocks, new object[] { input.BlockName, autoNum, number, langValue });
+                }
+                // 策略 2：V18 Create(name, PlcBlockType, PlcProgrammingLanguage)
+                else
+                {
+                    var createMethod = blocks.GetType().GetMethods()
+                        .FirstOrDefault(m => m.Name == "Create" && m.GetParameters().Length >= 3);
+                    if (createMethod == null)
+                    {
+                        Console.WriteLine(JsonError($"No Create/CreateFB method found. BlockType '{inputBlockType}' may not be supported in this TIA version."));
+                        return 1;
+                    }
+
+                    var parms = createMethod.GetParameters();
+                    var blockTypeValue = ResolveEnumByName(parms[1].ParameterType, inputBlockType == "FB" ? "FunctionBlock" : inputBlockType == "FC" ? "Function" : inputBlockType == "DB" ? "GlobalDB" : "OrganizationBlock");
+                    var langValue = ResolveEnumByName(parms[2].ParameterType, inputLanguage);
+
+                    if (blockTypeValue == null || langValue == null)
+                    {
+                        Console.WriteLine(JsonError($"Invalid BlockType/Language: {inputBlockType}/{inputLanguage}"));
+                        return 1;
+                    }
+
+                    block = (PlcBlock)createMethod.Invoke(blocks, new object[] { input.BlockName, blockTypeValue, langValue });
+                }
+
+                project.Save();
+
+                Console.WriteLine(JsonOk(new
+                {
+                    blockName = block.Name,
+                    number = block.Number
+                }));
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// 通过枚举名称在 Type 上做 Enum.Parse（反射方式，兼容 V18/V21）
+        /// </summary>
+        static object ResolveEnumByName(Type enumType, string name)
+        {
+            try { return Enum.Parse(enumType, name, true); }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// 获取已打开的项目，或打开指定路径的项目。
+        /// 解决 V21 中 Portal GUI 已打开项目时 Open 会报错的问题。
+        /// </summary>
+        static Project GetOrOpenProject(TiaPortal tia, string projectPath)
+        {
+            var targetPath = new FileInfo(projectPath).FullName;
+
+            // 先检查已打开的项目
+            foreach (Project proj in tia.Projects)
+            {
+                try
+                {
+                    if (proj.Path != null && proj.Path.FullName.Equals(targetPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (IsDebugEnabled)
+                            Console.Error.WriteLine($"[TiaWorker] Using already-open project: {proj.Path.FullName}");
+                        return proj;
+                    }
+                }
+                catch { }
+            }
+
+            // 没找到，尝试打开
+            if (IsDebugEnabled)
+                Console.Error.WriteLine($"[TiaWorker] Opening project: {targetPath}");
+            return tia.Projects.Open(new FileInfo(projectPath));
+        }
+
+        static int ExportBlock(string json)
+        {
+            var input = Json.Deserialize<ExportBlockInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.BlockName) || string.IsNullOrEmpty(input?.OutputPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath, BlockName, or OutputPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found in project"));
+                    return 1;
+                }
+
+                PlcBlock block = null;
+                try { block = plcSoftware.BlockGroup.Blocks.Find(input.BlockName); }
+                catch { }
+                if (block == null)
+                {
+                    Console.WriteLine(JsonError($"Block '{input.BlockName}' not found"));
+                    return 1;
+                }
+
+                // 通过 IConvertible 导出 XML（反射避免编译时版本依赖）
+                var svc = CallReflectedService(block, "Siemens.Engineering.SW.Blocks.IConvertible");
+                if (svc == null)
+                {
+                    Console.WriteLine(JsonError("Export not supported (IConvertible not available on this block)"));
+                    return 1;
+                }
+
+                var svcType = svc.GetType();
+                var exportMethod = svcType.GetMethod("Export");
+                if (exportMethod == null)
+                {
+                    Console.WriteLine(JsonError("Export method not found on IConvertible interface"));
+                    return 1;
+                }
+
+                // ExportOptions.WithDefaults = 1
+                exportMethod.Invoke(svc, new object[] { new FileInfo(input.OutputPath), 1 });
+
+                project.Save();
+
+                Console.WriteLine(JsonOk(new
+                {
+                    blockName = input.BlockName,
+                    outputPath = input.OutputPath
+                }));
+                return 0;
+            }
+        }
+
+        static int ImportBlock(string json)
+        {
+            var input = Json.Deserialize<ImportBlockInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.FilePath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or FilePath"));
+                return 1;
+            }
+
+            var xmlFile = new FileInfo(input.FilePath);
+            if (!xmlFile.Exists)
+            {
+                Console.WriteLine(JsonError($"XML file not found: {input.FilePath}"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found in project"));
+                    return 1;
+                }
+
+                var blocks = plcSoftware.BlockGroup.Blocks;
+
+                // 查找 Import(FileInfo, ImportOptions) 方法
+                var importMethod = blocks.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "Import" && m.GetParameters().Length == 2);
+
+                if (importMethod == null)
+                {
+                    Console.WriteLine(JsonError("Import method not found (TIA API version mismatch)"));
+                    return 1;
+                }
+
+                // 从 MethodInfo 获取 ImportOptions 枚举类型并解析
+                var optionsParamType = importMethod.GetParameters()[1].ParameterType;
+                var optionsValue = ResolveEnumByName(optionsParamType, input.Override ? "Override" : "None");
+                if (optionsValue == null)
+                {
+                    optionsValue = input.Override ? 1 : 0;
+                }
+
+                var result = importMethod.Invoke(blocks, new object[] { xmlFile, optionsValue });
+
+                project.Save();
+
+                // 提取导入的块名
+                string[] blockNames = null;
+                if (result is System.Collections.IEnumerable enumerable)
+                {
+                    blockNames = enumerable.OfType<PlcBlock>().Select(b => b.Name).ToArray();
+                }
+
+                Console.WriteLine(JsonOk(new
+                {
+                    filePath = input.FilePath,
+                    @override = input.Override,
+                    blocks = blockNames ?? new[] { "imported" }
+                }));
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// 反射调用 GetService&lt;T&gt;，避免编译时对特定 TIA API 版本的强依赖
+        /// </summary>
+        static object CallReflectedService(object target, string interfaceFullName)
+        {
+            var iface = target.GetType().Assembly.GetType(interfaceFullName);
+            if (iface == null) return null;
+
+            var getServiceGeneric = target.GetType().GetMethod("GetService`1");
+            if (getServiceGeneric == null) return null;
+
+            var getServiceTyped = getServiceGeneric.MakeGenericMethod(iface);
+            return getServiceTyped.Invoke(target, null);
+        }
+
         internal static PlcSoftware GetPlcSoftware(Project project)
         {
             foreach (var device in project.Devices)
@@ -680,5 +945,25 @@ namespace TiaWorker
         public string InterfaceName { get; set; }
         public string TargetIp { get; set; }
         public int TimeoutSec { get; set; }
+    }
+
+    class CreateBlockInput : ProjectInput
+    {
+        public string BlockName { get; set; }
+        public int BlockNumber { get; set; }
+        public string BlockType { get; set; }
+        public string Language { get; set; }
+    }
+
+    class ExportBlockInput : ProjectInput
+    {
+        public string BlockName { get; set; }
+        public string OutputPath { get; set; }
+    }
+
+    class ImportBlockInput : ProjectInput
+    {
+        public string FilePath { get; set; }
+        public bool Override { get; set; }
     }
 }
