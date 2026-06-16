@@ -6,11 +6,11 @@
 
 # ── TIA Portal ──
 tia:
-  version: "V18"  # TIA Portal V18（V21 适配暂缓）
-  # TIA 项目文件 (.ap18) — 硬编码避免环境变量覆盖
-  project_path: "D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\demo.ap18"
+  version: "${TIA_VERSION:V18}"
+  # TIA 项目文件 (.ap18/.ap21)
+  project_path: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\demo.ap18}"
   # TIA Portal 安装目录（Openness API DLL 所在）
-  install_dir: "D:\\TIA BEN TI\\Portal V18"
+  install_dir: "${TIA_INSTALL_DIR:D:\\TIA BEN TI\\Portal V18}"
   # 仿真/输出文件目录（XML、SVG、SCL 均输出到此）
   output_dir: "${TIA_OUTPUT_DIR:D:\\TIA FANG ZHEN}"
 
@@ -59,13 +59,13 @@ simulation:
   # 黄金备份（PLCSIM 实例存档）
   golden_backup:
     # V18（当前主用）
-    v18_dir: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo}"
+    v18_dir: "${GOLDEN_V18_DIR:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo}"
     # V21（暂缓）
-    v21_dir: "D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21"
+    v21_dir: "${GOLDEN_V21_DIR:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21}"
     # golden zip 文件路径
-    zip_path: "D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo/factory_io1_golden.zip"
+    zip_path: "${GOLDEN_ZIP_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo/factory_io1_golden.zip}"
     # PLCSIM 实例存储目录
-    storage_path: "D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo/plcsim_storage"
+    storage_path: "${GOLDEN_STORAGE_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo/plcsim_storage}"
 
 # ── Factory I/O ──
 factory_io:
@@ -76,7 +76,7 @@ factory_io:
   # 场景文件路径
   scene_path: "${FIO_SCENE_PATH:}"
   # 导出的 CSV I/O 映射文件
-  csv_output: "D:\\TIA FANG ZHEN\\factory_io_mapping.csv"
+  csv_output: "${FIO_CSV_OUTPUT:D:\\TIA FANG ZHEN\\factory_io_mapping.csv}"
 
   # ═══════════════════════════════════════════════════
   # Factory I/O ↔ PLCSIM Advanced 连接配置
