@@ -963,6 +963,62 @@ async def delete_watch_table(watch_table_name: str) -> str:
 
 
 # ═══════════════════════════════════════
+#  项目创建与归档（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_create_project",
+    annotations={"destructiveHint": False},
+)
+async def create_project(project_name: str, parent_directory: str = "") -> str:
+    """创建新的 TIA Portal 项目
+
+    Args:
+        project_name: 项目名称
+        parent_directory: 父目录路径（默认使用项目文件所在目录）
+    """
+    parent = parent_directory or os.path.dirname(PROJECT_PATH)
+    if not os.path.isdir(parent):
+        return f"❌ 目录不存在: {parent}"
+
+    result = _run_tiaworker("create-project", {
+        "ProjectName": project_name,
+        "ParentDirectory": parent,
+    }, timeout=180)
+    if result.get("success"):
+        d = result.get("data", {})
+        return f"✅ 项目已创建: {d.get('name')} → {d.get('path')}"
+    return _format_result(False, error=result.get("error", "创建失败"))
+
+
+@mcp.tool(
+    name="plc_archive_project",
+    annotations={"destructiveHint": False},
+)
+async def archive_project(output_dir: str = "", archive_name: str = "") -> str:
+    """将当前 TIA 项目归档为 .zap 文件
+
+    Args:
+        output_dir: 输出目录（默认项目同级目录）
+        archive_name: 归档文件名（默认项目名）
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    out = output_dir or os.path.dirname(project)
+    result = _run_tiaworker("archive-project", {
+        "ProjectPath": project,
+        "OutputDir": out,
+        "ArchiveName": archive_name or None,
+    }, timeout=180)
+    if result.get("success"):
+        d = result.get("data", {})
+        return f"✅ 已归档: {d.get('archiveName')} → {d.get('outputDir')}"
+    return _format_result(False, error=result.get("error", "归档失败"))
+
+
+# ═══════════════════════════════════════
 #  硬件信息（TiaWorker）
 # ═══════════════════════════════════════
 

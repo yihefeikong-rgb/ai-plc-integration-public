@@ -152,6 +152,10 @@ namespace TiaWorker
                         return FindCallers(json);
                     case "get-hardware-info":
                         return GetHardwareInfo(json);
+                    case "create-project":
+                        return CreateProject(json);
+                    case "archive-project":
+                        return ArchiveProject(json);
                     default:
                         Console.WriteLine(JsonError($"Unknown command: {command}"));
                         return 1;
@@ -2187,6 +2191,89 @@ namespace TiaWorker
             }
         }
 
+        static int CreateProject(string json)
+        {
+            var input = Json.Deserialize<CreateProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectName) || string.IsNullOrEmpty(input?.ParentDirectory))
+            {
+                Console.WriteLine(JsonError("Missing ProjectName or ParentDirectory"));
+                return 1;
+            }
+
+            var parentDir = new DirectoryInfo(input.ParentDirectory);
+            if (!parentDir.Exists)
+            {
+                Console.WriteLine(JsonError($"Directory not found: {input.ParentDirectory}"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = tia.Projects.Create(parentDir, input.ProjectName);
+                project.Save();
+
+                Console.WriteLine(JsonOk(new
+                {
+                    name = project.Name,
+                    path = project.Path?.FullName
+                }));
+                return 0;
+            }
+        }
+
+        static int ArchiveProject(string json)
+        {
+            var input = Json.Deserialize<ArchiveProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.OutputDir))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or OutputDir"));
+                return 1;
+            }
+
+            var outputDir = new DirectoryInfo(input.OutputDir);
+            if (!outputDir.Exists)
+                Directory.CreateDirectory(input.OutputDir);
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var archiveName = input.ArchiveName ?? project.Name;
+
+                // V18: project.Archive(DirectoryInfo, string, ArchivationMode) 或反射
+                var archiveMethod = project.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "Archive" && m.GetParameters().Length >= 2);
+
+                if (archiveMethod != null)
+                {
+                    var parms = archiveMethod.GetParameters();
+                    if (parms.Length == 3)
+                    {
+                        // Archive(DirectoryInfo, string, ArchivationMode)
+                        var modeType = parms[2].ParameterType;
+                        var modeValue = Enum.GetValues(modeType).GetValue(0); // 默认模式
+                        archiveMethod.Invoke(project, new object[] { outputDir, archiveName, modeValue });
+                    }
+                    else
+                    {
+                        archiveMethod.Invoke(project, new object[] { outputDir, archiveName });
+                    }
+                }
+                else
+                {
+                    Console.WriteLine(JsonError("Archive method not available in this TIA version"));
+                    return 1;
+                }
+
+                Console.WriteLine(JsonOk(new
+                {
+                    projectName = project.Name,
+                    archiveName,
+                    outputDir = input.OutputDir
+                }));
+                return 0;
+            }
+        }
+
         static int GetHardwareInfo(string json)
         {
             var input = Json.Deserialize<ProjectInput>(json);
@@ -2506,6 +2593,18 @@ namespace TiaWorker
     {
         public string DbName { get; set; }
         public int DbNumber { get; set; }
+    }
+
+    class CreateProjectInput
+    {
+        public string ProjectName { get; set; }
+        public string ParentDirectory { get; set; }
+    }
+
+    class ArchiveProjectInput : ProjectInput
+    {
+        public string OutputDir { get; set; }
+        public string ArchiveName { get; set; }
     }
 
     class ExportAllInput : ProjectInput
