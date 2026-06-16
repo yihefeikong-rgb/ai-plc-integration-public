@@ -1,0 +1,3 @@
+# 第三方插件/工具 — 不计入 GitHub 语言统计
+plc-mcp-kit/** linguist-vendored
+.opencode/** linguist-vendored
