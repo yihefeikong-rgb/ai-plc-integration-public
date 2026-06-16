@@ -85,3 +85,6 @@ coverage.xml
 # Weave AI 会话缓存
 .weave/
 mcp-servers/tiacommander-mcp/
+
+# OpenCode AI 工具缓存
+.opencode/
