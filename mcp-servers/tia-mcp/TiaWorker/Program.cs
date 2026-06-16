@@ -150,6 +150,8 @@ namespace TiaWorker
                         return FindUnusedBlocks(json);
                     case "find-callers":
                         return FindCallers(json);
+                    case "get-hardware-info":
+                        return GetHardwareInfo(json);
                     default:
                         Console.WriteLine(JsonError($"Unknown command: {command}"));
                         return 1;
@@ -2182,6 +2184,55 @@ namespace TiaWorker
 
                 Console.WriteLine(JsonOk(new { target = input.BlockName, callerCount = callers.Count, callers }));
                 return 0;
+            }
+        }
+
+        static int GetHardwareInfo(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var devices = new List<object>();
+
+                foreach (var device in project.Devices)
+                {
+                    var items = new List<object>();
+                    foreach (var item in device.DeviceItems)
+                    {
+                        CollectDeviceItems(item, items, 0);
+                    }
+                    devices.Add(new
+                    {
+                        name = device.Name,
+                        type = device.TypeIdentifier,
+                        items
+                    });
+                }
+
+                Console.WriteLine(JsonOk(new { deviceCount = devices.Count, devices }));
+                return 0;
+            }
+        }
+
+        static void CollectDeviceItems(DeviceItem item, List<object> results, int depth)
+        {
+            if (depth > 5) return;
+            results.Add(new
+            {
+                name = item.Name,
+                type = item.TypeIdentifier ?? "",
+                depth
+            });
+            foreach (var child in item.DeviceItems)
+            {
+                CollectDeviceItems(child, results, depth + 1);
             }
         }
 

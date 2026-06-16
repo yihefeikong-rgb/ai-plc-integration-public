@@ -963,6 +963,90 @@ async def delete_watch_table(watch_table_name: str) -> str:
 
 
 # ═══════════════════════════════════════
+#  硬件信息（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_get_hardware_info",
+    annotations={"readOnlyHint": True},
+)
+async def get_hardware_info() -> str:
+    """获取 TIA 项目中所有设备的硬件配置（机架/插槽结构）"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("get-hardware-info", {"ProjectPath": project}, timeout=120)
+    if result.get("success"):
+        d = result.get("data", {})
+        devices = d.get("devices", [])
+        if devices:
+            lines = [f"硬件配置 ({d.get('deviceCount', len(devices))} 台设备)："]
+            for dev in devices:
+                lines.append(f"\n📟 {dev['name']} ({dev['type']})")
+                for item in dev.get("items", []):
+                    indent = "  " * (item["depth"] + 1)
+                    lines.append(f"{indent}├─ {item['name']} [{item['type']}]")
+            return "\n".join(lines)
+        return "项目中无硬件设备"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+# ═══════════════════════════════════════
+#  交叉引用分析（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_find_unused_blocks",
+    annotations={"readOnlyHint": True},
+)
+async def find_unused_blocks() -> str:
+    """查找项目中未被调用的 PLC 块（通过 XML 交叉引用分析）"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("find-unused-blocks", {"ProjectPath": project}, timeout=300)
+    if result.get("success"):
+        d = result.get("data", {})
+        unused = d.get("unusedBlocks", [])
+        if unused:
+            lines = [f"未被引用的块 ({len(unused)})："]
+            for b in unused:
+                lines.append(f"  ⚠ {b}")
+            return "\n".join(lines)
+        return "✅ 所有块均有引用"
+    return _format_result(False, error=result.get("error", "分析失败"))
+
+
+@mcp.tool(
+    name="plc_find_callers",
+    annotations={"readOnlyHint": True},
+)
+async def find_callers(block_name: str) -> str:
+    """查找引用/调用指定块的所有块
+
+    Args:
+        block_name: 要查询的块名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("find-callers", {
+        "ProjectPath": project,
+        "BlockName": block_name,
+    }, timeout=300)
+    if result.get("success"):
+        d = result.get("data", {})
+        callers = d.get("callers", [])
+        if callers:
+            lines = [f"引用 `{block_name}` 的块 ({len(callers)})："]
+            for c in callers:
+                lines.append(f"  → {c}")
+            return "\n".join(lines)
+        return f"没有块引用 `{block_name}`"
+    return _format_result(False, error=result.get("error", "分析失败"))
+
+
+# ═══════════════════════════════════════
 #  编译诊断 & 项目管理（TiaWorker）
 # ═══════════════════════════════════════
 
