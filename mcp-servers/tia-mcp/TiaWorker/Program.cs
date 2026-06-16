@@ -185,16 +185,9 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
-                var projectPath = new FileInfo(input.ProjectPath);
-                if (!projectPath.Exists)
-                {
-                    Console.WriteLine(JsonError($"Project not found: {input.ProjectPath}"));
-                    return 1;
-                }
-
-                var project = tia.Projects.Open(projectPath);
+                var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
                 if (plcSoftware == null)
                 {
@@ -231,9 +224,9 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
-                var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
+                var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
                 if (plcSoftware == null)
                 {
@@ -272,7 +265,7 @@ namespace TiaWorker
             // 如果下载过程需要 GUI 确认，会抛出异常并触发 fallback
             using (var tia = new TiaPortal(TiaPortalMode.WithoutUserInterface))
             {
-                var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
+                var project = GetOrOpenProject(tia, input.ProjectPath);
                 var device = FindDevice(project, input?.DeviceName);
 
                 if (device == null)
@@ -470,9 +463,9 @@ namespace TiaWorker
             // WithUserInterface 不会启动新实例，而是附加到现有 GUI 进程
             try
             {
-                using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+                using (var tia = AttachOrCreate())
                 {
-                    var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
+                    var project = GetOrOpenProject(tia, input.ProjectPath);
                     var device = FindDevice(project, input?.DeviceName);
 
                     if (device == null)
@@ -691,9 +684,9 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
-                var project = tia.Projects.Open(new FileInfo(input.ProjectPath));
+                var project = GetOrOpenProject(tia, input.ProjectPath);
                 var devices = project.Devices
                     .Select(d => new { name = d.Name, type = d.TypeIdentifier })
                     .ToArray();
@@ -712,7 +705,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -726,50 +719,53 @@ namespace TiaWorker
                 var inputBlockType = (input.BlockType ?? "FB").ToUpperInvariant();
                 var inputLanguage = (input.Language ?? "LAD").ToUpperInvariant();
 
-                PlcBlock block;
+                PlcBlock block = null;
 
-                // 策略 1：V21 CreateFB(name, isAutoNumbered, number, ProgrammingLanguage)
-                var createFbMethod = blocks.GetType().GetMethod("CreateFB");
-                if (createFbMethod != null && inputBlockType == "FB")
+                // SCL 块通过 External Source API 创建（V18 唯一可靠方式）
+                if (inputLanguage == "SCL")
                 {
-                    var langParamType = createFbMethod.GetParameters()[3].ParameterType;
-                    var langValue = ResolveEnumByName(langParamType, inputLanguage);
-                    if (langValue == null)
-                    {
-                        Console.WriteLine(JsonError($"Invalid Language: {inputLanguage}. Supported: LAD, FBD, SCL, STL"));
-                        return 1;
-                    }
-
-                    var autoNum = input.BlockNumber <= 0;
-                    var number = input.BlockNumber > 0 ? input.BlockNumber : 0;
-
-                    if (IsDebugEnabled)
-                        Console.Error.WriteLine($"[TiaWorker] V21 CreateFB: name={input.BlockName}, auto={autoNum}, num={number}, lang={inputLanguage}");
-
-                    block = (PlcBlock)createFbMethod.Invoke(blocks, new object[] { input.BlockName, autoNum, number, langValue });
+                    block = CreateBlockViaSclSource(plcSoftware, input.BlockName, inputBlockType);
                 }
-                // 策略 2：V18 Create(name, PlcBlockType, PlcProgrammingLanguage)
                 else
                 {
+                    // LAD/FBD/STL: 尝试直接 Create
                     var createMethod = blocks.GetType().GetMethods()
                         .FirstOrDefault(m => m.Name == "Create" && m.GetParameters().Length >= 3);
-                    if (createMethod == null)
+                    if (createMethod != null)
                     {
-                        Console.WriteLine(JsonError($"No Create/CreateFB method found. BlockType '{inputBlockType}' may not be supported in this TIA version."));
-                        return 1;
+                        var parms = createMethod.GetParameters();
+                        var blockTypeValue = ResolveEnumByName(parms[1].ParameterType, inputBlockType == "FB" ? "FunctionBlock" : inputBlockType == "FC" ? "Function" : inputBlockType == "DB" ? "GlobalDB" : "OrganizationBlock");
+                        var langValue = ResolveEnumByName(parms[2].ParameterType, inputLanguage);
+                        if (blockTypeValue != null && langValue != null)
+                        {
+                            try { block = (PlcBlock)createMethod.Invoke(blocks, new object[] { input.BlockName, blockTypeValue, langValue }); }
+                            catch { }
+                        }
                     }
 
-                    var parms = createMethod.GetParameters();
-                    var blockTypeValue = ResolveEnumByName(parms[1].ParameterType, inputBlockType == "FB" ? "FunctionBlock" : inputBlockType == "FC" ? "Function" : inputBlockType == "DB" ? "GlobalDB" : "OrganizationBlock");
-                    var langValue = ResolveEnumByName(parms[2].ParameterType, inputLanguage);
-
-                    if (blockTypeValue == null || langValue == null)
+                    // 回退：V21 CreateFB
+                    if (block == null && inputBlockType == "FB")
                     {
-                        Console.WriteLine(JsonError($"Invalid BlockType/Language: {inputBlockType}/{inputLanguage}"));
-                        return 1;
+                        var createFbMethod = blocks.GetType().GetMethod("CreateFB");
+                        if (createFbMethod != null)
+                        {
+                            var langParamType = createFbMethod.GetParameters()[3].ParameterType;
+                            var langValue = ResolveEnumByName(langParamType, inputLanguage);
+                            if (langValue != null)
+                            {
+                                var autoNum = input.BlockNumber <= 0;
+                                var number = input.BlockNumber > 0 ? input.BlockNumber : 0;
+                                try { block = (PlcBlock)createFbMethod.Invoke(blocks, new object[] { input.BlockName, autoNum, number, langValue }); }
+                                catch { }
+                            }
+                        }
                     }
+                }
 
-                    block = (PlcBlock)createMethod.Invoke(blocks, new object[] { input.BlockName, blockTypeValue, langValue });
+                if (block == null)
+                {
+                    Console.WriteLine(JsonError($"Failed to create block '{input.BlockName}' ({inputBlockType}/{inputLanguage})"));
+                    return 1;
                 }
 
                 project.Save();
@@ -784,6 +780,61 @@ namespace TiaWorker
         }
 
         /// <summary>
+        /// 通过 External Source API 创建 SCL 块（V18 唯一可靠方式）
+        /// </summary>
+        static PlcBlock CreateBlockViaSclSource(PlcSoftware plcSoftware, string blockName, string blockType)
+        {
+            // 生成最小 SCL 源码
+            string sclCode;
+            switch (blockType)
+            {
+                case "FB":
+                    sclCode = $"FUNCTION_BLOCK \"{blockName}\"\n{{ S7_Optimized_Access := 'TRUE' }}\nVERSION : 0.1\n\nBEGIN\n    ;\nEND_FUNCTION_BLOCK";
+                    break;
+                case "FC":
+                    sclCode = $"FUNCTION \"{blockName}\" : Void\n{{ S7_Optimized_Access := 'TRUE' }}\nVERSION : 0.1\n\nBEGIN\n    ;\nEND_FUNCTION";
+                    break;
+                case "OB":
+                    sclCode = $"ORGANIZATION_BLOCK \"{blockName}\"\nTITLE = \"Main Program\"\nVERSION : 0.1\n\nBEGIN\n    ;\nEND_ORGANIZATION_BLOCK";
+                    break;
+                default:
+                    return null;
+            }
+
+            // 写入临时 .scl 文件
+            var tempFile = Path.Combine(Path.GetTempPath(), $"{blockName}.scl");
+            try
+            {
+                File.WriteAllText(tempFile, sclCode, System.Text.Encoding.UTF8);
+
+                // 通过 External Source 导入
+                var extGroup = plcSoftware.ExternalSourceGroup;
+                var extSources = extGroup.ExternalSources;
+
+                // 删除同名已有 source（如果存在）
+                try
+                {
+                    var existing = extSources.Find($"{blockName}.scl");
+                    if (existing != null) existing.Delete();
+                }
+                catch { }
+
+                var extSource = extSources.CreateFromFile($"{blockName}.scl", tempFile);
+                var generated = extSource.GenerateBlocksFromSource(GenerateBlockOption.KeepOnError);
+
+                // 清理 external source
+                try { extSource.Delete(); } catch { }
+
+                // 返回生成的块
+                return plcSoftware.BlockGroup.Blocks.Find(blockName);
+            }
+            finally
+            {
+                try { File.Delete(tempFile); } catch { }
+            }
+        }
+
+        /// <summary>
         /// 通过枚举名称在 Type 上做 Enum.Parse（反射方式，兼容 V18/V21）
         /// </summary>
         static object ResolveEnumByName(Type enumType, string name)
@@ -793,8 +844,35 @@ namespace TiaWorker
         }
 
         /// <summary>
+        /// 附加到已运行的 TIA Portal 实例（不需要管理员权限）。
+        /// 如果没有运行中的实例，回退到 new TiaPortal()（需要管理员）。
+        /// </summary>
+        static TiaPortal AttachOrCreate()
+        {
+            try
+            {
+                var processes = TiaPortal.GetProcesses();
+                if (processes.Count > 0)
+                {
+                    if (IsDebugEnabled)
+                        Console.Error.WriteLine($"[TiaWorker] Attaching to running TIA Portal (PID: {processes[0].Id})");
+                    return processes[0].Attach();
+                }
+            }
+            catch (Exception ex)
+            {
+                if (IsDebugEnabled)
+                    Console.Error.WriteLine($"[TiaWorker] GetProcesses failed: {ex.Message}");
+            }
+
+            // 没有运行中的实例，尝试启动新的（需要管理员权限）
+            if (IsDebugEnabled)
+                Console.Error.WriteLine("[TiaWorker] No running TIA Portal, creating new instance...");
+            return AttachOrCreate();
+        }
+
+        /// <summary>
         /// 获取已打开的项目，或打开指定路径的项目。
-        /// 解决 V21 中 Portal GUI 已打开项目时 Open 会报错的问题。
         /// </summary>
         static Project GetOrOpenProject(TiaPortal tia, string projectPath)
         {
@@ -815,6 +893,15 @@ namespace TiaWorker
                 catch { }
             }
 
+            // 没找到精确匹配，但如果只有一个项目，就用它
+            if (tia.Projects.Count == 1)
+            {
+                var onlyProject = tia.Projects[0];
+                if (IsDebugEnabled)
+                    Console.Error.WriteLine($"[TiaWorker] Using the only open project: {onlyProject.Name}");
+                return onlyProject;
+            }
+
             // 没找到，尝试打开
             if (IsDebugEnabled)
                 Console.Error.WriteLine($"[TiaWorker] Opening project: {targetPath}");
@@ -830,7 +917,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -895,7 +982,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -959,7 +1046,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1004,7 +1091,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 project.Save();
@@ -1022,7 +1109,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 Console.WriteLine(JsonOk(new
@@ -1044,7 +1131,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1085,7 +1172,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1113,7 +1200,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1152,7 +1239,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1192,7 +1279,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1233,7 +1320,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1260,7 +1347,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1304,7 +1391,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1342,7 +1429,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1390,7 +1477,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1467,7 +1554,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1534,7 +1621,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1582,7 +1669,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1635,7 +1722,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1707,7 +1794,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1757,7 +1844,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1793,7 +1880,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1840,7 +1927,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1883,7 +1970,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1933,7 +2020,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -1981,7 +2068,7 @@ namespace TiaWorker
 
             Directory.CreateDirectory(input.OutputDir);
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -2043,7 +2130,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
 
@@ -2070,7 +2157,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -2138,7 +2225,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -2207,7 +2294,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = tia.Projects.Create(parentDir, input.ProjectName);
                 project.Save();
@@ -2234,7 +2321,7 @@ namespace TiaWorker
             if (!outputDir.Exists)
                 Directory.CreateDirectory(input.OutputDir);
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var archiveName = input.ArchiveName ?? project.Name;
@@ -2283,7 +2370,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var devices = new List<object>();
@@ -2332,7 +2419,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
@@ -2416,7 +2503,7 @@ namespace TiaWorker
                 return 1;
             }
 
-            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (var tia = AttachOrCreate())
             {
                 var project = GetOrOpenProject(tia, input.ProjectPath);
                 var plcSoftware = GetPlcSoftware(project);
