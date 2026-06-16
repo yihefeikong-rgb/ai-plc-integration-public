@@ -9,7 +9,9 @@ using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.ExternalSources;
+using System.Xml.Linq;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.Download;
 using Siemens.Engineering.Connection;
@@ -24,13 +26,12 @@ namespace TiaWorker
         private static bool IsDebugEnabled =>
             string.Equals(Environment.GetEnvironmentVariable("TIAWORKER_DEBUG"), "1", StringComparison.OrdinalIgnoreCase);
 
-        // TIA Portal V21 Openness DLL 路径
+        // TIA Portal V18 Openness DLL 路径（V21 适配暂缓）
         // Private=False 编译（避免 CopyLocal 检查），运行时通过 AssemblyResolve 加载
         static readonly string[] _tiaDllPaths = new[]
         {
-            @"D:\TIA BEN TI\Portal V21\PublicAPI\V21\net48",
-            @"D:\TIA BEN TI\Portal V21\Bin\PublicAPI",
-        }; 
+            @"D:\TIA BEN TI\Portal V18\PublicAPI\V18",
+        };
 
         static Program()
         {
@@ -91,6 +92,48 @@ namespace TiaWorker
                         return ExportBlock(json);
                     case "import-block":
                         return ImportBlock(json);
+                    case "list-blocks":
+                        return ListBlocks(json);
+                    case "save-project":
+                        return SaveProject(json);
+                    case "get-project-info":
+                        return GetProjectInfo(json);
+                    case "list-dbs":
+                        return ListDbs(json);
+                    case "list-tags":
+                        return ListTags(json);
+                    case "get-tags":
+                        return GetTags(json);
+                    case "add-tag":
+                        return AddTag(json);
+                    case "delete-tag":
+                        return DeleteTag(json);
+                    case "create-tag-table":
+                        return CreateTagTable(json);
+                    case "delete-tag-table":
+                        return DeleteTagTable(json);
+                    case "search-tag":
+                        return SearchTag(json);
+                    case "get-block-interface":
+                        return GetBlockInterface(json);
+                    case "get-block-details":
+                        return GetBlockDetails(json);
+                    case "delete-block":
+                        return DeleteBlock(json);
+                    case "compile-block":
+                        return CompileBlock(json);
+                    case "create-db":
+                        return CreateDb(json);
+                    case "delete-db":
+                        return DeleteDb(json);
+                    case "get-compiler-errors":
+                        return GetCompilerErrors(json);
+                    case "check-consistency":
+                        return CheckConsistency(json);
+                    case "export-all-xml":
+                        return ExportAllXml(json);
+                    case "close-project":
+                        return CloseProject(json);
                     default:
                         Console.WriteLine(JsonError($"Unknown command: {command}"));
                         return 1;
@@ -881,6 +924,905 @@ namespace TiaWorker
             }
         }
 
+        // ═══════════════════════════════════════
+        //  块列表 & 项目管理
+        // ═══════════════════════════════════════
+
+        static int ListBlocks(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var blocks = plcSoftware.BlockGroup.Blocks.Select(b =>
+                {
+                    var typeName = b.GetType().Name;
+                    string blockType;
+                    if (typeName.IndexOf("InstanceDB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "InstanceDB";
+                    else if (typeName.IndexOf("GlobalDB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "GlobalDB";
+                    else if (typeName.IndexOf("DB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "DB";
+                    else if (typeName.IndexOf("OB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "OB";
+                    else if (typeName.IndexOf("FB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "FB";
+                    else if (typeName.IndexOf("FC", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "FC";
+                    else blockType = typeName;
+
+                    return new
+                    {
+                        name = b.Name,
+                        number = b.Number,
+                        type = blockType,
+                        language = b.ProgrammingLanguage.ToString()
+                    };
+                }).ToArray();
+
+                Console.WriteLine(JsonOk(new { count = blocks.Length, blocks }));
+                return 0;
+            }
+        }
+
+        static int SaveProject(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                project.Save();
+                Console.WriteLine(JsonOk(new { saved = project.Name }));
+                return 0;
+            }
+        }
+
+        static int GetProjectInfo(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                Console.WriteLine(JsonOk(new
+                {
+                    name = project.Name,
+                    path = project.Path?.FullName,
+                    deviceCount = project.Devices.Count
+                }));
+                return 0;
+            }
+        }
+
+        static int ListDbs(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var dbs = plcSoftware.BlockGroup.Blocks
+                    .Where(b =>
+                    {
+                        var t = b.GetType().Name;
+                        return t.IndexOf("DB", StringComparison.OrdinalIgnoreCase) >= 0;
+                    })
+                    .Select(b => new
+                    {
+                        name = b.Name,
+                        number = b.Number,
+                        type = b.GetType().Name.IndexOf("Instance", StringComparison.OrdinalIgnoreCase) >= 0 ? "InstanceDB" : "GlobalDB"
+                    }).ToArray();
+
+                Console.WriteLine(JsonOk(new { count = dbs.Length, dbs }));
+                return 0;
+            }
+        }
+
+        // ═══════════════════════════════════════
+        //  标签表管理
+        // ═══════════════════════════════════════
+
+        static int ListTags(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var tables = plcSoftware.TagTableGroup.TagTables
+                    .Select(t => new { name = t.Name, tagCount = t.Tags.Count })
+                    .ToArray();
+
+                Console.WriteLine(JsonOk(new { tables }));
+                return 0;
+            }
+        }
+
+        static int GetTags(string json)
+        {
+            var input = Json.Deserialize<TagTableInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.TagTableName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or TagTableName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var table = plcSoftware.TagTableGroup.TagTables.Find(input.TagTableName);
+                if (table == null)
+                {
+                    Console.WriteLine(JsonError($"Tag table '{input.TagTableName}' not found"));
+                    return 1;
+                }
+
+                var tags = table.Tags.Select(t => new
+                {
+                    name = t.Name,
+                    dataType = t.DataTypeName,
+                    address = t.LogicalAddress
+                }).ToArray();
+
+                Console.WriteLine(JsonOk(new { tableName = table.Name, tags }));
+                return 0;
+            }
+        }
+
+        static int AddTag(string json)
+        {
+            var input = Json.Deserialize<AddTagInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.TagTableName) ||
+                string.IsNullOrEmpty(input?.TagName) || string.IsNullOrEmpty(input?.DataType))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath, TagTableName, TagName, or DataType"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var table = plcSoftware.TagTableGroup.TagTables.Find(input.TagTableName);
+                if (table == null)
+                {
+                    Console.WriteLine(JsonError($"Tag table '{input.TagTableName}' not found"));
+                    return 1;
+                }
+
+                var tag = table.Tags.Create(input.TagName, input.DataType, input.LogicalAddress ?? "");
+                project.Save();
+
+                Console.WriteLine(JsonOk(new
+                {
+                    tagName = tag.Name,
+                    dataType = tag.DataTypeName,
+                    address = tag.LogicalAddress
+                }));
+                return 0;
+            }
+        }
+
+        static int DeleteTag(string json)
+        {
+            var input = Json.Deserialize<DeleteTagInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.TagTableName) ||
+                string.IsNullOrEmpty(input?.TagName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath, TagTableName, or TagName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var table = plcSoftware.TagTableGroup.TagTables.Find(input.TagTableName);
+                if (table == null)
+                {
+                    Console.WriteLine(JsonError($"Tag table '{input.TagTableName}' not found"));
+                    return 1;
+                }
+
+                var tag = table.Tags.Find(input.TagName);
+                if (tag == null)
+                {
+                    Console.WriteLine(JsonError($"Tag '{input.TagName}' not found in '{input.TagTableName}'"));
+                    return 1;
+                }
+
+                tag.Delete();
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { deleted = input.TagName, table = input.TagTableName }));
+                return 0;
+            }
+        }
+
+        static int CreateTagTable(string json)
+        {
+            var input = Json.Deserialize<TagTableInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.TagTableName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or TagTableName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var table = plcSoftware.TagTableGroup.TagTables.Create(input.TagTableName);
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { tableName = table.Name }));
+                return 0;
+            }
+        }
+
+        static int SearchTag(string json)
+        {
+            var input = Json.Deserialize<SearchTagInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.Query))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or Query"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var query = input.Query.ToLowerInvariant();
+                var results = new List<object>();
+
+                foreach (var table in plcSoftware.TagTableGroup.TagTables)
+                {
+                    foreach (var tag in table.Tags)
+                    {
+                        if (tag.Name.ToLowerInvariant().Contains(query))
+                        {
+                            results.Add(new
+                            {
+                                table = table.Name,
+                                name = tag.Name,
+                                dataType = tag.DataTypeName,
+                                address = tag.LogicalAddress
+                            });
+                        }
+                    }
+                }
+
+                Console.WriteLine(JsonOk(new { query = input.Query, count = results.Count, results }));
+                return 0;
+            }
+        }
+
+        static int DeleteTagTable(string json)
+        {
+            var input = Json.Deserialize<TagTableInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.TagTableName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or TagTableName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var table = plcSoftware.TagTableGroup.TagTables.Find(input.TagTableName);
+                if (table == null)
+                {
+                    Console.WriteLine(JsonError($"Tag table '{input.TagTableName}' not found"));
+                    return 1;
+                }
+
+                table.Delete();
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { deleted = input.TagTableName }));
+                return 0;
+            }
+        }
+
+        // ═══════════════════════════════════════
+        //  块接口读取 & DB 管理
+        // ═══════════════════════════════════════
+
+        static int GetBlockDetails(string json)
+        {
+            var input = Json.Deserialize<BlockNameInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.BlockName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or BlockName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var block = plcSoftware.BlockGroup.Blocks.Find(input.BlockName);
+                if (block == null)
+                {
+                    Console.WriteLine(JsonError($"Block '{input.BlockName}' not found"));
+                    return 1;
+                }
+
+                var typeName = block.GetType().Name;
+                string blockType;
+                if (typeName.IndexOf("InstanceDB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "InstanceDB";
+                else if (typeName.IndexOf("GlobalDB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "GlobalDB";
+                else if (typeName.IndexOf("OB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "OB";
+                else if (typeName.IndexOf("FB", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "FB";
+                else if (typeName.IndexOf("FC", StringComparison.OrdinalIgnoreCase) >= 0) blockType = "FC";
+                else blockType = typeName;
+
+                bool isConsistent = false;
+                try { isConsistent = block.IsConsistent; } catch { }
+
+                Console.WriteLine(JsonOk(new
+                {
+                    name = block.Name,
+                    number = block.Number,
+                    type = blockType,
+                    language = block.ProgrammingLanguage.ToString(),
+                    isConsistent
+                }));
+                return 0;
+            }
+        }
+
+        static int DeleteBlock(string json)
+        {
+            var input = Json.Deserialize<BlockNameInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.BlockName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or BlockName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var block = plcSoftware.BlockGroup.Blocks.Find(input.BlockName);
+                if (block == null)
+                {
+                    Console.WriteLine(JsonError($"Block '{input.BlockName}' not found"));
+                    return 1;
+                }
+
+                var name = block.Name;
+                var number = block.Number;
+                block.Delete();
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { deleted = name, number }));
+                return 0;
+            }
+        }
+
+        static int CompileBlock(string json)
+        {
+            var input = Json.Deserialize<BlockNameInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.BlockName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or BlockName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var block = plcSoftware.BlockGroup.Blocks.Find(input.BlockName);
+                if (block == null)
+                {
+                    Console.WriteLine(JsonError($"Block '{input.BlockName}' not found"));
+                    return 1;
+                }
+
+                var compilable = block.GetService<ICompilable>();
+                if (compilable == null)
+                {
+                    Console.WriteLine(JsonError($"Block '{input.BlockName}' is not compilable"));
+                    return 1;
+                }
+
+                var result = compilable.Compile();
+                project.Save();
+
+                Console.WriteLine(JsonOk(new
+                {
+                    blockName = input.BlockName,
+                    success = result.State == CompilerResultState.Success,
+                    errors = result.ErrorCount,
+                    warnings = result.WarningCount
+                }));
+                return result.State == CompilerResultState.Success ? 0 : 1;
+            }
+        }
+
+        static int DeleteDb(string json)
+        {
+            var input = Json.Deserialize<BlockNameInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.BlockName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or BlockName (DB name)"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var block = plcSoftware.BlockGroup.Blocks.Find(input.BlockName);
+                if (block == null)
+                {
+                    Console.WriteLine(JsonError($"DB '{input.BlockName}' not found"));
+                    return 1;
+                }
+
+                var typeName = block.GetType().Name;
+                if (typeName.IndexOf("DB", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    Console.WriteLine(JsonError($"'{input.BlockName}' is not a DB (type: {typeName})"));
+                    return 1;
+                }
+
+                var name = block.Name;
+                var number = block.Number;
+                block.Delete();
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { deleted = name, number }));
+                return 0;
+            }
+        }
+
+        static int GetCompilerErrors(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var compilable = plcSoftware.GetService<ICompilable>();
+                var result = compilable.Compile();
+
+                var messages = new List<object>();
+                try
+                {
+                    foreach (var msg in result.Messages)
+                    {
+                        messages.Add(new
+                        {
+                            path = msg.Path,
+                            description = msg.Description,
+                            state = msg.State.ToString(),
+                            errors = msg.ErrorCount,
+                            warnings = msg.WarningCount
+                        });
+                    }
+                }
+                catch { }
+
+                Console.WriteLine(JsonOk(new
+                {
+                    success = result.State == CompilerResultState.Success,
+                    errors = result.ErrorCount,
+                    warnings = result.WarningCount,
+                    messages
+                }));
+                return 0;
+            }
+        }
+
+        static int CheckConsistency(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var results = new List<object>();
+                int inconsistentCount = 0;
+                foreach (var block in plcSoftware.BlockGroup.Blocks)
+                {
+                    bool consistent = false;
+                    try { consistent = block.IsConsistent; } catch { }
+                    if (!consistent) inconsistentCount++;
+
+                    results.Add(new
+                    {
+                        name = block.Name,
+                        number = block.Number,
+                        isConsistent = consistent
+                    });
+                }
+
+                Console.WriteLine(JsonOk(new
+                {
+                    total = results.Count,
+                    consistent = results.Count - inconsistentCount,
+                    inconsistent = inconsistentCount,
+                    blocks = results
+                }));
+                return 0;
+            }
+        }
+
+        static int ExportAllXml(string json)
+        {
+            var input = Json.Deserialize<ExportAllInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.OutputDir))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or OutputDir"));
+                return 1;
+            }
+
+            Directory.CreateDirectory(input.OutputDir);
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var exported = new List<string>();
+                var failed = new List<string>();
+
+                foreach (var block in plcSoftware.BlockGroup.Blocks)
+                {
+                    var filePath = Path.Combine(input.OutputDir, $"{block.Name}.xml");
+                    try
+                    {
+                        var exportMethod = block.GetType().GetMethod("Export",
+                            new[] { typeof(FileInfo), typeof(ExportOptions) });
+
+                        if (exportMethod != null)
+                        {
+                            exportMethod.Invoke(block, new object[] { new FileInfo(filePath), ExportOptions.WithDefaults });
+                        }
+                        else
+                        {
+                            var svc = CallReflectedService(block, "Siemens.Engineering.SW.Blocks.IConvertible");
+                            if (svc != null)
+                            {
+                                var m = svc.GetType().GetMethod("Export");
+                                m.Invoke(svc, new object[] { new FileInfo(filePath), 1 });
+                            }
+                        }
+                        exported.Add(block.Name);
+                    }
+                    catch
+                    {
+                        failed.Add(block.Name);
+                    }
+                }
+
+                Console.WriteLine(JsonOk(new
+                {
+                    outputDir = input.OutputDir,
+                    exported = exported.Count,
+                    failed = failed.Count,
+                    failedBlocks = failed.ToArray()
+                }));
+                return 0;
+            }
+        }
+
+        static int CloseProject(string json)
+        {
+            var input = Json.Deserialize<CloseProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+
+                if (input.Save)
+                    project.Save();
+
+                project.Close();
+
+                Console.WriteLine(JsonOk(new { closed = project.Name, saved = input.Save }));
+                return 0;
+            }
+        }
+
+        static int GetBlockInterface(string json)
+        {
+            var input = Json.Deserialize<BlockNameInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.BlockName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or BlockName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var block = plcSoftware.BlockGroup.Blocks.Find(input.BlockName);
+                if (block == null)
+                {
+                    Console.WriteLine(JsonError($"Block '{input.BlockName}' not found"));
+                    return 1;
+                }
+
+                // 导出到临时 XML 文件
+                var tempFile = Path.Combine(Path.GetTempPath(), $"tia_iface_{Guid.NewGuid():N}.xml");
+                try
+                {
+                    // 使用 Export 方法（V18 直接在 PlcBlock 上）
+                    var exportMethod = block.GetType().GetMethod("Export",
+                        new[] { typeof(FileInfo), typeof(ExportOptions) });
+
+                    if (exportMethod != null)
+                    {
+                        exportMethod.Invoke(block, new object[] { new FileInfo(tempFile), ExportOptions.WithDefaults });
+                    }
+                    else
+                    {
+                        // 回退：IConvertible 反射
+                        var svc = CallReflectedService(block, "Siemens.Engineering.SW.Blocks.IConvertible");
+                        if (svc == null)
+                        {
+                            Console.WriteLine(JsonError("Export not supported for this block"));
+                            return 1;
+                        }
+                        var svcExport = svc.GetType().GetMethod("Export");
+                        svcExport.Invoke(svc, new object[] { new FileInfo(tempFile), 1 });
+                    }
+
+                    // 解析 XML 中的 Interface 部分
+                    var doc = XDocument.Load(tempFile);
+                    var sections = new List<object>();
+
+                    foreach (var sectionEl in doc.Descendants().Where(e => e.Name.LocalName == "Section"))
+                    {
+                        var sectionName = sectionEl.Attribute("Name")?.Value;
+                        if (string.IsNullOrEmpty(sectionName)) continue;
+
+                        var members = sectionEl.Elements()
+                            .Where(e => e.Name.LocalName == "Member")
+                            .Select(m => new
+                            {
+                                name = m.Attribute("Name")?.Value,
+                                dataType = m.Attribute("Datatype")?.Value
+                            }).ToArray();
+
+                        if (members.Length > 0)
+                        {
+                            sections.Add(new { section = sectionName, members });
+                        }
+                    }
+
+                    Console.WriteLine(JsonOk(new { blockName = input.BlockName, sections }));
+                    return 0;
+                }
+                finally
+                {
+                    try { File.Delete(tempFile); } catch { }
+                }
+            }
+        }
+
+        static int CreateDb(string json)
+        {
+            var input = Json.Deserialize<CreateDbInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.DbName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or DbName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var blocks = plcSoftware.BlockGroup.Blocks;
+
+                // 尝试找 Create 方法（2 或 3 参数）
+                PlcBlock db = null;
+                var methods = blocks.GetType().GetMethods().Where(m => m.Name == "Create").ToArray();
+
+                // 先尝试 3 参数: Create(name, PlcBlockType.GlobalDB, PlcProgrammingLanguage.DB)
+                var create3 = methods.FirstOrDefault(m => m.GetParameters().Length == 3);
+                if (create3 != null)
+                {
+                    var parms = create3.GetParameters();
+                    var blockTypeVal = ResolveEnumByName(parms[1].ParameterType, "GlobalDB");
+                    // DB 的语言尝试 "DB" 或第一个可用值
+                    var langVal = ResolveEnumByName(parms[2].ParameterType, "DB");
+                    if (langVal == null) langVal = ResolveEnumByName(parms[2].ParameterType, "SCL");
+
+                    if (blockTypeVal != null && langVal != null)
+                    {
+                        db = (PlcBlock)create3.Invoke(blocks, new object[] { input.DbName, blockTypeVal, langVal });
+                    }
+                }
+
+                // 回退：2 参数
+                if (db == null)
+                {
+                    var create2 = methods.FirstOrDefault(m => m.GetParameters().Length == 2);
+                    if (create2 != null)
+                    {
+                        var parms = create2.GetParameters();
+                        var blockTypeVal = ResolveEnumByName(parms[1].ParameterType, "GlobalDB");
+                        if (blockTypeVal != null)
+                        {
+                            db = (PlcBlock)create2.Invoke(blocks, new object[] { input.DbName, blockTypeVal });
+                        }
+                    }
+                }
+
+                if (db == null)
+                {
+                    Console.WriteLine(JsonError("Failed to create DB — no compatible Create method found"));
+                    return 1;
+                }
+
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { dbName = db.Name, number = db.Number }));
+                return 0;
+            }
+        }
+
         /// <summary>
         /// 反射调用 GetService&lt;T&gt;，避免编译时对特定 TIA API 版本的强依赖
         /// </summary>
@@ -965,5 +1907,48 @@ namespace TiaWorker
     {
         public string FilePath { get; set; }
         public bool Override { get; set; }
+    }
+
+    class TagTableInput : ProjectInput
+    {
+        public string TagTableName { get; set; }
+    }
+
+    class AddTagInput : TagTableInput
+    {
+        public string TagName { get; set; }
+        public string DataType { get; set; }
+        public string LogicalAddress { get; set; }
+    }
+
+    class DeleteTagInput : TagTableInput
+    {
+        public string TagName { get; set; }
+    }
+
+    class SearchTagInput : ProjectInput
+    {
+        public string Query { get; set; }
+    }
+
+    class BlockNameInput : ProjectInput
+    {
+        public string BlockName { get; set; }
+    }
+
+    class CreateDbInput : ProjectInput
+    {
+        public string DbName { get; set; }
+        public int DbNumber { get; set; }
+    }
+
+    class ExportAllInput : ProjectInput
+    {
+        public string OutputDir { get; set; }
+    }
+
+    class CloseProjectInput : ProjectInput
+    {
+        public bool Save { get; set; }
     }
 }

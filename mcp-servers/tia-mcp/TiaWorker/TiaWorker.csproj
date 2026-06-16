@@ -20,16 +20,8 @@
 
   <ItemGroup>
     <Reference Include="System.Web.Extensions" />
-    <Reference Include="Siemens.Engineering.Base">
-      <HintPath>D:\TIA BEN TI\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Base.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Siemens.Engineering.Step7">
-      <HintPath>D:\TIA BEN TI\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Step7.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Siemens.Engineering.Contract">
-      <HintPath>D:\TIA BEN TI\Portal V21\Bin\PublicAPI\Siemens.Engineering.Contract.dll</HintPath>
+    <Reference Include="Siemens.Engineering">
+      <HintPath>D:\TIA BEN TI\Portal V18\PublicAPI\V18\Siemens.Engineering.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>

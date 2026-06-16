@@ -314,6 +314,611 @@ async def list_devices() -> str:
 
 
 # ═══════════════════════════════════════
+#  项目管理工具（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_save_project",
+    annotations={"destructiveHint": False},
+)
+async def save_project() -> str:
+    """保存 TIA Portal 项目"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("save-project", {"ProjectPath": project})
+    if result.get("success"):
+        return f"✅ 项目已保存: {result.get('data', {}).get('saved', '')}"
+    return _format_result(False, error=result.get("error", "保存失败"))
+
+
+@mcp.tool(
+    name="plc_get_project_info",
+    annotations={"readOnlyHint": True},
+)
+async def get_project_info() -> str:
+    """获取当前 TIA 项目的名称、路径和设备数量"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("get-project-info", {"ProjectPath": project})
+    if result.get("success"):
+        d = result.get("data", {})
+        return f"项目: {d.get('name', '?')}\n路径: {d.get('path', '?')}\n设备数: {d.get('deviceCount', '?')}"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+# ═══════════════════════════════════════
+#  块管理工具（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_list_blocks",
+    annotations={"readOnlyHint": True},
+)
+async def list_blocks() -> str:
+    """列出 TIA 项目中所有 PLC 块（FB/FC/OB/DB）及其编号和语言"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("list-blocks", {"ProjectPath": project}, timeout=120)
+    if result.get("success"):
+        data = result.get("data", {})
+        blocks = data.get("blocks", [])
+        if blocks:
+            lines = [f"  {b['type']:10s} {b['number']:>5d}  {b['name']:<30s} {b['language']}" for b in blocks]
+            return f"PLC 块 ({data.get('count', len(blocks))}):\n" + "\n".join(lines)
+        return "项目中无 PLC 块"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+@mcp.tool(
+    name="plc_list_dbs",
+    annotations={"readOnlyHint": True},
+)
+async def list_dbs() -> str:
+    """列出 TIA 项目中所有数据块（GlobalDB/InstanceDB）"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("list-dbs", {"ProjectPath": project}, timeout=120)
+    if result.get("success"):
+        data = result.get("data", {})
+        dbs = data.get("dbs", [])
+        if dbs:
+            lines = [f"  DB{d['number']:<5d} {d['name']:<30s} ({d['type']})" for d in dbs]
+            return f"数据块 ({data.get('count', len(dbs))}):\n" + "\n".join(lines)
+        return "项目中无数据块"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+@mcp.tool(
+    name="plc_create_block",
+    annotations={"destructiveHint": False},
+)
+async def create_block(
+    block_name: str,
+    block_type: str = "FB",
+    language: str = "SCL",
+    block_number: int = 0,
+) -> str:
+    """在 TIA 项目中创建 PLC 块
+
+    Args:
+        block_name: 块名称
+        block_type: 块类型 (FB/FC/OB/DB)
+        language: 编程语言 (SCL/LAD/FBD/STL)
+        block_number: 块编号（0=自动分配）
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("create-block", {
+        "ProjectPath": project,
+        "BlockName": block_name,
+        "BlockType": block_type,
+        "Language": language,
+        "BlockNumber": block_number,
+    })
+    if result.get("success"):
+        data = result.get("data", {})
+        return f"✅ 已创建 {block_type} `{data.get('blockName', block_name)}` (编号: {data.get('number', '?')})"
+    return _format_result(False, error=result.get("error", "创建失败"))
+
+
+@mcp.tool(
+    name="plc_export_block",
+    annotations={"readOnlyHint": True},
+)
+async def export_block(
+    block_name: str,
+    output_path: str,
+) -> str:
+    """从 TIA 项目导出块为 XML 文件
+
+    Args:
+        block_name: 要导出的块名称
+        output_path: 输出 XML 文件路径
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("export-block", {
+        "ProjectPath": project,
+        "BlockName": block_name,
+        "OutputPath": output_path,
+    })
+    if result.get("success"):
+        return f"✅ 已导出 `{block_name}` → {output_path}"
+    return _format_result(False, error=result.get("error", "导出失败"))
+
+
+@mcp.tool(
+    name="plc_import_block",
+    annotations={"destructiveHint": True},
+)
+async def import_block(
+    file_path: str,
+    override: bool = False,
+) -> str:
+    """从 XML 文件导入块到 TIA 项目
+
+    Args:
+        file_path: XML 块文件路径
+        override: 是否覆盖已存在的同名块
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    if not os.path.exists(file_path):
+        return f"❌ XML 文件不存在: {file_path}"
+
+    result = _run_tiaworker("import-block", {
+        "ProjectPath": project,
+        "FilePath": file_path,
+        "Override": override,
+    })
+    if result.get("success"):
+        data = result.get("data", {})
+        blocks = data.get("blocks", [])
+        return f"✅ 已导入: {', '.join(blocks)}"
+    return _format_result(False, error=result.get("error", "导入失败"))
+
+
+# ═══════════════════════════════════════
+#  标签表管理工具（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_get_block_details",
+    annotations={"readOnlyHint": True},
+)
+async def get_block_details(block_name: str) -> str:
+    """获取指定块的详细信息（类型、编号、语言、一致性状态）
+
+    Args:
+        block_name: 块名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("get-block-details", {"ProjectPath": project, "BlockName": block_name}, timeout=120)
+    if result.get("success"):
+        d = result.get("data", {})
+        consistent = "✅" if d.get("isConsistent") else "⚠"
+        return f"块 `{d.get('name')}` (#{d.get('number')})\n  类型: {d.get('type')}\n  语言: {d.get('language')}\n  一致性: {consistent}"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+@mcp.tool(
+    name="plc_delete_block",
+    annotations={"destructiveHint": True},
+)
+async def delete_block(block_name: str) -> str:
+    """删除 PLC 块（FB/FC/OB/DB）
+
+    Args:
+        block_name: 要删除的块名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("delete-block", {"ProjectPath": project, "BlockName": block_name})
+    if result.get("success"):
+        d = result.get("data", {})
+        return f"✅ 已删除 `{d.get('deleted')}` (#{d.get('number')})"
+    return _format_result(False, error=result.get("error", "删除失败"))
+
+
+@mcp.tool(
+    name="plc_compile_block",
+    annotations={"destructiveHint": False},
+)
+async def compile_block(block_name: str) -> str:
+    """编译单个 PLC 块
+
+    Args:
+        block_name: 要编译的块名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("compile-block", {"ProjectPath": project, "BlockName": block_name}, timeout=120)
+    if result.get("success"):
+        d = result.get("data", {})
+        status = "✅ 通过" if d.get("success") else "❌ 失败"
+        return f"{status} | 错误: {d.get('errors', 0)} | 警告: {d.get('warnings', 0)}"
+    return _format_result(False, error=result.get("error", "编译失败"))
+
+
+@mcp.tool(
+    name="plc_delete_db",
+    annotations={"destructiveHint": True},
+)
+async def delete_db(db_name: str) -> str:
+    """删除数据块（仅限 GlobalDB/InstanceDB）
+
+    Args:
+        db_name: 要删除的数据块名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("delete-db", {"ProjectPath": project, "BlockName": db_name})
+    if result.get("success"):
+        d = result.get("data", {})
+        return f"✅ 已删除 DB `{d.get('deleted')}` (#{d.get('number')})"
+    return _format_result(False, error=result.get("error", "删除失败"))
+
+
+@mcp.tool(
+    name="plc_list_tag_tables",
+    annotations={"readOnlyHint": True},
+)
+async def list_tag_tables() -> str:
+    """列出 TIA 项目中所有标签表及标签数量"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("list-tags", {"ProjectPath": project})
+    if result.get("success"):
+        data = result.get("data", {})
+        tables = data.get("tables", [])
+        if tables:
+            lines = [f"- {t['name']} ({t['tagCount']} 个标签)" for t in tables]
+            return "标签表:\n" + "\n".join(lines)
+        return "项目中无标签表"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+@mcp.tool(
+    name="plc_get_tags",
+    annotations={"readOnlyHint": True},
+)
+async def get_tags(tag_table_name: str) -> str:
+    """获取指定标签表中的所有标签
+
+    Args:
+        tag_table_name: 标签表名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("get-tags", {
+        "ProjectPath": project,
+        "TagTableName": tag_table_name,
+    })
+    if result.get("success"):
+        data = result.get("data", {})
+        tags = data.get("tags", [])
+        if tags:
+            lines = [f"- {t['name']} : {t['dataType']} @ {t['address']}" for t in tags]
+            return f"标签表 `{tag_table_name}` ({len(tags)} 个标签):\n" + "\n".join(lines)
+        return f"标签表 `{tag_table_name}` 为空"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+@mcp.tool(
+    name="plc_add_tag",
+    annotations={"destructiveHint": False},
+)
+async def add_tag(
+    tag_table_name: str,
+    tag_name: str,
+    data_type: str,
+    logical_address: str = "",
+) -> str:
+    """向标签表添加标签
+
+    Args:
+        tag_table_name: 标签表名称
+        tag_name: 标签名称
+        data_type: 数据类型 (Bool/Int/Real/Word 等)
+        logical_address: 逻辑地址 (如 %M0.0, %MW100)
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("add-tag", {
+        "ProjectPath": project,
+        "TagTableName": tag_table_name,
+        "TagName": tag_name,
+        "DataType": data_type,
+        "LogicalAddress": logical_address,
+    })
+    if result.get("success"):
+        data = result.get("data", {})
+        return f"✅ 已添加标签 `{data.get('tagName', tag_name)}` : {data.get('dataType', data_type)} @ {data.get('address', logical_address)}"
+    return _format_result(False, error=result.get("error", "添加失败"))
+
+
+@mcp.tool(
+    name="plc_delete_tag_table",
+    annotations={"destructiveHint": True},
+)
+async def delete_tag_table(tag_table_name: str) -> str:
+    """删除标签表
+
+    Args:
+        tag_table_name: 要删除的标签表名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("delete-tag-table", {
+        "ProjectPath": project,
+        "TagTableName": tag_table_name,
+    })
+    if result.get("success"):
+        return f"✅ 已删除标签表 `{tag_table_name}`"
+    return _format_result(False, error=result.get("error", "删除失败"))
+
+
+@mcp.tool(
+    name="plc_get_block_interface",
+    annotations={"readOnlyHint": True},
+)
+async def get_block_interface(block_name: str) -> str:
+    """读取 PLC 块的接口定义（Input/Output/Static/Temp 各部分的变量）
+
+    Args:
+        block_name: 块名称（如 Main, MotorControl 等）
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("get-block-interface", {
+        "ProjectPath": project,
+        "BlockName": block_name,
+    }, timeout=120)
+    if result.get("success"):
+        data = result.get("data", {})
+        sections = data.get("sections", [])
+        if sections:
+            lines = [f"块 `{data.get('blockName', block_name)}` 接口:"]
+            for s in sections:
+                lines.append(f"\n  [{s['section']}]")
+                for m in s.get("members", []):
+                    lines.append(f"    {m['name']} : {m['dataType']}")
+            return "\n".join(lines)
+        return f"块 `{block_name}` 无接口定义"
+    return _format_result(False, error=result.get("error", "读取失败"))
+
+
+@mcp.tool(
+    name="plc_create_db",
+    annotations={"destructiveHint": False},
+)
+async def create_db(db_name: str, db_number: int = 0) -> str:
+    """创建全局数据块 (GlobalDB)
+
+    Args:
+        db_name: 数据块名称
+        db_number: 数据块编号（0=自动分配）
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("create-db", {
+        "ProjectPath": project,
+        "DbName": db_name,
+        "DbNumber": db_number,
+    })
+    if result.get("success"):
+        data = result.get("data", {})
+        return f"✅ 已创建 DB `{data.get('dbName', db_name)}` (编号: {data.get('number', '?')})"
+    return _format_result(False, error=result.get("error", "创建失败"))
+
+
+@mcp.tool(
+    name="plc_create_tag_table",
+    annotations={"destructiveHint": False},
+)
+async def create_tag_table(tag_table_name: str) -> str:
+    """创建新的标签表
+
+    Args:
+        tag_table_name: 标签表名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("create-tag-table", {
+        "ProjectPath": project,
+        "TagTableName": tag_table_name,
+    })
+    if result.get("success"):
+        return f"✅ 已创建标签表 `{result.get('data', {}).get('tableName', tag_table_name)}`"
+    return _format_result(False, error=result.get("error", "创建失败"))
+
+
+@mcp.tool(
+    name="plc_search_tags",
+    annotations={"readOnlyHint": True},
+)
+async def search_tags(query: str) -> str:
+    """跨所有标签表搜索标签（按名称模糊匹配）
+
+    Args:
+        query: 搜索关键词
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("search-tag", {
+        "ProjectPath": project,
+        "Query": query,
+    })
+    if result.get("success"):
+        data = result.get("data", {})
+        results = data.get("results", [])
+        if results:
+            lines = [f"  [{r['table']}] {r['name']} : {r['dataType']} @ {r['address']}" for r in results]
+            return f"搜索 '{data.get('query', query)}' ({len(results)} 个结果):\n" + "\n".join(lines)
+        return f"未找到匹配 '{query}' 的标签"
+    return _format_result(False, error=result.get("error", "搜索失败"))
+
+
+@mcp.tool(
+    name="plc_delete_tag",
+    annotations={"destructiveHint": True},
+)
+async def delete_tag(
+    tag_table_name: str,
+    tag_name: str,
+) -> str:
+    """从标签表中删除标签
+
+    Args:
+        tag_table_name: 标签表名称
+        tag_name: 要删除的标签名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("delete-tag", {
+        "ProjectPath": project,
+        "TagTableName": tag_table_name,
+        "TagName": tag_name,
+    })
+    if result.get("success"):
+        return f"✅ 已删除标签 `{tag_name}`"
+    return _format_result(False, error=result.get("error", "删除失败"))
+
+
+# ═══════════════════════════════════════
+#  编译诊断 & 项目管理（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_get_compiler_errors",
+    annotations={"readOnlyHint": True},
+)
+async def get_compiler_errors() -> str:
+    """编译项目并返回详细的错误/警告信息"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("get-compiler-errors", {"ProjectPath": project}, timeout=180)
+    if result.get("success"):
+        d = result.get("data", {})
+        status = "✅ 通过" if d.get("success") else "❌ 有错误"
+        lines = [f"{status} | 错误: {d.get('errors', 0)} | 警告: {d.get('warnings', 0)}"]
+        for msg in d.get("messages", []):
+            icon = "❌" if msg.get("state") == "Error" else "⚠"
+            lines.append(f"  {icon} [{msg.get('path', '')}] {msg.get('description', '')}")
+        return "\n".join(lines)
+    return _format_result(False, error=result.get("error", "编译失败"))
+
+
+@mcp.tool(
+    name="plc_check_consistency",
+    annotations={"readOnlyHint": True},
+)
+async def check_consistency() -> str:
+    """检查所有块的一致性状态"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("check-consistency", {"ProjectPath": project}, timeout=120)
+    if result.get("success"):
+        d = result.get("data", {})
+        lines = [f"一致性检查: {d.get('consistent', 0)}/{d.get('total', 0)} 通过"]
+        inconsistent = [b for b in d.get("blocks", []) if not b.get("isConsistent")]
+        if inconsistent:
+            lines.append("不一致的块:")
+            for b in inconsistent:
+                lines.append(f"  ⚠ {b['name']} (#{b['number']})")
+        return "\n".join(lines)
+    return _format_result(False, error=result.get("error", "检查失败"))
+
+
+@mcp.tool(
+    name="plc_export_all_xml",
+    annotations={"readOnlyHint": True},
+)
+async def export_all_xml(output_dir: str = "") -> str:
+    """将所有 PLC 块导出为 XML 文件到指定目录
+
+    Args:
+        output_dir: 输出目录（默认使用配置的 output_dir）
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    out = output_dir
+    if not out:
+        out = os.path.join(os.path.dirname(project), "xml_export")
+
+    result = _run_tiaworker("export-all-xml", {
+        "ProjectPath": project,
+        "OutputDir": out,
+    }, timeout=300)
+    if result.get("success"):
+        d = result.get("data", {})
+        msg = f"✅ 已导出 {d.get('exported', 0)} 个块 → {d.get('outputDir', out)}"
+        if d.get("failed", 0) > 0:
+            msg += f"\n⚠ {d['failed']} 个块导出失败: {', '.join(d.get('failedBlocks', []))}"
+        return msg
+    return _format_result(False, error=result.get("error", "导出失败"))
+
+
+@mcp.tool(
+    name="plc_close_project",
+    annotations={"destructiveHint": True},
+)
+async def close_project(save: bool = True) -> str:
+    """关闭当前 TIA Portal 项目
+
+    Args:
+        save: 关闭前是否保存（默认 True）
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+    result = _run_tiaworker("close-project", {"ProjectPath": project, "Save": save})
+    if result.get("success"):
+        d = result.get("data", {})
+        return f"✅ 项目已关闭" + (" (已保存)" if d.get("saved") else "")
+    return _format_result(False, error=result.get("error", "关闭失败"))
+
+
+# ═══════════════════════════════════════
 #  下载工具
 # ═══════════════════════════════════════
 

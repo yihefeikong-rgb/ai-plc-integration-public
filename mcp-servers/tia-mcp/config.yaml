@@ -6,11 +6,11 @@
 
 # ── TIA Portal ──
 tia:
-  version: "V21"  # TIA Portal V21
-  # TIA 项目文件 (.ap21)
-  project_path: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21\\demo_V21.ap21}"
+  version: "V18"  # TIA Portal V18（V21 适配暂缓）
+  # TIA 项目文件 (.ap18) — 硬编码避免环境变量覆盖
+  project_path: "D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\demo.ap18"
   # TIA Portal 安装目录（Openness API DLL 所在）
-  install_dir: "${TIA_INSTALL_DIR:D:\\TIA BEN TI\\Portal V21}"
+  install_dir: "D:\\TIA BEN TI\\Portal V18"
   # 仿真/输出文件目录（XML、SVG、SCL 均输出到此）
   output_dir: "${TIA_OUTPUT_DIR:D:\\TIA FANG ZHEN}"
 
@@ -58,14 +58,14 @@ simulation:
 
   # 黄金备份（PLCSIM 实例存档）
   golden_backup:
-    # V21（高版本优先）
-    v21_dir: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21}"
-    # V18（回退）
+    # V18（当前主用）
     v18_dir: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo}"
-    # golden zip 文件路径（使用 v21_dir 的父目录推导，走 env resolve）
-    zip_path: "${V21_DIR:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21}/factory_io1_golden.zip"
+    # V21（暂缓）
+    v21_dir: "D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21"
+    # golden zip 文件路径
+    zip_path: "D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo/factory_io1_golden.zip"
     # PLCSIM 实例存储目录
-    storage_path: "${V21_DIR:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21}/plcsim_storage"
+    storage_path: "D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo/plcsim_storage"
 
 # ── Factory I/O ──
 factory_io:
