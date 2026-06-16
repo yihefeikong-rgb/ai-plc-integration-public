@@ -1,0 +1,19 @@
+[
+  {"tag": "M0.0", "protocol": "s7", "name": "Start Button"},
+  {"tag": "M0.1", "protocol": "s7", "name": "Motor Run"},
+  {"tag": "M0.2", "protocol": "s7", "name": "Indicator Light"},
+  {"tag": "M0.3", "protocol": "s7", "name": "Alarm Buzzer"},
+  {"tag": "M0.4", "protocol": "s7", "name": "Pump Enable"},
+  {"tag": "MW10", "protocol": "s7", "name": "Temperature",
+   "threshold": {"min": 0, "max": 120, "delta": 5}},
+  {"tag": "MW12", "protocol": "s7", "name": "Pressure",
+   "threshold": {"min": 0, "max": 16, "delta": 1}},
+  {"tag": "MW14", "protocol": "s7", "name": "Speed Setpoint",
+   "threshold": {"min": 0, "max": 3000, "delta": 50}},
+  {"tag": "MW16", "protocol": "s7", "name": "Flow Rate",
+   "threshold": {"min": 0, "max": 500, "delta": 10}},
+  {"tag": "M1.0", "protocol": "s7", "name": "Limit Switch 1"},
+  {"tag": "M1.1", "protocol": "s7", "name": "Limit Switch 2"},
+  {"tag": "M1.2", "protocol": "s7", "name": "E-Stop Status"},
+  {"tag": "M1.3", "protocol": "s7", "name": "Door Sensor"}
+]

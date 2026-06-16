@@ -57,6 +57,29 @@ services:
 volumes:
   influxdb-data:
 
+  # Grafana 仪表盘
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai-plc-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${INFLUXDB_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - influxdb
+    networks:
+      - plc-network
+    profiles:
+      - monitoring
+
+volumes:
+  influxdb-data:
+  grafana-data:
+
 networks:
   plc-network:
     driver: bridge

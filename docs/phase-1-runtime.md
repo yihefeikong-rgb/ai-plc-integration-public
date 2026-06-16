@@ -1,6 +1,6 @@
 # 阶段 1：运行态基础
 
-> 目标：搭建边缘网关，让 AI 能通过自然语言实时读/写 PLC 数据（OPC UA / Modbus / MC 协议）。
+> 目标：搭建边缘网关，让 AI 能通过自然语言实时读/写 PLC 数据（S7 协议 / OPC UA）。
 > 这是整个系统的基础——先让 AI 能"看见"设备，才能谈后续的控制和工程态。
 
 ---
@@ -8,41 +8,65 @@
 ## 📦 架构概览
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        AI 层 (Claude/Cursor)                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-│  │ OPC UA MCP   │  │ Modbus MCP   │  │ TIA MCP (Phase 3)   │  │
-│  │ 读写西门子   │  │ 通用读写     │  │ 工程态              │  │
-│  └──────┬───────┘  └──────┬───────┘  └──────────────────────┘  │
-└─────────┼──────────────────┼─────────────────────────────────────┘
-          │                  │
-┌─────────┴──────────────────┴─────────────────────────────────────┐
-│                    边缘网关 (edge-gateway/)                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-│  │ 数据采集     │  │ AI 分析决策  │  │ 安全审计             │  │
-│  │ Modbus/OPCUA │  │ DeepSeek API │  │ 链式哈希 + 写入校验  │  │
-│  └──────┬───────┘  └──────┬───────┘  └──────────────────────┘  │
-│         │                 │                                      │
-│  ┌──────┴─────────────────┴──────────────────────────────────┐  │
-│  │ InfluxDB 时序数据库                                       │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-          │
-┌─────────┴──────────────────────────────────────────────────────┐
-│                     PLC 层                                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-│  │ 西门子 S7-   │  │ 三菱 FX5U   │  │ OpenPLC (仿真)      │  │
-│  │ 1200/1500    │  │ (待接入)     │  │ Modbus TCP          │  │
-│  │ OPC UA       │  │ MC 协议      │  │ port 502            │  │
-│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+PLC 数据 (S7 协议 / OPC UA)
+  ↓ S7Adapter (python-snap7)
+┌─────────────────────────────────────────────────────┐
+│  PLC MCP Bridge (mcp-servers/plc-mcp-bridge/)       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐│
+│  │ tools_s7 │ │ blocks   │ │ tags     │ │ project││
+│  │ 4工具    │ │ 11工具   │ │ 7工具    │ │ 13工具 ││
+│  └────┬─────┘ └──────────┘ └──────────┘ └────────┘│
+└───────┼──────────────────────────────────────────────┘
+        │ MCP stdio
+┌───────┴────────────────────────────────────────────┐
+│  AI 层 (Claude Code / Cursor)                       │
+│  通过 MCP 工具直接读写 PLC 变量                      │
+└────────────────────────────────────────────────────┘
+        │
+┌───────┴────────────────────────────────────────────┐
+│  EdgeGateway (edge-gateway/) — Phase 2             │
+│  控制循环: 采集→分析→决策→写入→审计                │
+└────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## ✅ 已完成组件
 
-### 1. OPC UA MCP Server
+### 1. S7 协议运行时通信（主方案）
+
+**位置:** `mcp-servers/plc-mcp-bridge/s7_adapter.py` + `tools_s7.py`
+
+通过 python-snap7 直接读写西门子 PLC（PLCSIM / 真机），是 Phase 1 运行态通信的主方案。
+
+**特点:**
+- 不需要 OPC UA Server 启用
+- 兼容 PLCSIM 仿真和 S7-1200/1500 真机
+- 支持 M（Merker）/ MB / MW / MD / DB 地址
+
+**MCP 工具（4个）：**
+
+| 工具 | 功能 | 安全 |
+|:----|:-----|:----:|
+| `s7_connect(ip, rack, slot)` | 连接 PLC | — |
+| `s7_read(address)` | 读变量 | 只读 |
+| `s7_write(address, value)` | 写变量 | ✅ Safety 校验 + 审计 |
+| `s7_status()` | 连接/CPU 状态 | — |
+
+**验证结果（2026-06-16，PLCSIM TCP/IP 模式）：**
+```
+Connect:           ✅ 192.168.0.110 (Rack=0, Slot=1)
+Read M0.0:         ✅ False
+Read MW10:         ✅ 1234
+Write MW10=1234:   ✅ 读回验证 = 1234
+Write MD20=3.14:   ✅ 读回验证 = 3.14
+Write M0.0=True:   ✅ 读回验证 = True
+EdgeGateway 采集:  ✅ 13/13 标签连续 3 轮通过
+```
+
+---
+
+### 2. OPC UA MCP Server（备选方案）
 
 **位置:** `mcp-servers/opcua-mcp/server.py`
 
@@ -52,164 +76,55 @@
 
 | 工具 | 功能 | 安全校验 |
 |------|------|:--------:|
-| `read_tag(tag_name)` | 读取单个标签 | ✅ 审计日志 |
-| `read_tags(tag_names)` | 批量读取 | ✅ 审计日志 |
-| `list_tags(root)` | 浏览 OPC UA 地址空间 | — |
-| `write_tag(tag_name, value, operator)` | 写入标签 | ✅ 互锁+熔断+审计 |
+| `opcua_connect(endpoint)` | 连接 OPC UA 服务器 | — |
+| `opcua_read(node_id)` | 读取节点值 | ✅ 审计日志 |
+| `opcua_browse(node_id)` | 浏览地址空间 | ✅ 只读 |
+| `opcua_write(node_id, value)` | 写入节点 | ✅ 互锁+熔断+审计 |
+| `opcua_get_status()` | 连接与熔断器状态 | — |
+| `opcua_disconnect()` | 断开连接 | — |
+| `opcua_reset_fuse()` | 重置熔断器 | — |
 
-**写入安全流程：**
-```
-AI 请求: write_tag("DB1.MotorSpeed", 1500)
-  ↓ validator.validate() 检查：
-  │  ├─ 标签不是急停/安全回路 → 通过
-  │  ├─ 值不超限 (max=3000) → 通过
-  │  ├─ 不是异常跳变 → 通过
-  │  └─ 连续错误未超限 → 通过
-  ↓ audit.log() 记录操作
-  ↓ 写入 OPC UA 节点
-  ↓ 返回结果 + needs_confirmation 标志
-```
-
-**互锁规则配置:** `safety/interlock-rules.yml`
-```yaml
-write_rules:
-  - target: "DB1.MotorSpeed"
-    max_value: 3000
-    min_value: 0
-    require_bits: ["DB1.SafetyOK", "DB1.EmergencyStopOff"]
-```
+> **注意:** OPC UA 在 PLCSIM 上不可用，需真机 S7-1200/1500 测试。运行态通信以 S7 协议为主。
 
 ---
 
-### 2. 边缘网关
+### 3. S7 适配器（供 EdgeGateway 共享使用）
 
-**位置:** `edge-gateway/`
+**位置:** `mcp-servers/plc-mcp-bridge/s7_adapter.py`
 
-核心模块，负责数据采集、AI 分析决策、InfluxDB 写入。
+封装 python-snap7，提供统一的 S7 读写接口：
 
-| 文件 | 说明 |
-|------|------|
-| `src/app.py` | 主循环：采集 → 变化检测 → 本地阈值 → AI 分析 → 决策 → 审计 |
-| `src/ai_client.py` | DeepSeek API 封装（简单/复杂任务分流） |
-| `config/tags.json` | 采集标签配置（含阈值） |
-| `Dockerfile` | 容器化构建 |
-| `requirements.txt` | Python 依赖 |
+```python
+from s7_adapter import S7Adapter
 
-**控制循环（30 秒间隔）：**
-```
-采集所有标签数据
-  ↓ 写入 InfluxDB
-  ↓ 变化检测（值变化 > delta 才算变化）
-  ↓ 本地阈值检查（超限才调 AI）
-  ↓ AI 分析 + 决策 (DeepSeek)
-  ↓ 写入决策 → 审计日志
+adapter = S7Adapter()
+adapter.connect("192.168.0.110", 0, 1)
+
+val = adapter.read_address("MW10")     # 读 Merker 字
+val = adapter.read_address("M0.0")     # 读 Merker 位
+val = adapter.read_address("MD20")     # 读 Merker 双字
+adapter.write_address("MW10", 1500)    # 写入
+adapter.disconnect()
 ```
 
-**Token 优化三层：**
-1. **变化检测** — 值没变不调 AI（节省 ~70% 调用）
-2. **本地阈值** — 超限才走 LLM（进一步过滤噪声）
-3. **降频采集** — 30s 间隔（避免高频轮询）
+地址格式支持：
+- `M0.0` — 位（Merker）
+- `MB0` — 字节（Merker Byte）
+- `MW10` — 字（Merker Word, int16）
+- `MD20` — 双字（Merker Double, float32）
+- `DB1.MW10` — DB 块中的字
 
 ---
 
-### 3. PLCSIM Advanced 自动化
-
-**位置:** `mcp-servers/tia-mcp/plcsim_api.py`（775 行）
-
-PLCSIM Advanced V5.0 .NET API 的 Python 封装，支持完整的实例生命周期管理。
-
-**功能矩阵：**
-
-| 功能 | 方法 | 依赖 |
-|------|------|------|
-| 创建空壳实例 | `create_instance()` | PLCSIM GUI |
-| 黄金备份 | `archive_instance()` | 实例必须在 STOP |
-| 从备份恢复 | `restore_instance()` | 已验证通过 |
-| 切换 TCP/IP | `switch_to_tcpip()` | 需虚拟网卡 |
-| 实例管理 CLI | `python plcsim_api.py <cmd>` | — |
-| 后台保活 | `plcsim_keeper.py` | Softbus 模式 |
-
-**CLI 用法：**
-```bash
-# 创建实例
-python plcsim_api.py create factoryio
-
-# 查看实例列表
-python plcsim_api.py list
-
-# 黄金备份
-python plcsim_api.py archive factoryio ./backups/golden.zip ./persist
-
-# 从备份恢复
-python plcsim_api.py restore factoryio ./backups/golden.zip ./persist
-
-# 后台保活（保持实例运行）
-python plcsim_keeper.py
-```
-
----
-
-### 4. Factory IO 连接
-
-**状态：已连接（Softbus 模式）**
-
-| 配置项 | 值 |
-|--------|-----|
-| 驱动 | Siemens S7-PLCSIM → S7-1500 |
-| 实例名 | `factoryio` |
-| 连接方式 | Softbus（本地进程通信） |
-| 测试场景 | From A to B |
-
-**auto.cfg（`C:\ProgramData\Real Games\Factory IO\auto.cfg`）：**
-```
-drivers.siemens_s7plcsim.instance_name = 'factoryio'
-drivers.siemens_s7plcsim.auto_connect = True
-drivers.siemens_s7plcsim.connection_timeout = 60
-```
-
-**场景文件 XML 结构（.factoryio）：**
-```xml
-<Drivers CurrentDriver="6144">
-  <SiemensS7PLCSIM>
-    <Properties UseWords="False" InstanceName="factoryio" />
-  </SiemensS7PLCSIM>
-</Drivers>
-```
-
-| 驱动 | XML 标签 | `CurrentDriver` |
-|:----|:---------|:---------------:|
-| S7-PLCSIM (Softbus) | `SiemensS7PLCSIM` | 6144 |
-| S7-1200/1500 TCP | `SiemensS71200S71500TCP` | 6144 |
-| Modbus TCP Client | `ModbusTCPClient` | 6176 |
-
-- **注意:** 切换场景驱动必须在 GUI 中操作（F4），auto.cfg 不能切换当前驱动
-
----
-
-### 5. 安全模块
+### 4. Safety 安全模块
 
 **位置:** `safety/`
 
-| 文件 | 功能 |
-|------|------|
-| `audit.py` | 链式哈希审计日志（不可篡改） |
-| `validator.py` | 写入校验：急停禁用、熔断、值跳变检测 |
-| `interlock-rules.yml` | 可配置的安全规则 |
-
-**审计日志结构（每行一个 JSON）：**
-```json
-{
-  "timestamp": "2026-06-04T12:00:00+00:00",
-  "action": "write",
-  "target": "DB1.MotorSpeed",
-  "value": "1500",
-  "operator": "ai-agent",
-  "success": true,
-  "detail": "",
-  "prev_hash": "0000...",
-  "hash": "a1b2..."
-}
-```
+| 文件 | 功能 | 测试 |
+|------|------|:----:|
+| `validator.py` | 写入校验：急停禁用、熔断、值跳变检测 | ✅ 14 测试 |
+| `interlock-rules.yml` | 可配置的互锁规则 | ✅ 3 条规则 |
+| `audit.py`（重导出 `mcp_common/audit.py`） | 链式哈希审计日志 | ✅ 7 测试 |
 
 **安全红线（绝对遵守）：**
 1. ❌ 禁止 AI 直接操作急停回路（只能读状态）
@@ -219,69 +134,70 @@ drivers.siemens_s7plcsim.connection_timeout = 60
 
 ---
 
+### 5. 审计日志
+
+**位置:** `mcp_common/audit.py`
+
+链式哈希审计日志，不可篡改，支持验证完整性。
+
+```python
+from mcp_common.audit import get_audit_logger
+logger = get_audit_logger()
+logger.log("write", "MW10", "1500", operator="ai")
+assert logger.verify()  # True: 未被篡改
+```
+
+---
+
 ## 🚀 快速启动
 
 ### 前置条件
 
 | 需求 | 版本 | 用途 |
 |------|------|------|
-| Python 3.10+ | — | MCP Server + 工具链 |
-| Docker | latest | 边缘网关 + InfluxDB |
-| .NET SDK | 8.0 | CartGen（Phase 3） |
-| PLCSIM Advanced | V5.0 | 西门子 S7-1500 仿真 |
-| Factory I/O | latest | 3D 可视化 |
+| Python 3.13+ | — | MCP Server + 工具链 |
+| python-snap7 | — | S7 协议通信 |
+| PLCSIM V18 | V18 | 西门子 S7-1500 仿真 |
+| TIA Portal | V18 | 项目管理与下载 |
 
 ### 环境变量
 
-```bash
-# 复制模板
-cp .env.example .env
+复制 `.env.example` 到 `.env`，至少配置：
 
-# 必需配置
+```bash
+# DeepSeek API（AI 决策用）
 DEEPSEEK_API_KEY=sk-your-key-here
 
-# 可选配置
-OPCUA_ENDPOINT=opc.tcp://192.168.1.10:4840
-MODBUS_HOST=localhost
-INFLUXDB_PASSWORD=your-password
-INFLUXDB_TOKEN=your-token
+# S7 协议 PLC 连接
+S7_PLC_IP=192.168.0.110
+S7_RACK=0
+S7_SLOT=1
 ```
 
-### 启动边缘网关
+### 启动 S7 读写服务
 
 ```bash
-# 方式 1：直接运行（开发）
-python run_gateway.py
+# stdio 模式（给 Claude Code 用）
+cd mcp-servers/plc-mcp-bridge && python server.py
 
-# 方式 2：Docker 部署
-make phase1
-# 或
-docker compose up -d influxdb
-python run_gateway.py
+# 测试连接
+python -c "
+from s7_adapter import S7Adapter
+a = S7Adapter()
+print(a.connect('192.168.0.110', 0, 1))
+print(a.read_address('M0.0'))
+a.disconnect()
+"
 ```
 
-### 启动 OPC UA MCP Server
+### 完整验证
 
 ```bash
-# OPC UA 读写服务
-cd mcp-servers/opcua-mcp
-python server.py
-# 暴露 4 个 MCP 工具：
-#   read_tag / read_tags / list_tags / write_tag
-```
+# Phase 2 验证脚本（涵盖所有 Phase 1 能力）
+python verify_phase2.py
 
-### 启动 PLCSIM + Factory IO
-
-见 `docs/factory-io-setup-guide.md` 详细步骤。快速指引：
-
-```bash
-# 1. 启动 PLCSIM Advanced GUI
-# 2. 创建或恢复实例
-python mcp-servers/tia-mcp/plcsim_api.py restore factoryio \
-  ./backups/golden.zip ./persist
-# 3. 打开 Factory IO，连接
-# 4. 一键启动（推荐）
-python start_all.py
+# 真实 PLC 连接测试
+python verify_phase2.py --all
 ```
 
 ---
@@ -289,31 +205,41 @@ python start_all.py
 ## 🧪 测试
 
 ```bash
-make test
-# 或
-python -m pytest tests/ -v
-```
+# PLC MCP Bridge 测试（35 项）
+python -m pytest mcp-servers/plc-mcp-bridge/tests/ -v
 
-当前测试覆盖：
-- `tests/test_config_loader.py` — 22 测试（配置解析、环境变量、Schema 校验）
-- `tests/test_safety_audit.py` — 7 测试（链式哈希、防篡改检测）
-- `tests/test_safety_validator.py` — 14 测试（急停禁用、熔断、值跳变）
+# Safety 测试（21 项）
+python -m pytest tests/test_safety_validator.py tests/test_safety_audit.py -v
+
+# Phase 2 验证（20 项，含真实 S7 连接）
+python verify_phase2.py --all
+```
 
 ---
 
-## ⚠️ 重要约束
+## ⚠️ PLCSIM TCP/IP 模式工作流
 
-### PLCSIM PowerOff 铁律
-**任何方式的 PowerOff 后实例无法再次启动**，必须重启电脑。
-更新程序时：TIA Portal 切 STOP → 下载 → 切回 RUN，不要关实例。
+PLCSIM 切换到 TCP/IP 模式后才能被 Python/snap7 连接：
 
-### 首次下载限制
-首次将硬件配置下载到 PLCSIM 必须通过 **TIA Portal GUI 手动完成**。
-Openness API 不支持首次下载（Siemens 官方限制）。首次完成后可用 API 自动化。
+```
+1. PLCSIM 设为内部模式（Softbus）
+2. TIA Portal 下载项目到仿真器（内部模式下载稳定）
+3. 停止 PLCSIM 实例
+4. 切换到 TCP/IP Single Adapter 模式
+5. 重新启动实例
+6. Python/snap7 通过 192.168.0.110 连接读写
+```
 
-### 虚拟网卡
-TCP/IP 模式需要 PLCSIM 虚拟网卡。已安装（接口 ID=13），切换前需调用
-`SimulationRuntimeManager.ResetNetInterfaceBindings()`。
+注意：TCP/IP 模式下 TIA Portal 无法在线连接是正常的，用 Python 读写即可。
+
+### 常见问题
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| ping 192.168.0.110 超时 | PLCSIM 未开 TCP/IP 模式 | 切到 TCP/IP |
+| `Object does not exist` | 地址在 PLC 程序中未定义 | 确认 TIA 项目中定义了该地址 |
+| `TCP connection failed` | PLCSIM 没启动或 IP 不对 | `tasklist \| grep PLCSIM` 检查进程 |
+| MW10 读不了 | S7-PLCSIM V18 不支持 MW | ✅ 已修复（s7_adapter 用 mb_read 替代 db_read） |
 
 ---
 
@@ -321,16 +247,16 @@ TCP/IP 模式需要 PLCSIM 虚拟网卡。已安装（接口 ID=13），切换�
 
 | 文件 | 说明 |
 |------|------|
-| `mcp-servers/opcua-mcp/server.py` | OPC UA MCP Server |
-| `mcp-servers/tia-mcp/plcsim_api.py` | PLCSIM .NET API 封装 |
-| `mcp-servers/tia-mcp/plcsim_keeper.py` | PLCSIM 后台保活 |
-| `edge-gateway/src/app.py` | 边缘网关主循环 |
-| `edge-gateway/src/ai_client.py` | DeepSeek API 封装 |
-| `safety/audit.py` | 链式哈希审计日志 |
+| `mcp-servers/plc-mcp-bridge/tools_s7.py` | S7 协议 MCP 工具（4 个） |
+| `mcp-servers/plc-mcp-bridge/s7_adapter.py` | S7 协议适配器（供 MCP + EdgeGateway 共享） |
+| `mcp-servers/opcua-mcp/server.py` | OPC UA MCP Server（备选） |
+| `edge-gateway/src/app.py` | 边缘网关控制循环（Phase 2） |
 | `safety/validator.py` | 写入安全校验器 |
 | `safety/interlock-rules.yml` | 互锁规则配置 |
-| `run_gateway.py` | 网关启动脚本 |
-| `start_all.py` | PLCSIM + Factory IO + TIA MCP 一键启动 |
+| `mcp_common/audit.py` | 链式哈希审计日志 |
+| `mcp_common/config.py` | 统一配置加载器 |
+| `verify_phase2.py` | Phase 2 验证脚本 |
+| `.env` | 环境变量配置 |
 
 ---
 
@@ -338,8 +264,8 @@ TCP/IP 模式需要 PLCSIM 虚拟网卡。已安装（接口 ID=13），切换�
 
 | 待办 | 所属阶段 |
 |------|:--------:|
-| 三菱 MC 协议 MCP Server | Phase 1 |
-| OPC UA 仿真环境搭建 | Phase 1 |
-| AI 控制闭环完整验证 | Phase 2 |
-| 图表可视化（Grafana） | Phase 2 |
+| OPC UA 真机验证 | Phase 1（备选方案） |
+| 三菱 MC 协议 MCP Server | Phase 1（缺硬件） |
+| AI 控制闭环完整验证 | ✅ Phase 2 已完成 |
+| InfluxDB + Grafana 部署 | Phase 2（需 Docker） |
 | 本地 LLM 部署（Ollama） | Phase 2 |

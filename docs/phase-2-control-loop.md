@@ -8,10 +8,10 @@
 ## 📦 架构概览
 
 ```
-PLC 数据 (OPC UA / Modbus)
-  ↓ 每 30 秒采集
+PLC 数据 (S7 协议 / Modbus / OPC UA)
+  ↓ 每 30 秒采集（通过 S7Adapter / Modbus Adapter）
 ┌──────────────────────────────────────────────────┐
-│            边缘网关控制循环 (run_gateway.py)       │
+│            边缘网关控制循环 (edge-gateway/src/)     │
 │                                                    │
 │  1. 采集所有标签数据                                │
 │  2. 写入 InfluxDB 时序库                            │
@@ -19,11 +19,11 @@ PLC 数据 (OPC UA / Modbus)
 │  4. 本地阈值 ← 不超限就跳过，省 Token                │
 │  5. AI 分析 (DeepSeek)                              │
 │  6. AI 决策 (写/等待/告警)                           │
-│  7. 安全校验 (validator)                             │
-│  8. 执行写入 → 审计日志 (audit)                     │
+│  7. 安全校验 (safety/validator.py)                   │
+│  8. 执行写入 → 审计日志 (mcp_common/audit.py)       │
 └──────────────────────────────────────────────────┘
   ↓
-TIA MCP / OPC UA MCP 写入 PLC
+plc-mcp-bridge S7Adapter / tools_s7.py 写入 PLC
 ```
 
 ---
@@ -219,25 +219,39 @@ assert audit.verify()  # 返回 False 则表示被篡改
 ```bash
 # 1. 环境变量
 cp .env.example .env
-# 编辑 .env，填入 DEEPSEEK_API_KEY 和 INFLUXDB_TOKEN
+# 编辑 .env, 填入 DEEPSEEK_API_KEY
+# 默认 INFLUXDB_PASSWORD=plc-admin-2024, INFLUXDB_TOKEN=plc-dev-token-2024
 
-# 2. 启动 InfluxDB
-docker compose up -d influxdb
+# 2. 启动 InfluxDB + Grafana
+docker compose --profile monitoring up -d
 
-# 3. 启动网关
-python run_gateway.py
+# 3. 启动网关（S7 模式，需要 PLCSIM 在线）
+python -m edge_gateway.src.app
+
+# 或 Modbus 模式
+python -m edge_gateway.src.app --modbus
 ```
 
 ### 验证运行
 
 ```
-[Gateway] 启动 | 间隔 30s | 标签 13 | InfluxDB: ON
+[Gateway] 启动 | 间隔 30s | 标签 4 | InfluxDB: ON | 写入: 有
 [Gateway] Token 优化: 变化检测+本地阈值+降频
-[15:00:00] 采集 13/13 OK | {'coil.0': 0, 'register.0': 25.5, ...}
+[15:00:00] 采集 4/4 OK | 标签: Motor=1, Speed=1500, Temp=25.5
 ---
-[15:00:30] 采集 13/13 OK | {'coil.0': 1, 'register.0': 26.0, ...}
-[AI] 分析 | 变化 2 异常 0 | 温度从 25.5 升至 26.0，在正常范围内...
----
+[AI] 分析 | 变化 1 异常 0 | 温度正常范围...
+```
+
+### 验证脚本（无需 PLCSIM）
+
+```bash
+# 运行全部检查（18 项）
+python verify_phase2.py
+
+# 单项检查
+python verify_phase2.py safety    # 安全模块
+python verify_phase2.py gateway   # EdgeGateway mock 模式
+python verify_phase2.py s7        # S7 适配器（需要 --all 进行真实连接）
 ```
 
 ---
@@ -245,14 +259,15 @@ python run_gateway.py
 ## 🧪 测试
 
 ```bash
-make test
-# 或
+# Safety 测试（21 项）
 python -m pytest tests/test_safety_audit.py tests/test_safety_validator.py -v
-```
 
-测试覆盖：
-- `test_safety_audit.py` — 链式哈希、防篡改检测（7 测试）
-- `test_safety_validator.py` — 急停禁用、熔断、值跳变检测（14 测试）
+# PLC MCP Bridge 测试（35 项）
+python -m pytest mcp-servers/plc-mcp-bridge/tests/ -v
+
+# Phase 2 验证（18 项，无外部依赖）
+python verify_phase2.py
+```
 
 ---
 
@@ -270,15 +285,17 @@ python -m pytest tests/test_safety_audit.py tests/test_safety_validator.py -v
 
 | 文件 | 说明 |
 |------|------|
-| `edge-gateway/src/app.py` | EdgeGateway 控制循环主类 |
+| `edge-gateway/src/app.py` | EdgeGateway 控制循环主类（S7/Modbus 双协议） |
 | `edge-gateway/src/ai_client.py` | DeepSeek API 封装 |
 | `edge-gateway/config/tags.json` | 标签配置（含阈值） |
-| `edge-gateway/Dockerfile` | Docker 构建 |
-| `run_gateway.py` | 启动入口脚本 |
+| `mcp-servers/plc-mcp-bridge/s7_adapter.py` | S7 协议适配器（snap7 封装） |
+| `mcp-servers/plc-mcp-bridge/tools_s7.py` | S7 工具 MCP 注册（4 工具） |
 | `safety/validator.py` | 写入安全校验器 |
-| `safety/audit.py` | 链式哈希审计日志 |
 | `safety/interlock-rules.yml` | 互锁规则配置 |
-| `config/settings.py` | 全局配置读取 |
+| `mcp_common/audit.py` | 链式哈希审计日志 |
+| `mcp_common/config.py` | 统一配置加载器（替代原 config/settings.py） |
+| `docker-compose.yml` | InfluxDB + Grafana + OpenPLC |
+| `verify_phase2.py` | Phase 2 端到端验证脚本（18 项检查） |
 
 ---
 

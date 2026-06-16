@@ -4,23 +4,27 @@ Edge Gateway AI 客户端 — DeepSeek API 封装
 """
 
 from openai import OpenAI
-from config.settings import settings
+from mcp_common.config import env_config
+
+_settings = env_config()
 
 
 class AIClient:
     def __init__(self):
         self.client = OpenAI(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
+            api_key=_settings.deepseek_api_key,
+            base_url=_settings.deepseek_base_url,
         )
 
-    def chat(self, messages: list[dict], complex_task: bool = False) -> str:
-        model = settings.deepseek_model_complex if complex_task else settings.deepseek_model_simple
+    def chat(self, messages: list[dict], complex_task: bool = False,
+             max_tokens: int = 0) -> str:
+        model = _settings.deepseek_model_complex if complex_task else _settings.deepseek_model_simple
+        limit = max_tokens or (3000 if complex_task else 2000)
         resp = self.client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.1 if complex_task else 0.3,
-            max_tokens=2000 if complex_task else 500,
+            max_tokens=limit,
         )
         return resp.choices[0].message.content or ""
 
@@ -37,7 +41,7 @@ class AIClient:
 1. 数据是否正常？
 2. 有无异常需关注？
 3. 如有异常，建议采取什么措施？"""
-        return self.chat([{"role": "user", "content": prompt}])
+        return self.chat([{"role": "user", "content": prompt}], max_tokens=2000)
 
     def decide_control(self, situation: str, available_tags: list[str]) -> str:
         """AI 决策：根据当前状态决定控制动作"""

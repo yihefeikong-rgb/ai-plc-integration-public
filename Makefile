@@ -29,16 +29,25 @@ setup:
 	@echo "目录结构创建完成"
 
 phase1:
-	@echo "启动阶段1：运行态基础"
-	cd mcp-servers/opcua-mcp && python server.py
+	@echo "启动阶段1：运行态基础（S7 协议）"
+	@echo ""
+	@echo "  MCP 服务（给 Claude Code 用）:"
+	@echo "    cd mcp-servers/plc-mcp-bridge && python server.py"
+	@echo ""
+	@echo "  测试连接:"
+	@echo "    python verify_phase2.py --all"
+	@echo ""
+	@echo "  OPC UA 备选方案:"
+	@echo "    cd mcp-servers/opcua-mcp && python server.py"
 
 phase2:
 	@echo "启动阶段2：控制闭环（边缘网关 + InfluxDB）"
-	docker-compose up -d influxdb
+	docker-compose --profile monitoring up -d influxdb grafana
 	@echo "InfluxDB: http://localhost:8086"
+	@echo "Grafana: http://localhost:3000 (admin/your-password)"
 	@echo ""
 	@echo "启动 AI 控制循环:"
-	@echo "  python run_gateway.py"
+	@echo "  python -m edge_gateway.src.app"
 
 phase3:
 	@echo "启动阶段3：西门子工程态"
@@ -58,10 +67,15 @@ llm:
 
 test:
 	@echo "运行测试..."
-	python -m pytest tests/ mcp-servers/mitsubishi-mcp/test_mc_protocol.py -v
 	@echo ""
-	@echo "CartGen 测试（需 .NET 8 SDK）:"
-	@echo "  python -m pytest mcp-servers/tia-mcp/test_cartgen.py -v"
+	@echo "  # PLC MCP Bridge 测试（35 项）"
+	@echo "  python -m pytest mcp-servers/plc-mcp-bridge/tests/ -v"
+	@echo ""
+	@echo "  # Safety 测试（21 项）"
+	@echo "  python -m pytest tests/test_safety_validator.py tests/test_safety_audit.py -v"
+	@echo ""
+	@echo "  # Phase 2 验证（20 项，含真实 S7 连接需 --all）"
+	@echo "  python verify_phase2.py"
 
 clean:
 	@echo "清理所有容器..."

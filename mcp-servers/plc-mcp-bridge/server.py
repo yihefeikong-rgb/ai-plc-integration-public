@@ -37,6 +37,7 @@ import tools_tags        # noqa: F401
 import tools_types       # noqa: F401
 import tools_project     # noqa: F401
 import tools_pipeline    # noqa: F401
+import tools_s7          # noqa: F401
 
 
 if __name__ == "__main__":

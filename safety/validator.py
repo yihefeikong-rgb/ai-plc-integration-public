@@ -2,7 +2,11 @@
 
 import re
 from dataclasses import dataclass
-from config.settings import settings
+from mcp_common.config import env_config
+
+_cfg = env_config()
+_MAX_ERRORS = int(_cfg.get("safety_max_consecutive_errors", "3"))
+_WRITE_CONFIRM = str(_cfg.get("safety_write_confirm", "true")).lower() in ("true", "1", "yes")
 
 FORBIDDEN_PATTERNS = [
     r".*ESTOP.*", r".*EMERGENCY.*", r".*E_STOP.*",
@@ -34,7 +38,7 @@ class WriteValidator:
                 self.consecutive_errors += 1
                 return ValidationResult(False, f"禁止写入安全标签: {tag_name}")
 
-        if self.consecutive_errors >= settings.safety_max_errors:
+        if self.consecutive_errors >= _MAX_ERRORS:
             return ValidationResult(False, f"熔断: 连续 {self.consecutive_errors} 次异常")
 
         if isinstance(value, (int, float)) and abs(value) > 1_000_000:
@@ -47,7 +51,7 @@ class WriteValidator:
             if abs(float(value) - float(current_value)) > abs(float(current_value)) * 10:
                 return ValidationResult(False, f"值跳变过大: {current_value} -> {value}")
 
-        needs = settings.safety_write_confirm and any(
+        needs = _WRITE_CONFIRM and any(
             re.match(p, tag_upper) for p in CONFIRM_PATTERNS
         )
         self.consecutive_errors = 0
