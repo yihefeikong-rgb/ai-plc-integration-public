@@ -821,6 +821,148 @@ async def delete_tag(
 
 
 # ═══════════════════════════════════════
+#  UDT 管理工具（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_list_udts",
+    annotations={"readOnlyHint": True},
+)
+async def list_udts() -> str:
+    """列出 TIA 项目中所有用户自定义类型（UDT）"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("list-udts", {"ProjectPath": project}, timeout=120)
+    if result.get("success"):
+        data = result.get("data", {})
+        udts = data.get("udts", [])
+        if udts:
+            lines = [f"- {u['name']}" for u in udts]
+            return f"UDT 列表 ({data.get('count', len(udts))}):\n" + "\n".join(lines)
+        return "项目中无 UDT"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+@mcp.tool(
+    name="plc_create_udt",
+    annotations={"destructiveHint": False},
+)
+async def create_udt(udt_name: str) -> str:
+    """创建空的用户自定义类型（UDT）
+
+    Args:
+        udt_name: UDT 名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("create-udt", {
+        "ProjectPath": project,
+        "UdtName": udt_name,
+    })
+    if result.get("success"):
+        return f"✅ 已创建 UDT `{udt_name}`"
+    return _format_result(False, error=result.get("error", "创建失败"))
+
+
+@mcp.tool(
+    name="plc_delete_udt",
+    annotations={"destructiveHint": True},
+)
+async def delete_udt(udt_name: str) -> str:
+    """删除用户自定义类型（UDT）
+
+    Args:
+        udt_name: 要删除的 UDT 名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("delete-udt", {
+        "ProjectPath": project,
+        "UdtName": udt_name,
+    })
+    if result.get("success"):
+        return f"✅ 已删除 UDT `{udt_name}`"
+    return _format_result(False, error=result.get("error", "删除失败"))
+
+
+# ═══════════════════════════════════════
+#  Watch 表管理工具（TiaWorker）
+# ═══════════════════════════════════════
+
+@mcp.tool(
+    name="plc_list_watch_tables",
+    annotations={"readOnlyHint": True},
+)
+async def list_watch_tables() -> str:
+    """列出 TIA 项目中所有监控表（Watch Table）"""
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("list-watch-tables", {"ProjectPath": project}, timeout=120)
+    if result.get("success"):
+        data = result.get("data", {})
+        tables = data.get("watchTables", [])
+        if tables:
+            lines = [f"- {t['name']}" for t in tables]
+            return f"监控表 ({data.get('count', len(tables))}):\n" + "\n".join(lines)
+        return "项目中无监控表"
+    return _format_result(False, error=result.get("error", "查询失败"))
+
+
+@mcp.tool(
+    name="plc_create_watch_table",
+    annotations={"destructiveHint": False},
+)
+async def create_watch_table(watch_table_name: str) -> str:
+    """创建新的监控表（Watch Table）
+
+    Args:
+        watch_table_name: 监控表名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("create-watch-table", {
+        "ProjectPath": project,
+        "WatchTableName": watch_table_name,
+    })
+    if result.get("success"):
+        return f"✅ 已创建监控表 `{watch_table_name}`"
+    return _format_result(False, error=result.get("error", "创建失败"))
+
+
+@mcp.tool(
+    name="plc_delete_watch_table",
+    annotations={"destructiveHint": True},
+)
+async def delete_watch_table(watch_table_name: str) -> str:
+    """删除监控表（Watch Table）
+
+    Args:
+        watch_table_name: 要删除的监控表名称
+    """
+    project = PROJECT_PATH
+    if not project or not os.path.exists(project):
+        return f"❌ 项目文件不存在: {project}"
+
+    result = _run_tiaworker("delete-watch-table", {
+        "ProjectPath": project,
+        "WatchTableName": watch_table_name,
+    })
+    if result.get("success"):
+        return f"✅ 已删除监控表 `{watch_table_name}`"
+    return _format_result(False, error=result.get("error", "删除失败"))
+
+
+# ═══════════════════════════════════════
 #  编译诊断 & 项目管理（TiaWorker）
 # ═══════════════════════════════════════
 

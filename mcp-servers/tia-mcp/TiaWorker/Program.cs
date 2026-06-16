@@ -134,6 +134,22 @@ namespace TiaWorker
                         return ExportAllXml(json);
                     case "close-project":
                         return CloseProject(json);
+                    case "list-udts":
+                        return ListUdts(json);
+                    case "create-udt":
+                        return CreateUdt(json);
+                    case "delete-udt":
+                        return DeleteUdt(json);
+                    case "list-watch-tables":
+                        return ListWatchTables(json);
+                    case "create-watch-table":
+                        return CreateWatchTable(json);
+                    case "delete-watch-table":
+                        return DeleteWatchTable(json);
+                    case "find-unused-blocks":
+                        return FindUnusedBlocks(json);
+                    case "find-callers":
+                        return FindCallers(json);
                     default:
                         Console.WriteLine(JsonError($"Unknown command: {command}"));
                         return 1;
@@ -1308,6 +1324,371 @@ namespace TiaWorker
         }
 
         // ═══════════════════════════════════════
+        //  UDT 管理（反射方式，兼容 V18）
+        // ═══════════════════════════════════════
+
+        static int ListUdts(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                // 反射获取 TypeGroup.Types
+                var typeGroupProp = plcSoftware.GetType().GetProperty("TypeGroup");
+                if (typeGroupProp == null)
+                {
+                    Console.WriteLine(JsonError("TypeGroup not available in this TIA version"));
+                    return 1;
+                }
+                var typeGroup = typeGroupProp.GetValue(plcSoftware);
+                var typesProp = typeGroup.GetType().GetProperty("Types");
+                if (typesProp == null)
+                {
+                    Console.WriteLine(JsonError("Types property not available"));
+                    return 1;
+                }
+                var types = typesProp.GetValue(typeGroup);
+
+                var udts = new List<object>();
+                foreach (var t in (System.Collections.IEnumerable)types)
+                {
+                    var nameProp = t.GetType().GetProperty("Name");
+                    var name = nameProp?.GetValue(t)?.ToString() ?? "?";
+                    udts.Add(new { name });
+                }
+
+                Console.WriteLine(JsonOk(new { count = udts.Count, udts }));
+                return 0;
+            }
+        }
+
+        static int CreateUdt(string json)
+        {
+            var input = Json.Deserialize<UdtInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.UdtName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or UdtName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                // 反射获取 TypeGroup.Types
+                var typeGroupProp = plcSoftware.GetType().GetProperty("TypeGroup");
+                if (typeGroupProp == null)
+                {
+                    Console.WriteLine(JsonError("TypeGroup not available in this TIA version"));
+                    return 1;
+                }
+                var typeGroup = typeGroupProp.GetValue(plcSoftware);
+                var typesProp = typeGroup.GetType().GetProperty("Types");
+                if (typesProp == null)
+                {
+                    Console.WriteLine(JsonError("Types property not available"));
+                    return 1;
+                }
+                var types = typesProp.GetValue(typeGroup);
+
+                // 尝试直接 Create(name) 方法
+                var createMethod = types.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "Create" && m.GetParameters().Length == 1
+                        && m.GetParameters()[0].ParameterType == typeof(string));
+
+                if (createMethod != null)
+                {
+                    var udt = createMethod.Invoke(types, new object[] { input.UdtName });
+                    project.Save();
+                    Console.WriteLine(JsonOk(new { udtName = input.UdtName }));
+                    return 0;
+                }
+
+                // 回退：通过 External Source API 创建（写最小 TYPE...END_TYPE 文件导入）
+                try
+                {
+                    var sclContent = $"TYPE \"{input.UdtName}\"\n  STRUCT\n    Placeholder : Bool;\n  END_STRUCT;\nEND_TYPE\n";
+                    var tempFile = Path.Combine(Path.GetTempPath(), $"udt_{Guid.NewGuid():N}.scl");
+                    File.WriteAllText(tempFile, sclContent, System.Text.Encoding.UTF8);
+                    try
+                    {
+                        var extGroup = plcSoftware.ExternalSourceGroup;
+                        var extSources = extGroup.ExternalSources;
+                        var extSource = extSources.CreateFromFile(Path.GetFileName(tempFile), tempFile);
+                        extSource.GenerateBlocksFromSource(GenerateBlockOption.None);
+                        project.Save();
+                        Console.WriteLine(JsonOk(new { udtName = input.UdtName, method = "external_source" }));
+                        return 0;
+                    }
+                    finally
+                    {
+                        try { File.Delete(tempFile); } catch { }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"Failed to create UDT: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        static int DeleteUdt(string json)
+        {
+            var input = Json.Deserialize<UdtInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.UdtName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or UdtName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var typeGroupProp = plcSoftware.GetType().GetProperty("TypeGroup");
+                if (typeGroupProp == null)
+                {
+                    Console.WriteLine(JsonError("TypeGroup not available in this TIA version"));
+                    return 1;
+                }
+                var typeGroup = typeGroupProp.GetValue(plcSoftware);
+                var typesProp = typeGroup.GetType().GetProperty("Types");
+                var types = typesProp.GetValue(typeGroup);
+
+                // 查找指定 UDT
+                object target = null;
+                foreach (var t in (System.Collections.IEnumerable)types)
+                {
+                    var nameProp = t.GetType().GetProperty("Name");
+                    var name = nameProp?.GetValue(t)?.ToString() ?? "";
+                    if (name.Equals(input.UdtName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        target = t;
+                        break;
+                    }
+                }
+
+                if (target == null)
+                {
+                    Console.WriteLine(JsonError($"UDT '{input.UdtName}' not found"));
+                    return 1;
+                }
+
+                var deleteMethod = target.GetType().GetMethod("Delete", Type.EmptyTypes);
+                if (deleteMethod == null)
+                {
+                    Console.WriteLine(JsonError("Delete method not available on UDT object"));
+                    return 1;
+                }
+
+                deleteMethod.Invoke(target, null);
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { deleted = input.UdtName }));
+                return 0;
+            }
+        }
+
+        // ═══════════════════════════════════════
+        //  Watch 表管理（反射方式，兼容 V18）
+        // ═══════════════════════════════════════
+
+        static int ListWatchTables(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                // 反射获取 WatchAndForceTableGroup.WatchTables
+                var groupProp = plcSoftware.GetType().GetProperty("WatchAndForceTableGroup");
+                if (groupProp == null)
+                {
+                    Console.WriteLine(JsonError("WatchAndForceTableGroup not available in this TIA version"));
+                    return 1;
+                }
+                var group = groupProp.GetValue(plcSoftware);
+                var tablesProp = group.GetType().GetProperty("WatchTables");
+                if (tablesProp == null)
+                {
+                    Console.WriteLine(JsonError("WatchTables property not available"));
+                    return 1;
+                }
+                var tables = tablesProp.GetValue(group);
+
+                var watchTables = new List<object>();
+                foreach (var t in (System.Collections.IEnumerable)tables)
+                {
+                    var nameProp = t.GetType().GetProperty("Name");
+                    var name = nameProp?.GetValue(t)?.ToString() ?? "?";
+                    watchTables.Add(new { name });
+                }
+
+                Console.WriteLine(JsonOk(new { count = watchTables.Count, watchTables }));
+                return 0;
+            }
+        }
+
+        static int CreateWatchTable(string json)
+        {
+            var input = Json.Deserialize<WatchTableInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.WatchTableName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or WatchTableName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var groupProp = plcSoftware.GetType().GetProperty("WatchAndForceTableGroup");
+                if (groupProp == null)
+                {
+                    Console.WriteLine(JsonError("WatchAndForceTableGroup not available in this TIA version"));
+                    return 1;
+                }
+                var group = groupProp.GetValue(plcSoftware);
+                var tablesProp = group.GetType().GetProperty("WatchTables");
+                if (tablesProp == null)
+                {
+                    Console.WriteLine(JsonError("WatchTables property not available"));
+                    return 1;
+                }
+                var tables = tablesProp.GetValue(group);
+
+                // 调用 Create(name)
+                var createMethod = tables.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "Create" && m.GetParameters().Length == 1
+                        && m.GetParameters()[0].ParameterType == typeof(string));
+
+                if (createMethod == null)
+                {
+                    Console.WriteLine(JsonError("Create method not found on WatchTables"));
+                    return 1;
+                }
+
+                var watchTable = createMethod.Invoke(tables, new object[] { input.WatchTableName });
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { watchTableName = input.WatchTableName }));
+                return 0;
+            }
+        }
+
+        static int DeleteWatchTable(string json)
+        {
+            var input = Json.Deserialize<WatchTableInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.WatchTableName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or WatchTableName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var groupProp = plcSoftware.GetType().GetProperty("WatchAndForceTableGroup");
+                if (groupProp == null)
+                {
+                    Console.WriteLine(JsonError("WatchAndForceTableGroup not available in this TIA version"));
+                    return 1;
+                }
+                var group = groupProp.GetValue(plcSoftware);
+                var tablesProp = group.GetType().GetProperty("WatchTables");
+                if (tablesProp == null)
+                {
+                    Console.WriteLine(JsonError("WatchTables property not available"));
+                    return 1;
+                }
+                var tables = tablesProp.GetValue(group);
+
+                // 查找指定 Watch 表
+                object target = null;
+                foreach (var t in (System.Collections.IEnumerable)tables)
+                {
+                    var nameProp = t.GetType().GetProperty("Name");
+                    var name = nameProp?.GetValue(t)?.ToString() ?? "";
+                    if (name.Equals(input.WatchTableName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        target = t;
+                        break;
+                    }
+                }
+
+                if (target == null)
+                {
+                    Console.WriteLine(JsonError($"Watch table '{input.WatchTableName}' not found"));
+                    return 1;
+                }
+
+                var deleteMethod = target.GetType().GetMethod("Delete", Type.EmptyTypes);
+                if (deleteMethod == null)
+                {
+                    Console.WriteLine(JsonError("Delete method not available on WatchTable object"));
+                    return 1;
+                }
+
+                deleteMethod.Invoke(target, null);
+                project.Save();
+
+                Console.WriteLine(JsonOk(new { deleted = input.WatchTableName }));
+                return 0;
+            }
+        }
+
+        // ═══════════════════════════════════════
         //  块接口读取 & DB 管理
         // ═══════════════════════════════════════
 
@@ -1670,6 +2051,140 @@ namespace TiaWorker
             }
         }
 
+        // ═══════════════════════════════════════
+        //  交叉引用分析
+        // ═══════════════════════════════════════
+
+        static int FindUnusedBlocks(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                // 收集所有块
+                var allBlocks = plcSoftware.BlockGroup.Blocks.ToList();
+                var calledNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // 对每个块获取引用，找出被调用的块
+                foreach (var block in allBlocks)
+                {
+                    try
+                    {
+                        var refs = block.GetType().GetMethod("GetCrossReferences");
+                        if (refs != null)
+                        {
+                            var crossRefs = refs.Invoke(block, null) as System.Collections.IEnumerable;
+                            if (crossRefs != null)
+                            {
+                                foreach (var cr in crossRefs)
+                                {
+                                    var refObjProp = cr.GetType().GetProperty("ReferenceObject");
+                                    if (refObjProp != null)
+                                    {
+                                        var refObj = refObjProp.GetValue(cr);
+                                        if (refObj is PlcBlock refBlock)
+                                        {
+                                            calledNames.Add(refBlock.Name);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // 未被引用的块（排除 OB）
+                var unused = allBlocks
+                    .Where(b =>
+                    {
+                        var typeName = b.GetType().Name;
+                        if (typeName.IndexOf("OB", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+                        return !calledNames.Contains(b.Name);
+                    })
+                    .Select(b => new { name = b.Name, number = b.Number, type = b.GetType().Name })
+                    .ToArray();
+
+                Console.WriteLine(JsonOk(new { total = allBlocks.Count, unusedCount = unused.Length, unused }));
+                return 0;
+            }
+        }
+
+        static int FindCallers(string json)
+        {
+            var input = Json.Deserialize<BlockNameInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.BlockName))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or BlockName"));
+                return 1;
+            }
+
+            using (var tia = new TiaPortal(TiaPortalMode.WithUserInterface))
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found"));
+                    return 1;
+                }
+
+                var targetBlock = plcSoftware.BlockGroup.Blocks.Find(input.BlockName);
+                if (targetBlock == null)
+                {
+                    Console.WriteLine(JsonError($"Block '{input.BlockName}' not found"));
+                    return 1;
+                }
+
+                var callers = new List<object>();
+                foreach (var block in plcSoftware.BlockGroup.Blocks)
+                {
+                    if (block.Name.Equals(input.BlockName, StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        var refs = block.GetType().GetMethod("GetCrossReferences");
+                        if (refs != null)
+                        {
+                            var crossRefs = refs.Invoke(block, null) as System.Collections.IEnumerable;
+                            if (crossRefs != null)
+                            {
+                                foreach (var cr in crossRefs)
+                                {
+                                    var refObjProp = cr.GetType().GetProperty("ReferenceObject");
+                                    if (refObjProp != null)
+                                    {
+                                        var refObj = refObjProp.GetValue(cr);
+                                        if (refObj is PlcBlock refBlock && refBlock.Name.Equals(input.BlockName, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            callers.Add(new { name = block.Name, number = block.Number });
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                Console.WriteLine(JsonOk(new { target = input.BlockName, callerCount = callers.Count, callers }));
+                return 0;
+            }
+        }
+
         static int GetBlockInterface(string json)
         {
             var input = Json.Deserialize<BlockNameInput>(json);
@@ -1950,5 +2465,15 @@ namespace TiaWorker
     class CloseProjectInput : ProjectInput
     {
         public bool Save { get; set; }
+    }
+
+    class UdtInput : ProjectInput
+    {
+        public string UdtName { get; set; }
+    }
+
+    class WatchTableInput : ProjectInput
+    {
+        public string WatchTableName { get; set; }
     }
 }
