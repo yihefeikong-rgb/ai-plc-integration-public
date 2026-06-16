@@ -1,6 +1,5 @@
 """标签表管理工具"""
-import json
-from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _dry_run_msg, _preview_action, PROJECT_PATH
+from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _dry_run_msg, _handle_preview_or_dry_run, PROJECT_PATH
 
 
 @mcp.tool(name="plc_list_tag_tables", annotations={"readOnlyHint": True})
@@ -67,11 +66,8 @@ async def add_tag(
         "DataType": data_type,
         "LogicalAddress": logical_address,
     }
-    if dry_run:
-        return _dry_run_msg("add-tag", params)
-    if preview:
-        r = _preview_action("add-tag", params)
-        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    if msg := _handle_preview_or_dry_run("add-tag", params, dry_run, preview):
+        return msg
     result = _run_tiaworker("add-tag", params)
     if result.get("success"):
         data = result.get("data", {})
@@ -192,11 +188,8 @@ async def delete_tag(tag_table_name: str, tag_name: str, dry_run: bool = False, 
         "TagTableName": tag_table_name,
         "TagName": tag_name,
     }
-    if dry_run:
-        return _dry_run_msg("delete-tag", params)
-    if preview:
-        r = _preview_action("delete-tag", params)
-        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    if msg := _handle_preview_or_dry_run("delete-tag", params, dry_run, preview):
+        return msg
     result = _run_tiaworker("delete-tag", params)
     if result.get("success"):
         return f"✅ 已删除标签 `{tag_name}`"

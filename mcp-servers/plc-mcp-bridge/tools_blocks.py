@@ -1,7 +1,6 @@
 """PLC 块管理工具（FB/FC/OB/DB）"""
-import json
 import os
-from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _dry_run_msg, _preview_action, PROJECT_PATH
+from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _handle_preview_or_dry_run, PROJECT_PATH
 
 
 @mcp.tool(name="plc_list_blocks", annotations={"readOnlyHint": True})
@@ -61,11 +60,8 @@ async def create_block(
         "Language": language,
         "BlockNumber": block_number,
     }
-    if dry_run:
-        return _dry_run_msg("create-block", params)
-    if preview:
-        r = _preview_action("create-block", params)
-        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    if msg := _handle_preview_or_dry_run("create-block", params, dry_run, preview):
+        return msg
     result = _run_tiaworker("create-block", params)
     if result.get("success"):
         data = result.get("data", {})
@@ -110,11 +106,8 @@ async def import_block(file_path: str, override: bool = False, dry_run: bool = F
         "FilePath": file_path,
         "Override": override,
     }
-    if dry_run:
-        return _dry_run_msg("import-block", params)
-    if preview:
-        r = _preview_action("import-block", params)
-        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    if msg := _handle_preview_or_dry_run("import-block", params, dry_run, preview):
+        return msg
     result = _run_tiaworker("import-block", params)
     if result.get("success"):
         data = result.get("data", {})
@@ -150,11 +143,8 @@ async def delete_block(block_name: str, dry_run: bool = False, preview: bool = F
     """
     if err := _check_project(): return err
     params = {"ProjectPath": PROJECT_PATH, "BlockName": block_name}
-    if dry_run:
-        return _dry_run_msg("delete-block", params)
-    if preview:
-        r = _preview_action("delete-block", params)
-        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    if msg := _handle_preview_or_dry_run("delete-block", params, dry_run, preview):
+        return msg
     result = _run_tiaworker("delete-block", params)
     if result.get("success"):
         d = result.get("data", {})
@@ -194,11 +184,8 @@ async def create_db(db_name: str, db_number: int = 0, dry_run: bool = False, pre
         "DbName": db_name,
         "DbNumber": db_number,
     }
-    if dry_run:
-        return _dry_run_msg("create-db", params)
-    if preview:
-        r = _preview_action("create-db", params)
-        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    if msg := _handle_preview_or_dry_run("create-db", params, dry_run, preview):
+        return msg
     result = _run_tiaworker("create-db", params)
     if result.get("success"):
         data = result.get("data", {})
@@ -217,11 +204,8 @@ async def delete_db(db_name: str, dry_run: bool = False, preview: bool = False) 
     """
     if err := _check_project(): return err
     params = {"ProjectPath": PROJECT_PATH, "BlockName": db_name}
-    if dry_run:
-        return _dry_run_msg("delete-db", params)
-    if preview:
-        r = _preview_action("delete-db", params)
-        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    if msg := _handle_preview_or_dry_run("delete-db", params, dry_run, preview):
+        return msg
     result = _run_tiaworker("delete-db", params)
     if result.get("success"):
         d = result.get("data", {})

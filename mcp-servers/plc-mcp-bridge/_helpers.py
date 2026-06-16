@@ -23,7 +23,9 @@ DOWNLOAD_SCRIPT = TIA_MCP_DIR / "download_to_plcsim.py"
 P3_SCRIPT = PROJECT_ROOT / "p3_flow.py"
 
 # ── 配置 ──
-sys.path.insert(0, str(TIA_MCP_DIR))
+# 追加到 sys.path 尾部，避免覆盖标准库同名模块
+if str(TIA_MCP_DIR) not in sys.path:
+    sys.path.append(str(TIA_MCP_DIR))
 try:
     from config_loader import cfg
     PROJECT_PATH = cfg.tia.project_path
@@ -173,20 +175,63 @@ def _dry_run_msg(action: str, params: dict) -> str:
     return f"🔍 [Dry-Run] 将执行: {action}\n```json\n{json.dumps(params, ensure_ascii=False, indent=2)}\n```"
 
 
+def _handle_preview_or_dry_run(action: str, params: dict, dry_run: bool, preview: bool) -> str | None:
+    """统一处理 dry-run 和 preview 模式。返回 None 表示需要继续实际执行。"""
+    if dry_run:
+        return _dry_run_msg(action, params)
+    if preview:
+        r = _preview_action(action, params)
+        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    return None
+
+
 # ── Preview-Then-Apply 安全模式 ──
 
-_preview_store: dict[str, dict] = {}
 _PREVIEW_TTL = 60  # token 有效期（秒）
+_PREVIEW_MAX_SIZE = 200  # 最大缓存数量
+
+
+class _PreviewStore:
+    """带容量限制和 TTL 自动清理的预览缓存"""
+
+    def __init__(self, max_size: int = _PREVIEW_MAX_SIZE, ttl: int = _PREVIEW_TTL):
+        self._store: dict[str, dict] = {}
+        self._max_size = max_size
+        self._ttl = ttl
+
+    def put(self, token: str, data: dict) -> None:
+        self._evict_expired()
+        if len(self._store) >= self._max_size:
+            # 移除最旧的条目
+            oldest_key = min(self._store, key=lambda k: self._store[k]["timestamp"])
+            del self._store[oldest_key]
+        self._store[token] = data
+
+    def pop(self, token: str) -> dict | None:
+        self._evict_expired()
+        return self._store.pop(token, None)
+
+    def _evict_expired(self) -> None:
+        now = time.time()
+        expired = [k for k, v in self._store.items() if now - v["timestamp"] > self._ttl]
+        for k in expired:
+            del self._store[k]
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+
+_preview_store = _PreviewStore()
 
 
 def _preview_action(action: str, params: dict) -> dict:
     """生成预览 token，缓存操作信息"""
     token = uuid.uuid4().hex
-    _preview_store[token] = {
+    _preview_store.put(token, {
         "action": action,
         "params": params,
         "timestamp": time.time(),
-    }
+    })
     return {
         "success": True,
         "preview": {"action": action, "params": params},
@@ -196,7 +241,7 @@ def _preview_action(action: str, params: dict) -> dict:
 
 def _apply_preview(token: str) -> dict:
     """验证 token 并返回缓存的操作信息"""
-    entry = _preview_store.pop(token, None)
+    entry = _preview_store.pop(token)
     if entry is None:
         return {"success": False, "error": "Token 无效或已过期"}
     if time.time() - entry["timestamp"] > _PREVIEW_TTL:

@@ -45,11 +45,8 @@ ai-plc-integration/
 ├── tools/                          # 诊断工具（IO 标签诊断）
 ├── tests/                          # 测试套件（pytest）
 ├── 环境/                           # 仿真环境（Python venv）
-├── start_all.py                    # ⭐ 一键启动：PLCSIM + Factory I/O + TIA MCP
 ├── p3_flow.py                      # ⭐ P3 端到端：编译 + 下载 + FIO（TCP/IP）
-├── run_gateway.py                  # 启动边缘网关
-├── auto_full_pipeline.py           # 完整自动化流程脚本
-├── check_progress.py               # 自动进度检测
+├── plc-mcp-bridge/                 # ⭐ MCP 桥接服务器（59 工具，模块化架构）
 ├── docker-compose.yml              # InfluxDB + OpenPLC + Grafana
 ├── Makefile                        # 常用命令
 ├── .env                            # 环境变量（DEEPSEEK_API_KEY, TIA 路径等）
@@ -83,10 +80,11 @@ cp .env.example .env
 # 编辑 .env，填入 DEEPSEEK_API_KEY 和 TIA 路径
 
 # 3. 安装依赖
-pip install -r 环境/requirements.txt
+pip install -r requirements.txt
 
-# 4. 启动边缘网关（可选）
-python run_gateway.py
+# 4. 启动 PLC MCP Bridge（Claude Code 插件模式）
+cd mcp-servers/plc-mcp-bridge
+python server.py
 ```
 
 ### PLCSIM 全自动化
@@ -105,13 +103,14 @@ instance = restore_instance(
 # 实例已 RUN ✅
 ```
 
-### 一键启动
+### MCP 工具调用（通过 Claude Code）
 
-```bash
-python start_all.py              # 启动 PLCSIM + Factory I/O + TIA MCP
-python start_all.py --tia-only   # 仅启动 TIA MCP Server
-python start_all.py stop          # 停止所有
-```
+PLC MCP Bridge 已作为 Claude Code 插件安装，AI 可直接调用 59 个工具：
+- `plc_list_instances` — 列出 PLCSIM 实例
+- `plc_compile_project` — 编译 TIA 项目
+- `plc_download_project` — 下载到 PLCSIM
+- `plc_run_pipeline` — 端到端流水线
+- `s7_read` / `s7_write` — 实时读写 PLC 变量
 
 ### 端到端下载
 

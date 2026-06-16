@@ -94,7 +94,8 @@ async def fio_launch(fio_path: str = "", scene_path: str = "") -> str:
     if not os.path.exists(exe):
         return f"❌ Factory I/O 未找到: {exe}"
     try:
-        subprocess.Popen([exe, scene_path] if scene_path else [exe], shell=True)
+        cmd = [exe, scene_path] if scene_path else [exe]
+        subprocess.Popen(cmd)
         return "✅ Factory I/O 已启动"
     except Exception as e:
         return f"❌ 启动失败: {e}"

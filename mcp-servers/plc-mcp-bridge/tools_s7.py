@@ -13,8 +13,33 @@ S7 运行时读写工具 — MCP 工具注册
 依赖:
   python-snap7, 以及运行中的 PLCSIM / 真机 S7-1200/1500
 """
+import logging
 from _helpers import mcp
 from s7_adapter import adapter
+
+# ── 安全模块加载 ──
+_logger = logging.getLogger(__name__)
+SAFETY_AVAILABLE = False
+try:
+    from safety.validator import validator as safety_val
+    SAFETY_AVAILABLE = True
+except ImportError:
+    _logger.critical("安全模块加载失败！所有写入操作将被拒绝。请确保 safety/ 目录可访问。")
+    safety_val = None
+
+try:
+    from safety.shadow_simulator import shadow_sim
+except ImportError:
+    _logger.critical("影子仿真模块加载失败！所有写入操作将被拒绝。")
+    shadow_sim = None
+
+# ── 审计日志 ──
+try:
+    from mcp_common.audit import get_audit_logger
+    _audit = get_audit_logger()
+except ImportError:
+    _audit = None
+    _logger.warning("审计日志模块不可用")
 
 
 @mcp.tool(
@@ -75,7 +100,7 @@ def s7_read(address: str) -> str:
     name="s7_write",
     annotations={"destructiveHint": True},
 )
-def s7_write(address: str, value: str) -> str:
+async def s7_write(address: str, value: str) -> str:
     """通过 S7 协议写入 PLC 变量（带安全互锁）
 
     Args:
@@ -87,22 +112,48 @@ def s7_write(address: str, value: str) -> str:
         - 数值范围检查
         - 异常跳变检测
         - 连续异常自动熔断
+        - 影子仿真验证
+        - 审计日志记录
     """
-    try:
-        # 安全校验（复用 safety.validator）
-        try:
-            from safety.validator import validator as safety_val
-            result = safety_val.validate(address, value)
-            if not result.allowed:
-                return f"🚫 写入被拒绝: {result.reason}"
-        except ImportError:
-            pass  # 安全模块不可用时跳过
+    # 安全模块不可用时，拒绝所有写入
+    if not SAFETY_AVAILABLE or safety_val is None:
+        return "🚫 写入被拒绝: 安全模块不可用，无法执行安全校验"
 
-        result = adapter.write_address(address, value)
-        return result
+    try:
+        # 1. 互锁校验
+        result = safety_val.validate(address, value)
+        if not result.allowed:
+            if _audit:
+                _audit.log("write_rejected", address, value, success=False, detail=result.reason)
+            return f"🚫 写入被拒绝: {result.reason}"
+
+        # 2. 影子仿真验证
+        if shadow_sim is not None:
+            try:
+                numeric_value = float(value)
+            except (ValueError, TypeError):
+                numeric_value = value
+            sim_result = await shadow_sim.simulate_write(address, numeric_value)
+            if not sim_result.safe:
+                if _audit:
+                    _audit.log("shadow_rejected", address, value, success=False, detail=sim_result.reason)
+                return f"🚫 影子仿真拒绝: {sim_result.reason}"
+
+        # 3. 执行写入
+        write_result = adapter.write_address(address, value)
+
+        # 4. 审计日志
+        if _audit:
+            _audit.log("write", address, value, success=True)
+
+        return write_result
     except ConnectionError as e:
+        if _audit:
+            _audit.log("write_error", address, value, success=False, detail=str(e))
         return f"❌ {e}"
     except Exception as e:
+        if _audit:
+            _audit.log("write_error", address, value, success=False, detail=str(e))
         return f"❌ 写入失败 [{address}={value}]: {e}"
 
 

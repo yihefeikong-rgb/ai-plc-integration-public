@@ -16,6 +16,11 @@ services:
       - influxdb-data:/var/lib/influxdb2
     networks:
       - plc-network
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # OpenPLC 仿真
   openplc:
@@ -50,12 +55,10 @@ services:
       - ./config:/app/config:ro
       - ./logs:/app/logs
     depends_on:
-      - influxdb
+      influxdb:
+        condition: service_healthy
     networks:
       - plc-network
-
-volumes:
-  influxdb-data:
 
   # Grafana 仪表盘
   grafana:
@@ -65,12 +68,13 @@ volumes:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${INFLUXDB_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_INSTALL_PLUGINS=
     volumes:
       - grafana-data:/var/lib/grafana
     depends_on:
-      - influxdb
+      influxdb:
+        condition: service_healthy
     networks:
       - plc-network
     profiles:
