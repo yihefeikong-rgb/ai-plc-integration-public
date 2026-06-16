@@ -65,10 +65,23 @@ llm:
 	@echo "  ollama pull qwen3:7b"
 	@echo "  ollama serve"
 
+build-v18:
+	@echo "编译 TiaWorker (V18)..."
+	cd mcp-servers/tia-mcp/TiaWorker && dotnet build -p:TiaVersion=V18
+	@echo "✅ TiaWorker V18 编译完成"
+
+build-v21:
+	@echo "编译 TiaWorker (V21)..."
+	cd mcp-servers/tia-mcp/TiaWorker && dotnet build -p:TiaVersion=V21
+	@echo "✅ TiaWorker V21 编译完成"
+
+build: build-v18
+	@echo "默认编译 V18 版本。使用 'make build-v21' 编译 V21 版本。"
+
 test:
 	@echo "运行测试..."
 	@echo ""
-	@echo "  # PLC MCP Bridge 测试（35 项）"
+	@echo "  # PLC MCP Bridge 测试（78 项）"
 	@echo "  python -m pytest mcp-servers/plc-mcp-bridge/tests/ -v"
 	@echo ""
 	@echo "  # Safety 测试（21 项）"

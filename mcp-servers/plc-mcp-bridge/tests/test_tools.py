@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 def _mock_tiaworker_ok(data: dict):
     """构造 TiaWorker 成功响应的 mock"""
     return MagicMock(
-        stdout=json.dumps({"status": "ok", "data": data}),
+        stdout=json.dumps({"ok": True, "result": data, "error": None}),
         stderr="",
         returncode=0,
     )
@@ -21,7 +21,7 @@ def _mock_tiaworker_ok(data: dict):
 def _mock_tiaworker_err(error: str):
     """构造 TiaWorker 失败响应的 mock"""
     return MagicMock(
-        stdout=json.dumps({"status": "error", "error": error}),
+        stdout=json.dumps({"ok": False, "result": None, "error": error}),
         stderr="",
         returncode=1,
     )

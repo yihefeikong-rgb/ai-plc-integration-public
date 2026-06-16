@@ -4,6 +4,8 @@ import os
 import subprocess
 import json
 import tempfile
+import time
+import uuid
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
@@ -65,10 +67,43 @@ def _run_python(script: Path, args: list[str], timeout: int = 60) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def _run_tiaworker(command: str, data: dict, timeout: int = 180) -> dict:
-    """运行 TiaWorker.exe 子进程"""
+# ── 错误码定义 ──
+ERR_CODES = {
+    "NOT_FOUND": "TIA_ERR_001",
+    "TIMEOUT": "TIA_ERR_002",
+    "NO_OUTPUT": "TIA_ERR_003",
+    "COMPILE_ERROR": "TIA_ERR_004",
+    "EXEC_ERROR": "TIA_ERR_005",
+    "JSON_DECODE": "TIA_ERR_006",
+    "NOT_COMPILED": "TIA_ERR_007",
+    "UNKNOWN": "TIA_ERR_999",
+}
+
+ERR_MSGS = {
+    "NOT_FOUND": "文件或资源不存在",
+    "TIMEOUT": "TiaWorker 操作超时",
+    "NO_OUTPUT": "TiaWorker 无输出",
+    "COMPILE_ERROR": "编译失败",
+    "EXEC_ERROR": "子进程执行错误",
+    "JSON_DECODE": "JSON 解析失败",
+    "NOT_COMPILED": "TiaWorker 程序未编译",
+    "UNKNOWN": "未知错误",
+}
+
+
+def _make_error(code_key: str, detail: str = "") -> dict:
+    """构造带错误码的结构化错误响应"""
+    msg = ERR_MSGS.get(code_key, ERR_MSGS["UNKNOWN"])
+    err_str = f"[{ERR_CODES.get(code_key, ERR_CODES['UNKNOWN'])}] {msg}"
+    if detail:
+        err_str += f": {detail}"
+    return {"success": False, "error": err_str, "error_code": code_key}
+
+
+def _run_tiaworker(command: str, data: dict, timeout: int = 180, tia_version: str | None = None, max_retries: int = 1, dry_run: bool = False) -> dict:
+    """运行 TiaWorker.exe 子进程，带超时重试"""
     if not TIAWORKER_EXE.exists():
-        return {"success": False, "error": f"TiaWorker 未编译: {TIAWORKER_EXE}"}
+        return _make_error("NOT_COMPILED", str(TIAWORKER_EXE))
 
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
     json.dump(data, tmp)
@@ -76,26 +111,40 @@ def _run_tiaworker(command: str, data: dict, timeout: int = 180) -> dict:
     tmp.close()
 
     try:
-        r = subprocess.run(
-            [str(TIAWORKER_EXE), command, tmp_path],
-            capture_output=True, text=True, timeout=timeout,
-            encoding='utf-8', errors='replace',
-        )
-        out = r.stdout.strip()
-        if out:
+        last_error = None
+        for attempt in range(1 + max_retries):
             try:
-                result = json.loads(out)
-                if result.get('status') == 'ok':
-                    return {"success": True, "data": result.get('data', {}), "raw": out}
-                else:
-                    return {"success": False, "error": result.get('error', '未知错误'), "raw": out}
-            except json.JSONDecodeError:
-                return {"success": r.returncode == 0, "output": out, "raw": out}
-        return {"success": False, "error": "TiaWorker 无输出"}
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": f"TiaWorker 超时 ({timeout}s)"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+                cmd = [str(TIAWORKER_EXE)]
+                if dry_run:
+                    cmd.append("--dry-run")
+                tia_ver = tia_version or getattr(cfg.tia, 'version', None) if cfg else None
+                if tia_ver:
+                    cmd.extend([f"--tia-major-version={tia_ver}"])
+                cmd.extend([command, tmp_path])
+                r = subprocess.run(
+                    cmd,
+                    capture_output=True, text=True, timeout=timeout,
+                    encoding='utf-8', errors='replace',
+                )
+                out = r.stdout.strip()
+                if out:
+                    try:
+                        result = json.loads(out)
+                        if result.get('ok') is True:
+                            return {"success": True, "data": result.get('result', {}), "raw": out}
+                        else:
+                            err_msg = result.get('error', '')
+                            return _make_error("EXEC_ERROR", err_msg)
+                    except json.JSONDecodeError:
+                        return _make_error("JSON_DECODE", f"rc={r.returncode}, out={out[:200]}")
+                return _make_error("NO_OUTPUT")
+            except subprocess.TimeoutExpired:
+                last_error = _make_error("TIMEOUT", f"尝试 {attempt+1}/{1+max_retries}, 超时 {timeout}s")
+                if attempt < max_retries:
+                    continue
+                return last_error
+            except Exception as e:
+                return _make_error("EXEC_ERROR", str(e))
     finally:
         try:
             os.unlink(tmp_path)
@@ -117,3 +166,61 @@ def _check_project() -> str | None:
     if not PROJECT_PATH or not os.path.exists(PROJECT_PATH):
         return f"❌ 项目文件不存在: {PROJECT_PATH}"
     return None
+
+
+def _dry_run_msg(action: str, params: dict) -> str:
+    """dry-run 模式下的预览消息"""
+    return f"🔍 [Dry-Run] 将执行: {action}\n```json\n{json.dumps(params, ensure_ascii=False, indent=2)}\n```"
+
+
+# ── Preview-Then-Apply 安全模式 ──
+
+_preview_store: dict[str, dict] = {}
+_PREVIEW_TTL = 60  # token 有效期（秒）
+
+
+def _preview_action(action: str, params: dict) -> dict:
+    """生成预览 token，缓存操作信息"""
+    token = uuid.uuid4().hex
+    _preview_store[token] = {
+        "action": action,
+        "params": params,
+        "timestamp": time.time(),
+    }
+    return {
+        "success": True,
+        "preview": {"action": action, "params": params},
+        "token": token,
+    }
+
+
+def _apply_preview(token: str) -> dict:
+    """验证 token 并返回缓存的操作信息"""
+    entry = _preview_store.pop(token, None)
+    if entry is None:
+        return {"success": False, "error": "Token 无效或已过期"}
+    if time.time() - entry["timestamp"] > _PREVIEW_TTL:
+        return {"success": False, "error": "Token 已过期（有效期 60 秒）"}
+    return {"success": True, "action": entry["action"], "params": entry["params"]}
+
+
+@mcp.tool(name="plc_apply", annotations={"destructiveHint": True})
+async def plc_apply(token: str) -> str:
+    """执行之前预览过的操作（需要从 preview 返回的 token）
+
+    Args:
+        token: preview 步骤返回的 token
+    """
+    result = _apply_preview(token)
+    if not result.get("success"):
+        return f"❌ 执行失败: {result.get('error', '未知错误')}"
+
+    action = result["action"]
+    params = result["params"]
+
+    # 重新调用 TiaWorker 执行
+    tia_result = _run_tiaworker(action, params)
+    if tia_result.get("success"):
+        data = tia_result.get("data", {})
+        return f"✅ 操作成功 (action: {action})\n```json\n{json.dumps(data, ensure_ascii=False, indent=2)}\n```"
+    return f"❌ 操作失败: {tia_result.get('error', '未知错误')}"

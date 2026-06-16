@@ -1,6 +1,6 @@
 """项目管理、硬件信息、交叉引用、编译诊断工具"""
 import os
-from _helpers import mcp, _run_tiaworker, _format_result, _check_project, PROJECT_PATH
+from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _dry_run_msg, PROJECT_PATH
 
 
 # ── 项目基础 ──
@@ -62,20 +62,21 @@ async def get_project_info() -> str:
 
 
 @mcp.tool(name="plc_create_project", annotations={"destructiveHint": False})
-async def create_project(project_name: str, parent_directory: str = "") -> str:
+async def create_project(project_name: str, parent_directory: str = "", dry_run: bool = False) -> str:
     """创建新的 TIA Portal 项目
 
     Args:
         project_name: 项目名称
         parent_directory: 父目录路径（默认使用项目文件所在目录）
+        dry_run: 预览模式，不实际执行
     """
     parent = parent_directory or os.path.dirname(PROJECT_PATH)
     if not os.path.isdir(parent):
         return f"❌ 目录不存在: {parent}"
-    result = _run_tiaworker("create-project", {
-        "ProjectName": project_name,
-        "ParentDirectory": parent,
-    }, timeout=180)
+    params = {"ProjectName": project_name, "ParentDirectory": parent}
+    if dry_run:
+        return _dry_run_msg("create-project", params)
+    result = _run_tiaworker("create-project", params, timeout=180)
     if result.get("success"):
         d = result.get("data", {})
         return f"✅ 项目已创建: {d.get('name')} → {d.get('path')}"
@@ -83,20 +84,20 @@ async def create_project(project_name: str, parent_directory: str = "") -> str:
 
 
 @mcp.tool(name="plc_archive_project", annotations={"destructiveHint": False})
-async def archive_project(output_dir: str = "", archive_name: str = "") -> str:
+async def archive_project(output_dir: str = "", archive_name: str = "", dry_run: bool = False) -> str:
     """将当前 TIA 项目归档为 .zap 文件
 
     Args:
         output_dir: 输出目录（默认项目同级目录）
         archive_name: 归档文件名（默认项目名）
+        dry_run: 预览模式，不实际执行
     """
     if err := _check_project(): return err
     out = output_dir or os.path.dirname(PROJECT_PATH)
-    result = _run_tiaworker("archive-project", {
-        "ProjectPath": PROJECT_PATH,
-        "OutputDir": out,
-        "ArchiveName": archive_name or None,
-    }, timeout=180)
+    params = {"ProjectPath": PROJECT_PATH, "OutputDir": out, "ArchiveName": archive_name or None}
+    if dry_run:
+        return _dry_run_msg("archive-project", params)
+    result = _run_tiaworker("archive-project", params, timeout=180)
     if result.get("success"):
         d = result.get("data", {})
         return f"✅ 已归档: {d.get('archiveName')} → {d.get('outputDir')}"
@@ -104,18 +105,39 @@ async def archive_project(output_dir: str = "", archive_name: str = "") -> str:
 
 
 @mcp.tool(name="plc_close_project", annotations={"destructiveHint": True})
-async def close_project(save: bool = True) -> str:
+async def close_project(save: bool = True, dry_run: bool = False) -> str:
     """关闭当前 TIA Portal 项目
 
     Args:
         save: 关闭前是否保存（默认 True）
+        dry_run: 预览模式，不实际执行
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("close-project", {"ProjectPath": PROJECT_PATH, "Save": save})
+    params = {"ProjectPath": PROJECT_PATH, "Save": save}
+    if dry_run:
+        return _dry_run_msg("close-project", params)
+    result = _run_tiaworker("close-project", params)
     if result.get("success"):
         d = result.get("data", {})
         return f"✅ 项目已关闭" + (" (已保存)" if d.get("saved") else "")
     return _format_result(False, error=result.get("error", "关闭失败"))
+
+
+@mcp.tool(name="plc_list_backups", annotations={"readOnlyHint": True})
+async def list_backups() -> str:
+    """列出项目的自动备份列表"""
+    if err := _check_project(): return err
+    result = _run_tiaworker("list-backups", {"ProjectPath": PROJECT_PATH})
+    if result.get("success"):
+        d = result.get("data", {})
+        backups = d.get("backups", [])
+        if backups:
+            lines = [f"备份 ({d.get('count', len(backups))} 份):"]
+            for b in backups:
+                lines.append(f"  [{b.get('created', '?')}] {b.get('name', '?')}")
+            return "\n".join(lines)
+        return "暂无备份"
+    return _format_result(False, error=result.get("error", "查询失败"))
 
 
 # ── 硬件信息 ──

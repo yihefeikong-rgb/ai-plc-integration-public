@@ -1,6 +1,6 @@
 # TIA Portal MCP 生态研究报告
 
-> 生成: 2026-06-16 | 来源: 15+ 项目源码 + 西门子官方文档 + 社区讨论
+> 生成: 2026-06-16 | 最后更新: 2026-06-16 | 来源: 15+ 项目源码 + 西门子官方文档 + 社区讨论
 
 ## 一、生态全景
 
@@ -9,19 +9,19 @@
 | 项目 | Stars | 许可证 | 工具数 | 架构 | TIA 版本 | 特点 |
 |------|:-----:|:------:|:------:|:----:|:---------|:-----|
 | [heilingbrunner/tiaportal-mcp](https://github.com/heilingbrunner/tiaportal-mcp) | ⭐64 | MIT | ~30 | 单进程 .NET 4.8 | V18-V20 | **最火开源**，VS Code 扩展 |
-| [bulaofen0036/TIA_Portal_Openness_MCP](https://github.com/bulaofen0036-coder/TIA_Portal_Openness_MCP) | ⭐39 | MIT | ~50+ | 单进程 .NET 4.8 | V20+V21 | **开发最活跃**，15个release，双版本 |
+| [bulaofen0036-coder/TIA_Portal_Openness_MCP](https://github.com/bulaofen0036-coder/TIA_Portal_Openness_MCP) | ⭐45 | MIT | ~50+ | 单进程 .NET 4.8 | V20+V21 | **开发最活跃**，15个release，双版本 |
 | [Czarnak/totally-integrated-claude](https://github.com/czarnak/totally-integrated-claude) | ⭐26 | MIT | Plugin | 多Agent | V21 | Claude Code 插件 + LSP |
-| [StaniB88/TIAOpennessManager](https://github.com/StaniB88/TIAOpennessManager) | ⭐25 | 专有 | 产品 | 桌面应用 | V15-V21 | 功能最全的桌面工具，有AI Chat |
-| [chewcw/tia-portal-openness-mcpserver](https://github.com/chewcw/tia-portal-openness-mcpserver) | ⭐10 | MIT | ~20 | 单进程 .NET 4.8 | V20 | 有单元测试，CLI工具 |
-| [a4webdev/tiacommander-mcp](https://github.com/a4webdev/tiacommander-mcp) | ⭐8 | 专有(beta) | **166** | 单进程 .NET 4.8 | V15.1-V21 | **最成熟商业**，16 tools 166 actions |
-| [Czarnak/tia-portal-mcp](https://github.com/Czarnak/tia-portal-mcp) | ⭐1 | MIT | ~15 | **双进程** .NET 8+4.8 | V21 | 双进程架构，safetyToken |
-| **我们 (TiaWorker)** | — | MIT | ~38 | 子进程JSON | V18 | 已含S7+Safety+AI闭环 |
+| [StaniB88/TIAOpennessManager](https://github.com/StaniB88/TIAOpennessManager) | ⭐33 | 专有 | 产品 | 桌面应用 | V15-V21 | 功能最全的桌面工具，有AI Chat |
+| [chewcw/tia-portal-openness-mcpserver](https://github.com/chewcw/tia-portal-openness-mcpserver) | ⭐22 | MIT | ~20 | 单进程 .NET 4.8 | V20 | 有单元测试，CLI工具 |
+| [a4webdev/tiacommander-mcp](https://github.com/a4webdev/tiacommander-mcp) | ⭐12 | 专有(beta) | **166** | 单进程 .NET 4.8 | V15.1-V21 | **最成熟商业**，16 tools 166 actions (v2.26.3) |
+| [Czarnak/tia-portal-mcp](https://github.com/Czarnak/tia-portal-mcp) | ⭐9 | MIT | ~15 | **双进程** .NET 8+4.8 | V21 | 双进程架构，safetyToken |
+| **我们 (TiaWorker)** | — | MIT | **55** | 子进程JSON | V18 | 已含S7+Safety+AI闭环 |
 
 ### 1.2 商业产品
 
 | 产品 | 工具数 | 价格 | 特点 |
 |------|:------:|:----:|:------|
-| **TiaCommander** | 166 actions | beta免费→收费 | 16 tools，166 actions，最成熟 |
+| **TiaCommander** | 166 actions | beta免费→收费 | 16 tools，166 actions，v2.26.3 |
 | **T-IA Connect** | **393 tools** | 商业收费 | 功能最全面，含HMI/PLCSim/版本控制 |
 | **TIA Openness Manager** | 桌面应用 | 商业收费 | AI Chat + OPC UA + 版本控制 |
 

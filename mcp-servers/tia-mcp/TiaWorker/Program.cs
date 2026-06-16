@@ -26,12 +26,33 @@ namespace TiaWorker
         private static bool IsDebugEnabled =>
             string.Equals(Environment.GetEnvironmentVariable("TIAWORKER_DEBUG"), "1", StringComparison.OrdinalIgnoreCase);
 
-        // TIA Portal V18 Openness DLL 路径（V21 适配暂缓）
-        // Private=False 编译（避免 CopyLocal 检查），运行时通过 AssemblyResolve 加载
-        static readonly string[] _tiaDllPaths = new[]
+        // 当前 TIA Portal 主版本，可通过 --tia-major-version 参数重写
+        private static string _tiaMajorVersion = "V18";
+
+        // TIA Portal 安装根目录，优先从环境变量 TIA_PORTAL_ROOT 读取
+        private static string _tiaPortalRoot =>
+            Environment.GetEnvironmentVariable("TIA_PORTAL_ROOT") ?? @"D:\TIA BEN TI";
+
+        // Dry-Run 模式：为 true 时只做校验和预览，不实际修改
+        private static bool _isDryRun = false;
+
+        // 自动备份：写入操作前自动备份项目
+        private static bool _isAutoBackup = true;
+        private static string _backupDir = "";
+
+        // TIA Portal Openness DLL 路径（按版本动态解析）
+        private static string[] _tiaDllPaths
         {
-            @"D:\TIA BEN TI\Portal V18\PublicAPI\V18",
-        };
+            get
+            {
+                var ver = _tiaMajorVersion;
+                var baseDir = Path.Combine(_tiaPortalRoot, $"Portal {ver}", "PublicAPI", ver);
+                // V21 使用模块化 DLL（net48 子目录），V18-V20 使用单体 DLL
+                if (ver.Equals("V21", StringComparison.OrdinalIgnoreCase))
+                    return new[] { Path.Combine(baseDir, "net48") };
+                return new[] { baseDir };
+            }
+        }
 
         static Program()
         {
@@ -53,9 +74,52 @@ namespace TiaWorker
 
         static int Main(string[] args)
         {
+            // 解析可选参数 --tia-major-version=V18 和 --dry-run
+            var filteredArgs = new List<string>();
+            for (int i = 0; i < args.Length; i++)
+            {
+                var arg = args[i];
+                if (arg.Equals("--dry-run", StringComparison.OrdinalIgnoreCase))
+                {
+                    _isDryRun = true;
+                    if (IsDebugEnabled)
+                        Console.Error.WriteLine("[TiaWorker] Dry-Run mode enabled");
+                }
+                else if (arg.Equals("--no-auto-backup", StringComparison.OrdinalIgnoreCase))
+                {
+                    _isAutoBackup = false;
+                }
+                else if (arg.StartsWith("--backup-dir=", StringComparison.OrdinalIgnoreCase))
+                {
+                    _backupDir = arg.Substring("--backup-dir=".Length);
+                }
+                else if (arg.StartsWith("--tia-major-version=", StringComparison.OrdinalIgnoreCase))
+                {
+                    _tiaMajorVersion = arg.Substring("--tia-major-version=".Length);
+                    if (IsDebugEnabled)
+                        Console.Error.WriteLine($"[TiaWorker] TIA version: {_tiaMajorVersion}");
+                }
+                else if (arg.Equals("--tia-major-version", StringComparison.OrdinalIgnoreCase))
+                {
+                    // --tia-major-version V18 格式（取下一个 arg 作为值）
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        _tiaMajorVersion = args[i + 1];
+                        i++; // 跳过值
+                        if (IsDebugEnabled)
+                            Console.Error.WriteLine($"[TiaWorker] TIA version: {_tiaMajorVersion}");
+                    }
+                }
+                else
+                {
+                    filteredArgs.Add(arg);
+                }
+            }
+
+            args = filteredArgs.ToArray();
             if (args.Length < 2)
             {
-                Console.WriteLine(JsonError("Usage: TiaWorker.exe <command> <jsonFile>"));
+                Console.WriteLine(JsonError("Usage: TiaWorker.exe [--tia-major-version=V18] [--dry-run] <command> <jsonFile>"));
                 return 1;
             }
 
@@ -156,6 +220,24 @@ namespace TiaWorker
                         return CreateProject(json);
                     case "archive-project":
                         return ArchiveProject(json);
+                    case "export-tags-csv":
+                        return ExportTagsCsv(json);
+                    case "check-tag-conflicts":
+                        return CheckTagConflicts(json);
+                    case "find-free-address":
+                        return FindFreeAddress(json);
+                    case "get-plc-status":
+                        return GetPlcStatus(json);
+                    case "go-online":
+                        return GoOnline(json);
+                    case "go-offline":
+                        return GoOffline(json);
+                    case "get-device-config":
+                        return GetDeviceConfig(json);
+                    case "get-rack-slot":
+                        return GetRackSlot(json);
+                    case "list-backups":
+                        return ListBackups(json);
                     default:
                         Console.WriteLine(JsonError($"Unknown command: {command}"));
                         return 1;
@@ -203,6 +285,7 @@ namespace TiaWorker
                 // Generate blocks from source
                 var generated = extSource.GenerateBlocksFromSource(GenerateBlockOption.None);
 
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new
@@ -237,6 +320,7 @@ namespace TiaWorker
                 var compiler = plcSoftware.GetService<ICompilable>();
                 var result = compiler.Compile();
 
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new
@@ -768,6 +852,7 @@ namespace TiaWorker
                     return 1;
                 }
 
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new
@@ -868,7 +953,15 @@ namespace TiaWorker
             // 没有运行中的实例，尝试启动新的（需要管理员权限）
             if (IsDebugEnabled)
                 Console.Error.WriteLine("[TiaWorker] No running TIA Portal, creating new instance...");
-            return AttachOrCreate();
+            try
+            {
+                return new TiaPortal(TiaPortalMode.WithoutUserInterface);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[TiaWorker] Failed to create TIA Portal instance: {ex.Message}");
+                throw new InvalidOperationException("无法创建 TIA Portal 实例。请确保 TIA Portal 已安装并以管理员身份运行。", ex);
+            }
         }
 
         /// <summary>
@@ -955,6 +1048,7 @@ namespace TiaWorker
                 // ExportOptions.WithDefaults = 1
                 exportMethod.Invoke(svc, new object[] { new FileInfo(input.OutputPath), 1 });
 
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new
@@ -1257,6 +1351,7 @@ namespace TiaWorker
                 }
 
                 var tag = table.Tags.Create(input.TagName, input.DataType, input.LogicalAddress ?? "");
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new
@@ -1304,6 +1399,7 @@ namespace TiaWorker
                 }
 
                 tag.Delete();
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { deleted = input.TagName, table = input.TagTableName }));
@@ -1331,6 +1427,7 @@ namespace TiaWorker
                 }
 
                 var table = plcSoftware.TagTableGroup.TagTables.Create(input.TagTableName);
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { tableName = table.Name }));
@@ -1409,6 +1506,7 @@ namespace TiaWorker
                 }
 
                 table.Delete();
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { deleted = input.TagTableName }));
@@ -1601,6 +1699,7 @@ namespace TiaWorker
                 }
 
                 deleteMethod.Invoke(target, null);
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { deleted = input.UdtName }));
@@ -1706,6 +1805,7 @@ namespace TiaWorker
                 }
 
                 var watchTable = createMethod.Invoke(tables, new object[] { input.WatchTableName });
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { watchTableName = input.WatchTableName }));
@@ -1774,6 +1874,7 @@ namespace TiaWorker
                 }
 
                 deleteMethod.Invoke(target, null);
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { deleted = input.WatchTableName }));
@@ -1864,6 +1965,7 @@ namespace TiaWorker
                 var name = block.Name;
                 var number = block.Number;
                 block.Delete();
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { deleted = name, number }));
@@ -1905,6 +2007,7 @@ namespace TiaWorker
                 }
 
                 var result = compilable.Compile();
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new
@@ -1954,6 +2057,7 @@ namespace TiaWorker
                 var name = block.Name;
                 var number = block.Number;
                 block.Delete();
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { deleted = name, number }));
@@ -2297,6 +2401,7 @@ namespace TiaWorker
             using (var tia = AttachOrCreate())
             {
                 var project = tia.Projects.Create(parentDir, input.ProjectName);
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new
@@ -2556,6 +2661,7 @@ namespace TiaWorker
                     return 1;
                 }
 
+                AutoBackupProject(project);
                 project.Save();
 
                 Console.WriteLine(JsonOk(new { dbName = db.Name, number = db.Number }));
@@ -2604,11 +2710,499 @@ namespace TiaWorker
                 d.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         }
 
+        // ── P3-11: CSV 导出 ──
+
+        static int ExportTagsCsv(string json)
+        {
+            var input = Json.Deserialize<ExportTagsInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) || string.IsNullOrEmpty(input?.OutputPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath or OutputPath")); return 1; }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plc = GetPlcSoftware(project);
+                if (plc == null) { Console.WriteLine(JsonError("No PLC device found")); return 1; }
+
+                try
+                {
+                    var tagMgr = plc.GetService<TagTableManager>();
+                    if (tagMgr == null) { Console.WriteLine(JsonError("TagTableManager not available")); return 1; }
+                    var tables = tagMgr.TagTables;
+
+                    var lines = new List<string> { "TableName,TagName,DataType,Address,Comment" };
+                    int total = 0;
+                    foreach (var table in tables)
+                    {
+                        foreach (var tag in table.Tags)
+                        {
+                            var addr = tag.LogicalAddress ?? "";
+                            var comment = (tag.Comment ?? "").Replace("\"", "\"\"");
+                            lines.Add($"\"{table.Name}\",\"{tag.Name}\",\"{tag.DataTypeName}\",\"{addr}\",\"{comment}\"");
+                            total++;
+                        }
+                    }
+
+                    File.WriteAllLines(input.OutputPath, lines);
+                    Console.WriteLine(JsonOk(new { file = input.OutputPath, count = total, format = "csv" }));
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"Export failed: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        // ── P3-12: 标签冲突检测 ──
+
+        static int CheckTagConflicts(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath")); return 1; }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plc = GetPlcSoftware(project);
+                if (plc == null) { Console.WriteLine(JsonError("No PLC device found")); return 1; }
+
+                try
+                {
+                    var tagMgr = plc.GetService<TagTableManager>();
+                    if (tagMgr == null) { Console.WriteLine(JsonError("TagTableManager not available")); return 1; }
+
+                    var addressMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var table in tagMgr.TagTables)
+                    {
+                        foreach (var tag in table.Tags)
+                        {
+                            var addr = tag.LogicalAddress ?? "";
+                            if (string.IsNullOrEmpty(addr)) continue;
+                            if (!addressMap.ContainsKey(addr))
+                                addressMap[addr] = new List<string>();
+                            addressMap[addr].Add($"{table.Name}.{tag.Name}");
+                        }
+                    }
+
+                    var conflicts = addressMap
+                        .Where(kv => kv.Value.Count > 1)
+                        .Select(kv => new { address = kv.Key, tags = kv.Value })
+                        .ToList();
+
+                    Console.WriteLine(JsonOk(new { totalConflicts = conflicts.Count, conflicts }));
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"Conflict check failed: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        static int FindFreeAddress(string json)
+        {
+            var input = Json.Deserialize<FindFreeAddressInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath")); return 1; }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plc = GetPlcSoftware(project);
+                if (plc == null) { Console.WriteLine(JsonError("No PLC device found")); return 1; }
+
+                try
+                {
+                    var tagMgr = plc.GetService<TagTableManager>();
+                    if (tagMgr == null) { Console.WriteLine(JsonError("TagTableManager not available")); return 1; }
+
+                    var area = string.IsNullOrEmpty(input.Area) ? "M" : input.Area.ToUpper();
+                    var startByte = input.StartByte;
+                    var used = new HashSet<int>();
+
+                    foreach (var table in tagMgr.TagTables)
+                    {
+                        foreach (var tag in table.Tags)
+                        {
+                            var addr = tag.LogicalAddress ?? "";
+                            if (addr.StartsWith($"%{area}") || addr.StartsWith($"%{area.ToLower()}"))
+                            {
+                                var parsed = ParseAddressOffset(addr);
+                                if (parsed.HasValue) used.Add(parsed.Value);
+                            }
+                        }
+                    }
+
+                    // 找到第一个空闲字节
+                    var free = startByte;
+                    while (used.Contains(free)) free++;
+
+                    Console.WriteLine(JsonOk(new { area, freeByte = free, address = $"%{area}W{free}" }));
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"FindFreeAddress failed: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        static int? ParseAddressOffset(string addr)
+        {
+            try
+            {
+                // 解析 %MW100 → 100, %M100.0 → 100
+                var m = System.Text.RegularExpressions.Regex.Match(addr, @"%[A-Za-z]+(\d+)");
+                if (m.Success && int.TryParse(m.Groups[1].Value, out var offset))
+                    return offset;
+                return null;
+            }
+            catch { return null; }
+        }
+
+        // ── P2-8: 诊断工具 ──
+
+        static int GetPlcStatus(string json)
+        {
+            var input = Json.Deserialize<DeviceInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath")); return 1; }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                try
+                {
+                    var device = FindDevice(project, input.DeviceName);
+                    if (device == null) { Console.WriteLine(JsonError("Device not found")); return 1; }
+
+                    // 尝试通过 GetService 获取在线状态（可能不支持）
+                    var status = "UNKNOWN";
+                    try
+                    {
+                        var swContainer = device.GetService<SoftwareContainer>();
+                        if (swContainer?.Software is PlcSoftware plc)
+                        {
+                            var online = plc.GetService("Siemens.Engineering.IOnlineProvider");
+                            if (online != null)
+                            {
+                                var stateProp = online.GetType().GetProperty("State");
+                                if (stateProp != null) status = stateProp.GetValue(online)?.ToString() ?? "UNKNOWN";
+                            }
+                        }
+                    }
+                    catch { /* online service not available */ }
+
+                    Console.WriteLine(JsonOk(new { device = device.Name, status, online = status }));
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"GetPlcStatus failed: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        static int GoOnline(string json)
+        {
+            var input = Json.Deserialize<DeviceInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath")); return 1; }
+
+            if (_isDryRun)
+            { Console.WriteLine(DryRunResult("go-online", new { device = input.DeviceName })); return 0; }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                try
+                {
+                    var device = FindDevice(project, input.DeviceName);
+                    if (device == null) { Console.WriteLine(JsonError("Device not found")); return 1; }
+
+                    var swContainer = device.GetService<SoftwareContainer>();
+                    if (swContainer?.Software is PlcSoftware plc)
+                    {
+                        var online = plc.GetService("Siemens.Engineering.IOnlineProvider");
+                        if (online != null)
+                        {
+                            online.GetType().GetMethod("GoOnline")?.Invoke(online, new object[] { });
+                            Console.WriteLine(JsonOk(new { device = device.Name, online = true }));
+                            return 0;
+                        }
+                    }
+                    Console.WriteLine(JsonError("OnlineProvider not available"));
+                    return 1;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"GoOnline failed: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        static int GoOffline(string json)
+        {
+            var input = Json.Deserialize<DeviceInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath")); return 1; }
+
+            if (_isDryRun)
+            { Console.WriteLine(DryRunResult("go-offline", new { device = input.DeviceName })); return 0; }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                try
+                {
+                    var device = FindDevice(project, input.DeviceName);
+                    if (device == null) { Console.WriteLine(JsonError("Device not found")); return 1; }
+
+                    var swContainer = device.GetService<SoftwareContainer>();
+                    if (swContainer?.Software is PlcSoftware plc)
+                    {
+                        var online = plc.GetService("Siemens.Engineering.IOnlineProvider");
+                        if (online != null)
+                        {
+                            online.GetType().GetMethod("GoOffline")?.Invoke(online, new object[] { });
+                            Console.WriteLine(JsonOk(new { device = device.Name, online = false }));
+                            return 0;
+                        }
+                    }
+                    Console.WriteLine(JsonError("OnlineProvider not available"));
+                    return 1;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"GoOffline failed: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        // ── P2-6: 硬件配置工具 ──
+
+        static int GetDeviceConfig(string json)
+        {
+            var input = Json.Deserialize<DeviceInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath")); return 1; }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                try
+                {
+                    var devices = project.Devices;
+                    var result = new List<object>();
+                    foreach (var dev in devices)
+                    {
+                        var items = new List<object>();
+                        CollectDeviceItems(dev.DeviceItems, items, 0);
+                        result.Add(new { name = dev.Name, type = dev.GetType().Name, items });
+                    }
+                    Console.WriteLine(JsonOk(new { deviceCount = result.Count, devices = result }));
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"GetDeviceConfig failed: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        static int GetRackSlot(string json)
+        {
+            var input = Json.Deserialize<DeviceInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath")); return 1; }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                try
+                {
+                    var result = new List<object>();
+                    foreach (var dev in project.Devices)
+                    {
+                        var slots = new List<object>();
+                        try
+                        {
+                            var deviceItems = dev.DeviceItems;
+                            CollectSlots(deviceItems, slots, 0);
+                        }
+                        catch { /* skip */ }
+                        result.Add(new { device = dev.Name, slots });
+                    }
+                    Console.WriteLine(JsonOk(new { deviceCount = result.Count, devices = result }));
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(JsonError($"GetRackSlot failed: {ex.Message}"));
+                    return 1;
+                }
+            }
+        }
+
+        static void CollectDeviceItems(DeviceItemCollection items, List<object> result, int depth)
+        {
+            foreach (DeviceItem item in items)
+            {
+                var entry = new Dictionary<string, object>
+                {
+                    ["name"] = item.Name,
+                    ["type"] = item.GetType().Name,
+                    ["depth"] = depth,
+                };
+                try
+                {
+                    var children = new List<object>();
+                    CollectDeviceItems(item.DeviceItems, children, depth + 1);
+                    if (children.Count > 0) entry["children"] = children;
+                }
+                catch { /* leaf */ }
+                result.Add(entry);
+            }
+        }
+
+        static void CollectSlots(DeviceItemCollection items, List<object> result, int depth)
+        {
+            foreach (DeviceItem item in items)
+            {
+                var entry = new Dictionary<string, object>
+                {
+                    ["name"] = item.Name,
+                    ["type"] = item.GetType().Name,
+                    ["depth"] = depth,
+                };
+                try
+                {
+                    var children = new List<object>();
+                    CollectSlots(item.DeviceItems, children, depth + 1);
+                    if (children.Count > 0) entry["children"] = children;
+                }
+                catch { /* leaf */ }
+                result.Add(entry);
+            }
+        }
+
+        // ── 自动备份 ──
+
+        static void AutoBackupProject(Project project)
+        {
+            if (!_isAutoBackup) return;
+
+            try
+            {
+                var projDir = new FileInfo(project.Path).Directory;
+                if (projDir == null) return;
+                var parent = projDir.Parent;
+                if (parent == null) return;
+
+                var backupRoot = string.IsNullOrEmpty(_backupDir)
+                    ? Path.Combine(parent.FullName, "backups")
+                    : _backupDir;
+                Directory.CreateDirectory(backupRoot);
+
+                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                var projName = projDir.Name;
+                var destDir = Path.Combine(backupRoot, $"{projName}_{timestamp}");
+
+                // 轻量级备份：复制项目目录（不生成 .zap 归档，速度快）
+                CopyDirectory(projDir.FullName, destDir);
+
+                // 清理旧备份：保留最近 5 份
+                CleanOldBackups(backupRoot, projName, 5);
+
+                if (IsDebugEnabled)
+                    Console.Error.WriteLine($"[TiaWorker] Backup saved: {destDir}");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[TiaWorker] Backup failed: {ex.Message}");
+            }
+        }
+
+        static void CopyDirectory(string source, string dest)
+        {
+            Directory.CreateDirectory(dest);
+            foreach (var file in Directory.GetFiles(source))
+                File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);
+            foreach (var dir in Directory.GetDirectories(source))
+                CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)));
+        }
+
+        static void CleanOldBackups(string backupRoot, string projName, int keepCount)
+        {
+            var dirs = Directory.GetDirectories(backupRoot, $"{projName}_*")
+                .OrderByDescending(d => d)
+                .ToList();
+            foreach (var old in dirs.Skip(keepCount))
+            {
+                try { Directory.Delete(old, true); }
+                catch { /* skip locked dirs */ }
+            }
+        }
+
+        static int ListBackups(string json)
+        {
+            var input = Json.Deserialize<ProjectInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath))
+            { Console.WriteLine(JsonError("Missing ProjectPath")); return 1; }
+
+            try
+            {
+                var projDir = new FileInfo(input.ProjectPath).Directory;
+                if (projDir?.Parent == null) { Console.WriteLine(JsonError("Cannot determine backup root")); return 1; }
+
+                var backupRoot = string.IsNullOrEmpty(_backupDir)
+                    ? Path.Combine(projDir.Parent.FullName, "backups")
+                    : _backupDir;
+                if (!Directory.Exists(backupRoot))
+                { Console.WriteLine(JsonOk(new { backups = new List<object>() })); return 0; }
+
+                var backups = Directory.GetDirectories(backupRoot, $"{projDir.Name}_*")
+                    .Select(d => new
+                    {
+                        path = d,
+                        name = Path.GetFileName(d),
+                        created = Directory.GetCreationTime(d).ToString("yyyy-MM-dd HH:mm:ss")
+                    })
+                    .OrderByDescending(b => b.created)
+                    .ToList();
+
+                Console.WriteLine(JsonOk(new { count = backups.Count, backups }));
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(JsonError($"ListBackups failed: {ex.Message}"));
+                return 1;
+            }
+        }
+
+        // ── JSON 响应 ──
+
         static string JsonOk(object data) =>
-            Json.Serialize(new { status = "ok", data });
+            Json.Serialize(new { ok = true, result = data, error = (string)null });
 
         static string JsonError(string msg) =>
-            Json.Serialize(new { status = "error", error = msg });
+            Json.Serialize(new { ok = false, result = (object)null, error = msg });
+
+        /// <summary>
+        /// 在 dry-run 模式下返回预览，不执行实际修改。
+        /// </summary>
+        static string DryRunResult(string action, object previewData) =>
+            JsonOk(new { dryRun = true, action, preview = previewData });
     }
 
     class ProjectInput
@@ -2712,5 +3306,21 @@ namespace TiaWorker
     class WatchTableInput : ProjectInput
     {
         public string WatchTableName { get; set; }
+    }
+
+    class ExportTagsInput : ProjectInput
+    {
+        public string OutputPath { get; set; }
+    }
+
+    class FindFreeAddressInput : ProjectInput
+    {
+        public string Area { get; set; }
+        public int StartByte { get; set; }
+    }
+
+    class DeviceInput : ProjectInput
+    {
+        public string DeviceName { get; set; }
     }
 }

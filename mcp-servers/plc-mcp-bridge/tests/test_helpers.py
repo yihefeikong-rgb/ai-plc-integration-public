@@ -119,7 +119,7 @@ class TestRunTiaworker:
         with patch("_helpers.TIAWORKER_EXE", fake_exe):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(
-                    stdout=json.dumps({"status": "ok", "data": {"count": 5}}),
+                    stdout=json.dumps({"ok": True, "result": {"count": 5}, "error": None}),
                     stderr="",
                     returncode=0,
                 )
@@ -134,7 +134,7 @@ class TestRunTiaworker:
         with patch("_helpers.TIAWORKER_EXE", fake_exe):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(
-                    stdout=json.dumps({"status": "error", "error": "block not found"}),
+                    stdout=json.dumps({"ok": False, "result": None, "error": "block not found"}),
                     stderr="",
                     returncode=1,
                 )

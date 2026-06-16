@@ -1,6 +1,7 @@
 """PLC 块管理工具（FB/FC/OB/DB）"""
+import json
 import os
-from _helpers import mcp, _run_tiaworker, _format_result, _check_project, PROJECT_PATH
+from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _dry_run_msg, _preview_action, PROJECT_PATH
 
 
 @mcp.tool(name="plc_list_blocks", annotations={"readOnlyHint": True})
@@ -39,6 +40,8 @@ async def create_block(
     block_type: str = "FB",
     language: str = "SCL",
     block_number: int = 0,
+    dry_run: bool = False,
+    preview: bool = False,
 ) -> str:
     """在 TIA 项目中创建 PLC 块
 
@@ -47,15 +50,23 @@ async def create_block(
         block_type: 块类型 (FB/FC/OB/DB)
         language: 编程语言 (SCL/LAD/FBD/STL)
         block_number: 块编号（0=自动分配）
+        dry_run: 预览模式，不实际执行
+        preview: 预览模式，返回 token 后可调用 plc_apply(token) 执行
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("create-block", {
+    params = {
         "ProjectPath": PROJECT_PATH,
         "BlockName": block_name,
         "BlockType": block_type,
         "Language": language,
         "BlockNumber": block_number,
-    })
+    }
+    if dry_run:
+        return _dry_run_msg("create-block", params)
+    if preview:
+        r = _preview_action("create-block", params)
+        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    result = _run_tiaworker("create-block", params)
     if result.get("success"):
         data = result.get("data", {})
         return f"✅ 已创建 {block_type} `{data.get('blockName', block_name)}` (编号: {data.get('number', '?')})"
@@ -82,21 +93,29 @@ async def export_block(block_name: str, output_path: str) -> str:
 
 
 @mcp.tool(name="plc_import_block", annotations={"destructiveHint": True})
-async def import_block(file_path: str, override: bool = False) -> str:
+async def import_block(file_path: str, override: bool = False, dry_run: bool = False, preview: bool = False) -> str:
     """从 XML 文件导入块到 TIA 项目
 
     Args:
         file_path: XML 块文件路径
         override: 是否覆盖已存在的同名块
+        dry_run: 预览模式，不实际执行
+        preview: 预览模式，返回 token 后可调用 plc_apply(token) 执行
     """
     if err := _check_project(): return err
     if not os.path.exists(file_path):
         return f"❌ XML 文件不存在: {file_path}"
-    result = _run_tiaworker("import-block", {
+    params = {
         "ProjectPath": PROJECT_PATH,
         "FilePath": file_path,
         "Override": override,
-    })
+    }
+    if dry_run:
+        return _dry_run_msg("import-block", params)
+    if preview:
+        r = _preview_action("import-block", params)
+        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    result = _run_tiaworker("import-block", params)
     if result.get("success"):
         data = result.get("data", {})
         blocks = data.get("blocks", [])
@@ -121,14 +140,22 @@ async def get_block_details(block_name: str) -> str:
 
 
 @mcp.tool(name="plc_delete_block", annotations={"destructiveHint": True})
-async def delete_block(block_name: str) -> str:
+async def delete_block(block_name: str, dry_run: bool = False, preview: bool = False) -> str:
     """删除 PLC 块（FB/FC/OB/DB）
 
     Args:
         block_name: 要删除的块名称
+        dry_run: 预览模式，不实际执行
+        preview: 预览模式，返回 token 后可调用 plc_apply(token) 执行
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("delete-block", {"ProjectPath": PROJECT_PATH, "BlockName": block_name})
+    params = {"ProjectPath": PROJECT_PATH, "BlockName": block_name}
+    if dry_run:
+        return _dry_run_msg("delete-block", params)
+    if preview:
+        r = _preview_action("delete-block", params)
+        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    result = _run_tiaworker("delete-block", params)
     if result.get("success"):
         d = result.get("data", {})
         return f"✅ 已删除 `{d.get('deleted')}` (#{d.get('number')})"
@@ -152,19 +179,27 @@ async def compile_block(block_name: str) -> str:
 
 
 @mcp.tool(name="plc_create_db", annotations={"destructiveHint": False})
-async def create_db(db_name: str, db_number: int = 0) -> str:
+async def create_db(db_name: str, db_number: int = 0, dry_run: bool = False, preview: bool = False) -> str:
     """创建全局数据块 (GlobalDB)
 
     Args:
         db_name: 数据块名称
         db_number: 数据块编号（0=自动分配）
+        dry_run: 预览模式，不实际执行
+        preview: 预览模式，返回 token 后可调用 plc_apply(token) 执行
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("create-db", {
+    params = {
         "ProjectPath": PROJECT_PATH,
         "DbName": db_name,
         "DbNumber": db_number,
-    })
+    }
+    if dry_run:
+        return _dry_run_msg("create-db", params)
+    if preview:
+        r = _preview_action("create-db", params)
+        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    result = _run_tiaworker("create-db", params)
     if result.get("success"):
         data = result.get("data", {})
         return f"✅ 已创建 DB `{data.get('dbName', db_name)}` (编号: {data.get('number', '?')})"
@@ -172,14 +207,22 @@ async def create_db(db_name: str, db_number: int = 0) -> str:
 
 
 @mcp.tool(name="plc_delete_db", annotations={"destructiveHint": True})
-async def delete_db(db_name: str) -> str:
+async def delete_db(db_name: str, dry_run: bool = False, preview: bool = False) -> str:
     """删除数据块（仅限 GlobalDB/InstanceDB）
 
     Args:
         db_name: 要删除的数据块名称
+        dry_run: 预览模式，不实际执行
+        preview: 预览模式，返回 token 后可调用 plc_apply(token) 执行
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("delete-db", {"ProjectPath": PROJECT_PATH, "BlockName": db_name})
+    params = {"ProjectPath": PROJECT_PATH, "BlockName": db_name}
+    if dry_run:
+        return _dry_run_msg("delete-db", params)
+    if preview:
+        r = _preview_action("delete-db", params)
+        return f"🔍 预览:\n```json\n{json.dumps(r['preview'], ensure_ascii=False, indent=2)}\n```\nToken: `{r['token']}`\n使用 `plc_apply(token=\"{r['token']}\")` 执行"
+    result = _run_tiaworker("delete-db", params)
     if result.get("success"):
         d = result.get("data", {})
         return f"✅ 已删除 DB `{d.get('deleted')}` (#{d.get('number')})"

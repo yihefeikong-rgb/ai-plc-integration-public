@@ -1,4 +1,5 @@
 """下载、Factory I/O、流水线工具"""
+import json
 import os
 import subprocess
 from _helpers import (
@@ -9,14 +10,17 @@ from _helpers import (
 
 
 @mcp.tool(name="plc_download_project", annotations={"destructiveHint": True})
-async def download_project(method: str = "auto", compile_first: bool = True) -> str:
+async def download_project(method: str = "auto", compile_first: bool = True, dry_run: bool = False) -> str:
     """将 TIA Portal 项目下载到 PLCSIM（自动选择最优方式）
 
     Args:
         method: 下载方式 (auto/tiaworker/tiaworker-gui/python/ui/golden-restore)
         compile_first: 下载前是否先编译
+        dry_run: 预览模式，不实际执行
     """
     if err := _check_project(): return err
+    if dry_run:
+        return f"🔍 [Dry-Run] 将执行: download-project\n```json\n{json.dumps({'method': method, 'compile_first': compile_first}, ensure_ascii=False, indent=2)}\n```"
 
     method_map = {
         "auto": [],
@@ -97,7 +101,7 @@ async def fio_launch(fio_path: str = "", scene_path: str = "") -> str:
 
 
 @mcp.tool(name="plc_run_pipeline", annotations={"destructiveHint": True})
-async def run_pipeline(skip_compile: bool = False, launch_fio: bool = True) -> str:
+async def run_pipeline(skip_compile: bool = False, launch_fio: bool = True, dry_run: bool = False) -> str:
     """运行完整的 P3 端到端流水线
 
     流程:
@@ -110,7 +114,10 @@ async def run_pipeline(skip_compile: bool = False, launch_fio: bool = True) -> s
     Args:
         skip_compile: 跳过编译步骤
         launch_fio: 完成后启动 Factory I/O
+        dry_run: 预览模式，不实际执行
     """
+    if dry_run:
+        return f"🔍 [Dry-Run] 将执行: run-pipeline\n```json\n{json.dumps({'skip_compile': skip_compile, 'launch_fio': launch_fio}, ensure_ascii=False, indent=2)}\n```"
     result = _run_python(
         P3_SCRIPT,
         ["--skip-compile"] if skip_compile else [],
@@ -123,14 +130,19 @@ async def run_pipeline(skip_compile: bool = False, launch_fio: bool = True) -> s
 
 
 @mcp.tool(name="plc_golden_restore", annotations={"destructiveHint": True})
-async def golden_restore() -> str:
+async def golden_restore(dry_run: bool = False) -> str:
     """快速恢复模式：直接从 golden backup 恢复 PLCSIM，跳过编译/下载
 
     适用于:
       - 已知 golden backup 已包含最新程序
       - 只需重置 PLCSIM 到已知状态
       - TIA Portal 不需要打开
+
+    Args:
+        dry_run: 预览模式，不实际执行
     """
+    if dry_run:
+        return "🔍 [Dry-Run] 将执行: golden-restore"
     result = _run_python(P3_SCRIPT, ["--golden-restore"], timeout=120)
     out = result.get("output", "")
     return out if out else _format_result(result.get("success"), error=result.get("error", "恢复失败"))
