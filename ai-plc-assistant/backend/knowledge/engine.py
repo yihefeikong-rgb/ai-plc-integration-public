@@ -1,5 +1,6 @@
 """知识库引擎 — ChromaDB 向量存储与搜索"""
 
+import logging
 import os
 import uuid
 import shutil
@@ -12,12 +13,34 @@ from chromadb.config import Settings
 from .parsers import parse_file, get_file_metadata
 from .chunker import chunk_text
 
+logger = logging.getLogger(__name__)
+
+
+def _create_embedding_function(model_name: str):
+    """创建基于 fastembed 的中文嵌入函数（ONNX, 无需 torch）"""
+    try:
+        from fastembed import TextEmbedding
+
+        class FastEmbedFunction:
+            def __init__(self):
+                logger.info("加载嵌入模型: %s (首次下载约90MB)", model_name)
+                self._model = TextEmbedding(model_name=model_name)
+
+            def __call__(self, input):
+                return [e.tolist() for e in self._model.embed(input)]
+
+        return FastEmbedFunction()
+    except ImportError:
+        logger.warning("fastembed 未安装, 使用默认英文嵌入模型. 安装: pip install fastembed")
+        return None
+
 
 class KnowledgeEngine:
-    """本地知识库引擎，基于 ChromaDB + 本地嵌入模型"""
+    """本地知识库引擎，基于 ChromaDB + 中文嵌入模型"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, embedding_model: str = ""):
         self.db_path = db_path
+        self.embedding_model = embedding_model
         self._client = None
         self._collection = None
 
@@ -28,11 +51,42 @@ class KnowledgeEngine:
             path=self.db_path,
             settings=Settings(anonymized_telemetry=False),
         )
-        # 使用默认的 all-MiniLM-L6-v2 嵌入（自动下载）
-        self._collection = self._client.get_or_create_collection(
-            name="plc_knowledge",
-            metadata={"hnsw:space": "cosine"},
-        )
+
+        # 创建嵌入函数（中文模型或默认英文）
+        ef = _create_embedding_function(self.embedding_model) if self.embedding_model else None
+
+        # 处理维度迁移：旧集合(384维) → 新集合(512维)
+        try:
+            self._collection = self._client.get_or_create_collection(
+                name="plc_knowledge",
+                embedding_function=ef,
+                metadata={"hnsw:space": "cosine"},
+            )
+            # 测试维度兼容性
+            if self._collection.count() > 0 and ef:
+                try:
+                    self._collection.query(query_texts=["测试"], n_results=1)
+                except Exception:
+                    logger.warning("嵌入维度不匹配, 重建知识库索引 (旧文档需重新导入)")
+                    self._client.delete_collection("plc_knowledge")
+                    self._collection = self._client.create_collection(
+                        name="plc_knowledge",
+                        embedding_function=ef,
+                        metadata={"hnsw:space": "cosine"},
+                    )
+        except Exception as e:
+            logger.error("知识库初始化失败: %s", e)
+            # 回退：删除并重建
+            try:
+                self._client.delete_collection("plc_knowledge")
+            except Exception:
+                pass
+            self._collection = self._client.get_or_create_collection(
+                name="plc_knowledge",
+                embedding_function=ef,
+                metadata={"hnsw:space": "cosine"},
+            )
+
         return self
 
     @property

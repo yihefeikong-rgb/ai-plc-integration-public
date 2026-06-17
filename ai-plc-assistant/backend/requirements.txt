@@ -11,6 +11,9 @@ python-docx==1.1.2
 openai==1.35.0
 anthropic==0.32.0
 
+# Chinese Embedding (RAG)
+fastembed==0.4.1
+
 # Testing
 pytest==8.2.2
 pytest-asyncio==0.23.7

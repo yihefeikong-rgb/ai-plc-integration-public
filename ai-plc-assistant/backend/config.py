@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # 知识库配置
     knowledge_dir: str = "data/knowledge"
     vector_db_path: str = "data/vector_db"
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"  # 中文嵌入模型
 
     # 对话存储
     conversations_db: str = "data/conversations.db"

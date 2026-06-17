@@ -23,7 +23,7 @@ from storage.projects import ProjectStore
 from storage.app_settings import AppSettings, set_settings_store
 
 # 知识库引擎（全局单例）
-knowledge_engine = KnowledgeEngine(db_path=app_config.vector_db_path)
+knowledge_engine = KnowledgeEngine(db_path=app_config.vector_db_path, embedding_model=app_config.embedding_model)
 
 # PLC 搜索引擎（全局单例）
 search_engine = SearchIndex(db_path=app_config.project_search_db)
