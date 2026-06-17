@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { X } from 'lucide-react'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
@@ -9,8 +9,10 @@ import LogPanel from './components/LogPanel'
 import PromptTemplateModal from './components/PromptTemplateModal'
 import SettingsPanel from './components/SettingsPanel'
 import CodeExplainer from './components/CodeExplainer'
+import IoTableGenerator from './components/IoTableGenerator'
+import FaultDiagnosis from './components/FaultDiagnosis'
 import {
-  getModels, generateLadder, createProject,
+  getModels, generateLadder, createProject, importProject,
   createConversation, addMessage, getConversation, listConversations,
 } from './api'
 
@@ -42,6 +44,7 @@ export default function App() {
   const [currentProject, setCurrentProject] = useState(null)
   const [convId, setConvId] = useState(null)
   const [conversations, setConversations] = useState([])
+  const importRef = useRef(null)
   const [showSidebar, setShowSidebar] = useState(true)
   const [showContext, setShowContext] = useState(true)
   const [showBottom, setShowBottom] = useState(true)
@@ -99,6 +102,20 @@ export default function App() {
       setCurrentProject(d.project)
       addLog('info', `[项目] 创建: ${name}`)
     } catch (err) { addLog('error', `[项目] ${err.message}`) }
+  }
+
+  const handleImportProject = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    addLog('info', `[导入] ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`)
+    try {
+      const d = await importProject(file)
+      setCurrentProject(d.project)
+      addLog('info', `[导入] 完成: ${d.project.name} — ${d.index.files_scanned}文件, ${d.index.entries_indexed}条目`)
+    } catch (err) {
+      addLog('error', `[导入] 失败: ${err.message}`)
+    }
+    e.target.value = ''
   }
 
   // 对话管理
@@ -203,7 +220,7 @@ export default function App() {
   const handleMenuAction = (action) => {
     switch (action) {
       case 'project:new': handleCreateProject(); break
-      case 'project:import': openTab('chat'); setPendingInput('导入工程文件'); break
+      case 'project:import': importRef.current?.click(); break
       case 'project:settings': openTab('settings'); break
       case 'tool:ladder': openTab('ladder'); break
       case 'tool:parse': openTab('parse'); break
@@ -229,12 +246,14 @@ export default function App() {
         return <Dashboard onOpenTab={openTab} onCreateProject={handleCreateProject} />
       case 'parse':
         return <CodeExplainer addLog={addLog} />
+      case 'io-table':
+        return <IoTableGenerator addLog={addLog} />
+      case 'diagnose':
+        return <FaultDiagnosis addLog={addLog} />
       case 'settings':
         return <SettingsPanel addLog={addLog} />
       case 'chat':
       case 'ladder':
-      case 'diagnose':
-      case 'io-table':
       case 'variables':
         return <ChatArea messages={messages} onSend={handleSend} initialInput={pendingInput} sending={sending} />
       default:
@@ -275,6 +294,8 @@ export default function App() {
       </div>
 
       {showBottom && <LogPanel logs={logs} />}
+
+      <input ref={importRef} type="file" accept=".ap18,.ap19,.ap17,.zip" onChange={handleImportProject} className="hidden" />
 
       {showTemplates && (
         <PromptTemplateModal onClose={() => setShowTemplates(false)} onSelect={handleTemplateSelect} />

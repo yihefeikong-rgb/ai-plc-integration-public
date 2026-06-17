@@ -1,0 +1,126 @@
+import { useState } from 'react'
+import { Play, Loader2, Table2, Copy, Check, Download } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import { exportCode } from '../api'
+
+const IO_PROMPT = `你是一名西门子PLC工程师。请根据以下设备描述生成完整的PLC IO分配表。
+
+严格按照 Markdown 表格格式输出：
+
+## 数字量输入 (DI)
+| 地址 | 符号名 | 数据类型 | 说明 | 设备位置 |
+|------|--------|----------|------|----------|
+
+## 数字量输出 (DO)
+| 地址 | 符号名 | 数据类型 | 说明 | 设备位置 |
+|------|--------|----------|------|----------|
+
+## 模拟量输入 (AI)
+| 地址 | 符号名 | 数据类型 | 说明 | 量程 | 设备位置 |
+|------|--------|----------|------|------|----------|
+
+## 模拟量输出 (AO)
+| 地址 | 符号名 | 数据类型 | 说明 | 量程 | 设备位置 |
+|------|--------|----------|------|------|----------|
+
+要求：
+1. 使用匈牙利命名法 (bStart / qMotor / rTemp)
+2. 地址从 I0.0 / Q0.0 / IW64 / QW80 开始合理分配
+3. 包含所有安全相关信号（急停、过载、光栅等）
+4. 每个信号都要有清晰的设备位置描述
+
+设备描述：
+`
+
+const API_BASE = 'http://127.0.0.1:8005/api'
+
+export default function IoTableGenerator({ addLog }) {
+  const [description, setDescription] = useState('')
+  const [result, setResult] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const handleGenerate = async () => {
+    if (!description.trim() || loading) return
+    setLoading(true)
+    setResult('')
+    addLog?.('info', `[IO表] 生成中: ${description.slice(0, 50)}...`)
+
+    try {
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_id: 'deepseek',
+          messages: [{ role: 'user', content: IO_PROMPT + description }],
+          temperature: 0.2,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
+      const data = await res.json()
+      setResult(data.content)
+      addLog?.('info', `[IO表] 完成`)
+    } catch (err) {
+      setResult(`生成失败: ${err.message}`)
+      addLog?.('error', `[IO表] ${err.message}`)
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="flex-1 flex overflow-hidden bg-ide-bg">
+      {/* Left: Input */}
+      <div className="w-[400px] flex flex-col border-r border-ide-border shrink-0">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-ide-border bg-ide-panel">
+          <Table2 size={15} className="text-accent" />
+          <span className="text-xs text-text-primary font-medium">IO表生成</span>
+        </div>
+
+        <div className="p-4 flex-1 flex flex-col gap-3">
+          <label className="text-xs text-text-dim">设备描述</label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder={"描述你的设备和控制需求...\n\n示例:\n一条包装生产线，包含：\n- 传送带电机 x2\n- 气缸 x4（推料、夹紧、封口、切断）\n- 光电传感器 x3（入料检测、定位、出料检测）\n- 温度传感器 x1（热封温度）\n- 急停按钮 x2\n- 启动/停止按钮各 x1\n- 三色灯 x1"}
+            className="flex-1 bg-ide-bg border border-ide-border rounded p-3 text-xs text-text-primary placeholder-text-dim outline-none focus:border-accent resize-none font-mono"
+            spellCheck={false}
+          />
+          <button onClick={handleGenerate} disabled={loading || !description.trim()}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-accent text-white rounded text-xs font-medium hover:bg-accent-hover disabled:opacity-30 transition-colors">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+            {loading ? '生成中...' : '生成 IO 表'}
+          </button>
+        </div>
+      </div>
+
+      {/* Right: Result */}
+      <div className="flex-1 flex flex-col">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-ide-border bg-ide-panel">
+          <span className="text-xs text-text-primary font-medium">生成结果</span>
+          <div className="flex-1" />
+          {result && (
+            <button onClick={() => { navigator.clipboard.writeText(result); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+              className="flex items-center gap-1 px-2 py-0.5 text-2xs text-text-dim hover:text-text-primary border border-ide-border rounded">
+              {copied ? <Check size={11} /> : <Copy size={11} />}
+              {copied ? '已复制' : '复制'}
+            </button>
+          )}
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {result ? (
+            <div className="prose prose-invert max-w-none prose-sm text-text-primary
+                            prose-table:border-collapse prose-th:bg-ide-panel prose-th:border prose-th:border-ide-border prose-th:px-3 prose-th:py-1.5
+                            prose-td:border prose-td:border-ide-border prose-td:px-3 prose-td:py-1
+                            prose-headings:text-text-bright prose-h2:text-sm prose-h2:border-b prose-h2:border-ide-border prose-h2:pb-1">
+              <ReactMarkdown>{result}</ReactMarkdown>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-full text-text-dim text-xs">
+              {loading ? <><Loader2 size={16} className="animate-spin mr-2" /> 生成中...</> : '在左侧描述设备，点击「生成 IO 表」'}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

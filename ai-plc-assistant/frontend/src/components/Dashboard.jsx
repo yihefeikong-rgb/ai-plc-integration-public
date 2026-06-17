@@ -8,8 +8,8 @@ import { listProjects, listConversations, getTemplateCategories } from '../api'
 const quickActions = [
   { id: 'ladder', icon: Code2, label: '生成梯形图', desc: '自然语言生成PLC程序' },
   { id: 'parse', icon: FileSearch, label: '解析PLC程序', desc: '上传程序自动分析' },
-  { id: 'search', icon: Search, label: '搜索知识库', desc: '检索案例和文档' },
-  { id: 'import', icon: FolderInput, label: '导入工程', desc: '导入TIA Portal项目' },
+  { id: 'io-table', icon: Search, label: 'IO表生成', desc: '描述设备生成IO表' },
+  { id: 'diagnose', icon: FolderInput, label: '故障诊断', desc: '智能故障分析排查' },
 ]
 
 function timeAgo(ts) {

@@ -22,6 +22,13 @@ export const getProject = (id) => request(`/projects/${id}`)
 export const createProject = (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) })
 export const updateProject = (id, data) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteProject = (id) => request(`/projects/${id}`, { method: 'DELETE' })
+export async function importProject(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`${API_BASE}/projects/import`, { method: 'POST', body: formData })
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || `HTTP ${res.status}`) }
+  return res.json()
+}
 
 // ---- 对话管理 ----
 
