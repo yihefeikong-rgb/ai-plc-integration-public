@@ -147,6 +147,82 @@ def chat_with_fallback(
     raise ValueError(f"所有模型调用均失败。主模型 {model_id}: {primary_err}")
 
 
+# ---- Streaming ----
+
+
+def chat_stream(
+    model_id: str = "deepseek",
+    messages: list[dict] | None = None,
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+):
+    """流式调用 LLM — 逐 token yield"""
+    if messages is None:
+        messages = []
+
+    provider_map = {
+        "deepseek": "deepseek", "openai": "openai", "gpt": "openai",
+        "kimi": "kimi", "claude": "claude", "custom": "custom",
+    }
+    provider = provider_map.get(model_id, model_id)
+    cfg = _get_provider_config(provider)
+
+    if not cfg["api_key"]:
+        raise ValueError(f"模型 {model_id} 未配置 API Key，请在设置中配置")
+
+    if provider == "claude":
+        yield from _stream_anthropic(cfg, messages, temperature, max_tokens)
+    else:
+        yield from _stream_openai_compatible(cfg, messages, temperature, max_tokens)
+
+
+def _stream_openai_compatible(cfg: dict, messages: list, temperature: float, max_tokens: int):
+    client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+    response = client.chat.completions.create(
+        model=cfg["model"],
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+    for chunk in response:
+        if chunk.choices and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+
+def _stream_anthropic(cfg: dict, messages: list, temperature: float, max_tokens: int):
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        raise ImportError("请安装 anthropic SDK: pip install anthropic")
+
+    client = Anthropic(api_key=cfg["api_key"])
+
+    system_text = ""
+    chat_messages = []
+    for m in messages:
+        if m["role"] == "system":
+            system_text = m["content"]
+        else:
+            chat_messages.append({"role": m["role"], "content": m["content"]})
+
+    if not chat_messages:
+        chat_messages = [{"role": "user", "content": "hello"}]
+
+    kwargs = {
+        "model": cfg["model"],
+        "max_tokens": max_tokens,
+        "messages": chat_messages,
+        "temperature": temperature,
+    }
+    if system_text:
+        kwargs["system"] = system_text
+
+    with client.messages.stream(**kwargs) as stream:
+        for text in stream.text_stream:
+            yield text
+
+
 PLC_SYSTEM_PROMPT = """你是一名资深的西门子PLC工程师，精通TIA Portal V18/V19编程。
 
 专业能力：

@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Play, Loader2, AlertTriangle, Copy, Check } from 'lucide-react'
+import { Play, Loader2, AlertTriangle, Copy, Check, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import { streamChat } from '../api'
+import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
 
 const DIAG_PROMPT = (plcType) => `你是一名资深的西门子PLC工程师和工业自动化故障诊断专家。
 当前PLC型号：${plcType}
@@ -32,7 +34,6 @@ const DIAG_PROMPT = (plcType) => `你是一名资深的西门子PLC工程师和�
 `
 
 const PLC_TYPES = ['S7-1200', 'S7-1500', 'S7-300', 'S7-400', 'S7-200 SMART']
-const API_BASE = 'http://127.0.0.1:8005/api'
 
 export default function FaultDiagnosis({ addLog }) {
   const [symptoms, setSymptoms] = useState('')
@@ -41,30 +42,30 @@ export default function FaultDiagnosis({ addLog }) {
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const { history, save } = useWorkbenchHistory('fault-diagnosis')
 
   const handleDiagnose = async () => {
     if (!symptoms.trim() || loading) return
     setLoading(true)
     setResult('')
     addLog?.('info', `[故障诊断] ${plcType}: ${symptoms.slice(0, 50)}...`)
+    let fullResult = ''
 
     let input = symptoms
     if (errorCode.trim()) input += `\n\n错误代码: ${errorCode}`
 
     try {
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model_id: 'deepseek',
-          messages: [{ role: 'user', content: DIAG_PROMPT(plcType) + input }],
-          temperature: 0.3,
-        }),
+      await streamChat({
+        model_id: 'deepseek',
+        messages: [{ role: 'user', content: DIAG_PROMPT(plcType) + input }],
+        temperature: 0.3,
+        onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
+        onDone: () => { save({ label: symptoms.slice(0, 40), symptoms, plcType, errorCode, result: fullResult }); addLog?.('info', '[故障诊断] 完成') },
+        onError: (err) => {
+          setResult(prev => prev || `诊断失败: ${err.message}`)
+          addLog?.('error', `[故障诊断] ${err.message}`)
+        },
       })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
-      const data = await res.json()
-      setResult(data.content)
-      addLog?.('info', `[故障诊断] 完成`)
     } catch (err) {
       setResult(`诊断失败: ${err.message}`)
       addLog?.('error', `[故障诊断] ${err.message}`)
@@ -79,6 +80,15 @@ export default function FaultDiagnosis({ addLog }) {
         <div className="flex items-center gap-2 px-4 py-2 border-b border-ide-border bg-ide-panel">
           <AlertTriangle size={15} className="text-status-warn" />
           <span className="text-xs text-text-primary font-medium">故障诊断</span>
+          <div className="flex-1" />
+          {history.length > 0 && (
+            <select onChange={e => { const h = history.find(x => x.id === e.target.value); if (h) { setSymptoms(h.symptoms); setPlcType(h.plcType || 'S7-1200'); setErrorCode(h.errorCode || ''); setResult(h.result) } }} value=""
+              style={{ color: '#CCC', backgroundColor: '#3C3C3C' }}
+              className="border border-ide-border rounded px-2 py-1 text-2xs outline-none">
+              <option value="">历史 ({history.length})</option>
+              {history.map(h => <option key={h.id} value={h.id}>{h.time} — {h.label}...</option>)}
+            </select>
+          )}
         </div>
 
         <div className="p-4 flex-1 flex flex-col gap-3">

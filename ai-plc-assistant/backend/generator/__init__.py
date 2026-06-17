@@ -122,10 +122,16 @@ def parse_raw_output(text: str) -> LadderProgram:
         var_pattern = re.compile(
             r'\|\s*([\w.%]+)\s*\|\s*(\w+)\s*\|\s*(\w+)\s*\|\s*(.*?)\s*\|'
         )
+        # 表头关键词 — 跳过 Markdown 表头行
+        header_keywords = {"地址", "符号", "类型", "注释", "address", "name", "type", "comment", "datatype", "data_type"}
         for m in var_pattern.finditer(var_text):
+            addr = m.group(1).strip()
+            name = m.group(2).strip()
+            if addr.lower() in header_keywords or name.lower() in header_keywords:
+                continue
             program.add_variable(
-                address=m.group(1).strip(),
-                name=m.group(2).strip(),
+                address=addr,
+                name=name,
                 data_type=m.group(3).strip(),
                 comment=m.group(4).strip(),
             )

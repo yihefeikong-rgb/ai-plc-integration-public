@@ -1,0 +1,147 @@
+[
+  {
+    "id": "motor-start-stop",
+    "description": "电机启动/停止控制",
+    "source": "demo",
+    "template_id": "motor-start-stop",
+    "variables": {},
+    "must_contain": ["bStart", "bStop", "qMotor"],
+    "must_contain_in_text": ["启动", "停止", "Network"],
+    "min_variables": 4,
+    "min_networks": 2
+  },
+  {
+    "id": "traffic-light",
+    "description": "交通灯控制",
+    "source": "demo",
+    "template_id": "traffic-light",
+    "variables": {"green_time": "25", "yellow_time": "5"},
+    "must_contain": ["bStart", "qEW_Red", "qEW_Green", "qNS_Red", "qNS_Green"],
+    "must_contain_in_text": ["绿灯", "黄灯", "急停", "Network"],
+    "min_variables": 8,
+    "min_networks": 3
+  },
+  {
+    "id": "conveyor",
+    "description": "传送带控制",
+    "source": "demo",
+    "template_id": "conveyor",
+    "variables": {},
+    "must_contain": ["bStart", "bStop", "qMotorFwd", "qMotorRev", "sSensorA", "sSensorB"],
+    "must_contain_in_text": ["传送带", "正转", "Network"],
+    "min_variables": 4,
+    "min_networks": 2
+  },
+  {
+    "id": "mock-llm-parse",
+    "description": "LLM 输出解析 — 验证 parse_raw_output 正确提取结构",
+    "source": "mock_llm",
+    "must_contain": ["bStart", "bStop", "qMotor"],
+    "must_contain_in_text": ["启动", "Network"],
+    "min_variables": 3,
+    "min_networks": 2
+  },
+  {
+    "id": "scl-export-motor",
+    "description": "SCL 导出 — 电机控制块",
+    "source": "export_scl",
+    "must_contain_in_export": [
+      "FUNCTION_BLOCK",
+      "VAR_INPUT",
+      "VAR_OUTPUT",
+      "BEGIN",
+      "END_FUNCTION_BLOCK",
+      "bStart",
+      "qMotor"
+    ]
+  },
+  {
+    "id": "xml-export-motor",
+    "description": "XML 导出 — PLCopen 格式验证",
+    "source": "export_xml",
+    "must_contain_in_export": [
+      "<?xml",
+      "plcopen",
+      "bStart",
+      "qMotor",
+      "functionBlock"
+    ]
+  },
+  {
+    "id": "csv-export-tags",
+    "description": "CSV 标签表导出",
+    "source": "export_csv",
+    "must_contain_in_export": [
+      "Name",
+      "Data Type",
+      "Logical Address",
+      "%I0.0",
+      "%Q0.0",
+      "bStart",
+      "qMotor"
+    ]
+  },
+  {
+    "id": "hmi-export",
+    "description": "HMI 变量表导出",
+    "source": "export_hmi",
+    "must_contain_in_export": [
+      "HMI_bStart",
+      "HMI_qMotor",
+      "Read",
+      "Read/Write"
+    ]
+  },
+  {
+    "id": "alarm-detection",
+    "description": "报警变量自动检测",
+    "source": "export_alarm",
+    "alarm_variables": [
+      {"address": "I0.0", "name": "bEmergency", "data_type": "Bool", "comment": "急停"},
+      {"address": "I0.1", "name": "bOverload", "data_type": "Bool", "comment": "过载保护"},
+      {"address": "I0.2", "name": "bStart", "data_type": "Bool", "comment": "启动按钮"},
+      {"address": "Q0.0", "name": "qMotor", "data_type": "Bool", "comment": "电机"}
+    ],
+    "must_detect": ["bEmergency", "bOverload"],
+    "must_not_detect": ["bStart", "qMotor"]
+  },
+  {
+    "id": "json-variable-summary",
+    "description": "JSON 变量导出 — 统计验证",
+    "source": "export_json",
+    "expected_summary": {
+      "total": 4,
+      "inputs": 2,
+      "outputs": 1,
+      "memory": 1
+    }
+  },
+  {
+    "id": "api-ladder-motor",
+    "description": "API 端到端 — 梯形图生成",
+    "source": "api",
+    "endpoint": "/api/generate/ladder",
+    "input": "生成电机启动停止控制程序",
+    "must_contain_in_response": ["title", "structured", "mode"],
+    "structured_min_networks": 1
+  },
+  {
+    "id": "api-export-scl",
+    "description": "API 端到端 — SCL 导出",
+    "source": "api",
+    "endpoint": "/api/generate/export",
+    "export_payload": {
+      "title": "GoldenTest",
+      "variables": [
+        {"address": "I0.0", "name": "bStart", "data_type": "Bool", "comment": "启动"},
+        {"address": "Q0.0", "name": "qMotor", "data_type": "Bool", "comment": "电机"}
+      ],
+      "networks": [
+        {"number": 1, "title": "启动", "code": "code", "comment": "注释"}
+      ],
+      "format": "scl",
+      "block_type": "FB"
+    },
+    "must_contain_in_content": ["FUNCTION_BLOCK", "bStart", "qMotor", "END_FUNCTION_BLOCK"]
+  }
+]

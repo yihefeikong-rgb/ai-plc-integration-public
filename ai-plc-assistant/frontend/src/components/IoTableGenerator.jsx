@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Play, Loader2, Table2, Copy, Check, Download } from 'lucide-react'
+import { Play, Loader2, Table2, Copy, Check, Download, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import { exportCode } from '../api'
+import { streamChat } from '../api'
+import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
 
 const IO_PROMPT = `你是一名西门子PLC工程师。请根据以下设备描述生成完整的PLC IO分配表。
 
@@ -32,34 +33,32 @@ const IO_PROMPT = `你是一名西门子PLC工程师。请根据以下设备描�
 设备描述：
 `
 
-const API_BASE = 'http://127.0.0.1:8005/api'
-
 export default function IoTableGenerator({ addLog }) {
   const [description, setDescription] = useState('')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const { history, save } = useWorkbenchHistory('io-table')
 
   const handleGenerate = async () => {
     if (!description.trim() || loading) return
     setLoading(true)
     setResult('')
     addLog?.('info', `[IO表] 生成中: ${description.slice(0, 50)}...`)
+    let fullResult = ''
 
     try {
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model_id: 'deepseek',
-          messages: [{ role: 'user', content: IO_PROMPT + description }],
-          temperature: 0.2,
-        }),
+      await streamChat({
+        model_id: 'deepseek',
+        messages: [{ role: 'user', content: IO_PROMPT + description }],
+        temperature: 0.2,
+        onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
+        onDone: () => { save({ label: description.slice(0, 40), description, result: fullResult }); addLog?.('info', '[IO表] 完成') },
+        onError: (err) => {
+          setResult(prev => prev || `生成失败: ${err.message}`)
+          addLog?.('error', `[IO表] ${err.message}`)
+        },
       })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
-      const data = await res.json()
-      setResult(data.content)
-      addLog?.('info', `[IO表] 完成`)
     } catch (err) {
       setResult(`生成失败: ${err.message}`)
       addLog?.('error', `[IO表] ${err.message}`)
@@ -74,6 +73,15 @@ export default function IoTableGenerator({ addLog }) {
         <div className="flex items-center gap-2 px-4 py-2 border-b border-ide-border bg-ide-panel">
           <Table2 size={15} className="text-accent" />
           <span className="text-xs text-text-primary font-medium">IO表生成</span>
+          <div className="flex-1" />
+          {history.length > 0 && (
+            <select onChange={e => { const h = history.find(x => x.id === e.target.value); if (h) { setDescription(h.description); setResult(h.result) } }} value=""
+              style={{ color: '#CCC', backgroundColor: '#3C3C3C' }}
+              className="border border-ide-border rounded px-2 py-1 text-2xs outline-none">
+              <option value="">历史 ({history.length})</option>
+              {history.map(h => <option key={h.id} value={h.id}>{h.time} — {h.label}...</option>)}
+            </select>
+          )}
         </div>
 
         <div className="p-4 flex-1 flex flex-col gap-3">

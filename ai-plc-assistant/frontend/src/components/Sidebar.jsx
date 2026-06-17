@@ -50,7 +50,7 @@ const aiTools = [
 
 export default function Sidebar({
   onOpenTab, activeTab, addLog, onCreateProject, currentProject,
-  conversations = [], currentConvId, onSwitchConversation, onNewConversation,
+  conversations = [], currentConvId, onSwitchConversation, onDeleteConversation, onNewConversation,
 }) {
   const fileRef = useRef(null)
   const [projects, setProjects] = useState([])
@@ -59,6 +59,9 @@ export default function Sidebar({
 
   useEffect(() => {
     listProjects(20).then(d => setProjects(d.projects || [])).catch(() => {})
+  }, [currentProject]) // 创建/切换项目后刷新列表
+
+  useEffect(() => {
     listDocuments().then(d => setDocs(d.documents || [])).catch(() => {})
   }, [])
 
@@ -105,9 +108,18 @@ export default function Sidebar({
         {/* 对话 */}
         <Section title="对话" icon={MessageSquare} defaultOpen={true} count={conversations.length}>
           {conversations.map((c) => (
-            <SidebarItem key={c.id} icon={MessageSquare} label={c.title}
-              active={currentConvId === c.id} onClick={() => onSwitchConversation?.(c.id)}
-              dimLabel={currentConvId !== c.id} indent />
+            <div key={c.id}
+              className={`group flex items-center gap-2 pl-7 pr-3 py-1 text-xs cursor-pointer transition-colors ${
+                currentConvId === c.id ? 'bg-accent/10 text-accent' : 'text-text-dim hover:text-text-secondary hover:bg-ide-hover'
+              }`}
+              onClick={() => onSwitchConversation?.(c.id)}>
+              <MessageSquare size={14} className="shrink-0" />
+              <span className="truncate flex-1">{c.title}</span>
+              <button onClick={(e) => { e.stopPropagation(); onDeleteConversation?.(c.id) }}
+                className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-status-error shrink-0">
+                <Trash2 size={11} />
+              </button>
+            </div>
           ))}
           <button onClick={onNewConversation}
             className="w-full flex items-center gap-2 pl-5 px-3 py-1 text-xs text-accent hover:bg-ide-hover">

@@ -1,4 +1,7 @@
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, Menu } = require('electron')
+
+// 移除默认英文菜单栏 (File/Edit/View/Window/Help)
+Menu.setApplicationMenu(null)
 const path = require('path')
 
 const isDev = !app.isPackaged
@@ -20,7 +23,7 @@ function createWindow() {
 
   if (isDev) {
     win.loadURL('http://localhost:5173')
-    win.webContents.openDevTools({ mode: 'bottom' })
+    // DevTools 不自动打开，按 F12 手动打开
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }

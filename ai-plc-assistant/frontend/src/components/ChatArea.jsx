@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, BookOpen, Download, FileCode, FileText as FileXml, Table2 } from 'lucide-react'
+import { Send, Bot, User, BookOpen, Download, FileCode, FileText as FileXml, Table2, ArrowDown } from 'lucide-react'
 import { exportCode } from '../api'
 import ReactMarkdown from 'react-markdown'
 
@@ -159,7 +159,9 @@ function MessageBlock({ msg }) {
 
 export default function ChatArea({ messages, onSend, initialInput = '', sending = false }) {
   const [input, setInput] = useState(initialInput)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
   const endRef = useRef(null)
+  const scrollRef = useRef(null)
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -172,6 +174,17 @@ export default function ChatArea({ messages, onSend, initialInput = '', sending 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    setShowScrollBtn(!atBottom)
+  }
+
+  const scrollToBottom = () => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -191,11 +204,19 @@ export default function ChatArea({ messages, onSend, initialInput = '', sending 
   return (
     <main className="flex-1 flex flex-col overflow-hidden bg-ide-bg">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto">
-        {messages.map((msg, i) => (
-          <MessageBlock key={i} msg={msg} />
-        ))}
-        <div ref={endRef} />
+      <div className="flex-1 overflow-hidden relative">
+        <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
+          {messages.map((msg, i) => (
+            <MessageBlock key={i} msg={msg} />
+          ))}
+          <div ref={endRef} />
+        </div>
+        {showScrollBtn && (
+          <button onClick={scrollToBottom}
+            className="absolute bottom-4 right-6 w-8 h-8 bg-ide-panel border border-ide-border rounded-full flex items-center justify-center text-text-dim hover:text-accent hover:border-accent/40 shadow-lg transition-colors">
+            <ArrowDown size={16} />
+          </button>
+        )}
       </div>
 
       {/* Input */}

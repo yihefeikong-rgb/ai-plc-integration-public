@@ -1,9 +1,17 @@
 """AI PLC Assistant — FastAPI 后端服务"""
 
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 from config import settings as app_config
 from routes import chat, models, knowledge, search, prompts, generate, conversations, projects
@@ -33,6 +41,7 @@ app_settings_store = AppSettings(file_path="data/settings.json")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化所有引擎"""
+    logger.info("启动 AI PLC Assistant 后端...")
     knowledge_engine.initialize()
     knowledge.set_engine(knowledge_engine)
     search_engine.initialize()
@@ -43,7 +52,9 @@ async def lifespan(app: FastAPI):
     projects.set_store(project_store)
     app_settings_store.initialize()
     set_settings_store(app_settings_store)
+    logger.info("所有引擎初始化完成")
     yield
+    logger.info("后端服务已关闭")
 
 
 app = FastAPI(
@@ -62,6 +73,21 @@ app.add_middleware(
     allow_headers=["*"],
     allow_origin_regex=".*",
 )
+
+# 全局异常处理
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    detail = "; ".join(f"{e.get('loc', '')}: {e.get('msg', '')}" for e in errors)
+    logger.warning("请求验证失败: %s %s — %s", request.method, request.url.path, detail)
+    return JSONResponse(status_code=422, content={"detail": f"请求参数错误: {detail}"})
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("未捕获异常: %s %s — %s", request.method, request.url.path, exc, exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": f"服务器内部错误: {type(exc).__name__}"})
+
 
 # 注册路由
 app.include_router(models.router, prefix="/api/models", tags=["模型管理"])

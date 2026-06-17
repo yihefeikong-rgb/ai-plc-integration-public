@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Play, Loader2, Code2, Copy, Check } from 'lucide-react'
+import { Play, Loader2, Code2, Copy, Check, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import { streamChat } from '../api'
+import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
 
 const LANGUAGES = [
   { id: 'scl', label: 'SCL' },
@@ -32,46 +34,40 @@ const EXPLAIN_PROMPT = (lang) => `请解析下面的PLC代码（语言：${lang}
 代码如下：
 `
 
-const API_BASE = 'http://127.0.0.1:8005/api'
-
 export default function CodeExplainer({ addLog }) {
   const [code, setCode] = useState('')
   const [language, setLanguage] = useState('auto')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const { history, save } = useWorkbenchHistory('code-explainer')
 
   const handleExplain = async () => {
     if (!code.trim() || loading) return
     setLoading(true)
     setResult('')
     addLog?.('info', `[代码解析] 语言: ${language}, ${code.length} 字符`)
+    let fullResult = ''
 
     try {
       const langLabel = LANGUAGES.find(l => l.id === language)?.label || language
       const prompt = EXPLAIN_PROMPT(langLabel) + code
 
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model_id: 'deepseek',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-        }),
+      await streamChat({
+        model_id: 'deepseek',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+        onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
+        onDone: (data) => {
+          save({ label: code.slice(0, 40), code, language, result: fullResult })
+          if (data?.fallback) addLog?.('warn', `[代码解析] 已切换到 ${data.model}`)
+          addLog?.('info', '[代码解析] 完成')
+        },
+        onError: (err) => {
+          setResult(prev => prev || `解析失败: ${err.message}`)
+          addLog?.('error', `[代码解析] ${err.message}`)
+        },
       })
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || `HTTP ${res.status}`)
-      }
-
-      const data = await res.json()
-      setResult(data.content)
-      if (data.fallback) {
-        addLog?.('warn', `[代码解析] 主模型不可用，已切换到 ${data.model}`)
-      }
-      addLog?.('info', `[代码解析] 完成 (${data.content.length} 字符)`)
     } catch (err) {
       setResult(`解析失败: ${err.message}\n\n请检查后端是否已启动，API Key 是否配置正确。`)
       addLog?.('error', `[代码解析] ${err.message}`)
@@ -94,6 +90,14 @@ export default function CodeExplainer({ addLog }) {
           <Code2 size={15} className="text-accent" />
           <span className="text-xs text-text-primary font-medium">代码解析</span>
           <div className="flex-1" />
+          {history.length > 0 && (
+            <select onChange={e => { const h = history.find(x => x.id === e.target.value); if (h) { setCode(h.code); setLanguage(h.language || 'auto'); setResult(h.result) } }} value=""
+              style={{ color: '#CCC', backgroundColor: '#3C3C3C' }}
+              className="border border-ide-border rounded px-2 py-1 text-2xs outline-none">
+              <option value=""><Clock size={10} className="inline" /> 历史 ({history.length})</option>
+              {history.map(h => <option key={h.id} value={h.id}>{h.time} — {h.label}...</option>)}
+            </select>
+          )}
           <select
             value={language}
             onChange={e => setLanguage(e.target.value)}

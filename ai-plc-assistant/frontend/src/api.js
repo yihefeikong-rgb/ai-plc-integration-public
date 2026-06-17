@@ -1,6 +1,7 @@
 /** 后端 API 通信模块 */
 
-const API_BASE = 'http://127.0.0.1:8005/api'
+// Dev 模式走 Vite proxy（绕过系统代理），Prod 模式直连后端
+export const API_BASE = import.meta.env.DEV ? '/api' : 'http://127.0.0.1:8005/api'
 
 async function request(path, options = {}) {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
@@ -114,6 +115,53 @@ export const testProvider = (provider) => request(`/settings/test/${provider}`, 
 // ---- 模型 ----
 
 export const getModels = () => request('/models')
+
+// ---- SSE 流式对话 ----
+
+export async function streamChat({ model_id = 'deepseek', messages = [], temperature, project_context, onToken, onDone, onError, signal }) {
+  const body = { model_id, messages }
+  if (temperature !== undefined) body.temperature = temperature
+  if (project_context) body.project_context = project_context
+
+  const res = await fetch(`${API_BASE}/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${res.status}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let ragSources = []
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop()
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const payload = line.slice(6).trim()
+      if (payload === '[DONE]') return
+      try {
+        const data = JSON.parse(payload)
+        if (data.token) onToken?.(data.token)
+        if (data.error) { onError?.(new Error(data.error)); return }
+        if (data.rag_sources) ragSources = data.rag_sources
+        if (data.done) onDone?.({ ...data, rag_sources: ragSources })
+      } catch {}
+    }
+  }
+}
 
 // ---- 健康检查 ----
 

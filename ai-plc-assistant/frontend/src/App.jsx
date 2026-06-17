@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState } from 'react'
 import { X } from 'lucide-react'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
@@ -11,205 +11,40 @@ import SettingsPanel from './components/SettingsPanel'
 import CodeExplainer from './components/CodeExplainer'
 import IoTableGenerator from './components/IoTableGenerator'
 import FaultDiagnosis from './components/FaultDiagnosis'
-import {
-  getModels, generateLadder, createProject, importProject,
-  createConversation, addMessage, getConversation, listConversations,
-} from './api'
-
-const API_BASE = 'http://127.0.0.1:8005/api'
-
-const TAB_LABELS = {
-  welcome: '欢迎',
-  chat: 'AI 助手',
-  ladder: '梯形图生成',
-  parse: '程序解析',
-  diagnose: '故障诊断',
-  'io-table': 'IO表生成',
-  variables: '变量分析',
-  settings: '设置',
-}
+import LadderGenerator from './components/LadderGenerator'
+import VariableAnalyzer from './components/VariableAnalyzer'
+import CreateProjectDialog from './components/CreateProjectDialog'
+import ErrorBoundary from './components/ErrorBoundary'
+import useLogs from './hooks/useLogs'
+import useTabs, { TAB_LABELS } from './hooks/useTabs'
+import useModels from './hooks/useModels'
+import useProjects from './hooks/useProjects'
+import useConversation from './hooks/useConversation'
 
 export default function App() {
-  const [tabs, setTabs] = useState([{ id: 'welcome', closable: false }])
-  const [activeTab, setActiveTab] = useState('welcome')
-  const [messages, setMessages] = useState([])
-  const [sending, setSending] = useState(false)
-  const [pendingInput, setPendingInput] = useState('')
-  const [models, setModels] = useState([{ id: 'deepseek', name: 'DeepSeek', enabled: true }])
-  const [selectedModel, setSelectedModel] = useState('deepseek')
-  const [logs, setLogs] = useState([
-    { time: new Date().toLocaleTimeString(), level: 'info', message: '系统已启动' },
-  ])
+  const { logs, addLog } = useLogs()
+  const { tabs, activeTab, setActiveTab, openTab, closeTab } = useTabs()
+  const { models, selectedModel, setSelectedModel } = useModels()
+  const { currentProject, setCurrentProject, handleCreateProject, handleImportProject, importRef } = useProjects({ addLog })
+  const { convId, conversations, messages, sending, pendingInput, setPendingInput, handleNewConversation, handleSwitchConversation, handleDeleteConversation, handleSend } = useConversation({ addLog, openTab, selectedModel, currentProject })
+
   const [showTemplates, setShowTemplates] = useState(false)
-  const [currentProject, setCurrentProject] = useState(null)
-  const [convId, setConvId] = useState(null)
-  const [conversations, setConversations] = useState([])
-  const importRef = useRef(null)
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
   const [showContext, setShowContext] = useState(true)
   const [showBottom, setShowBottom] = useState(true)
 
-  // 启动时加载模型和对话列表
-  useEffect(() => {
-    getModels().then(d => {
-      if (d.models) {
-        setModels(d.models)
-        const enabled = d.models.find(m => m.enabled)
-        if (enabled) setSelectedModel(enabled.id)
-      }
-    }).catch(() => {})
+  const openCreateDialog = () => setShowCreateDialog(true)
 
-    refreshConversations()
-  }, [])
-
-  const refreshConversations = async () => {
-    try {
-      const d = await listConversations(20)
-      setConversations(d.conversations || [])
-    } catch {}
-  }
-
-  const addLog = useCallback((level, message) => {
-    setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), level, message }])
-  }, [])
-
-  // Tab 管理
-  const openTab = (id, data) => {
+  // 统一入口: 处理特殊 tab (templates / project) + 普通 tab
+  const handleOpenTab = (id, data) => {
     if (id === 'templates') { setShowTemplates(true); return }
     if (id === 'project' && data) {
       setCurrentProject(data)
       addLog('info', `[项目] ${data.name}`)
       return
     }
-    if (!tabs.find(t => t.id === id)) {
-      setTabs(prev => [...prev, { id, closable: true }])
-    }
-    setActiveTab(id)
-  }
-
-  const closeTab = (id) => {
-    const next = tabs.filter(t => t.id !== id)
-    setTabs(next)
-    if (activeTab === id) setActiveTab(next[next.length - 1]?.id || 'welcome')
-  }
-
-  // 项目管理
-  const handleCreateProject = async () => {
-    const name = prompt('项目名称：')
-    if (!name) return
-    try {
-      const d = await createProject({ name })
-      setCurrentProject(d.project)
-      addLog('info', `[项目] 创建: ${name}`)
-    } catch (err) { addLog('error', `[项目] ${err.message}`) }
-  }
-
-  const handleImportProject = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    addLog('info', `[导入] ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`)
-    try {
-      const d = await importProject(file)
-      setCurrentProject(d.project)
-      addLog('info', `[导入] 完成: ${d.project.name} — ${d.index.files_scanned}文件, ${d.index.entries_indexed}条目`)
-    } catch (err) {
-      addLog('error', `[导入] 失败: ${err.message}`)
-    }
-    e.target.value = ''
-  }
-
-  // 对话管理
-  const handleNewConversation = async () => {
-    setConvId(null)
-    setMessages([])
-    openTab('chat')
-    addLog('info', '[对话] 新建')
-  }
-
-  const handleSwitchConversation = async (id) => {
-    try {
-      const d = await getConversation(id)
-      const conv = d.conversation
-      setConvId(conv.id)
-      setMessages(conv.messages.map(m => ({
-        role: m.role,
-        content: m.content,
-        type: m.msg_type === 'ladder' ? 'ladder' : undefined,
-      })))
-      openTab('chat')
-      addLog('info', `[对话] 切换: ${conv.title}`)
-    } catch (err) { addLog('error', `[对话] ${err.message}`) }
-  }
-
-  const ensureConversation = async () => {
-    if (convId) return convId
-    try {
-      const d = await createConversation('AI 对话', selectedModel)
-      const newId = d.conversation.id
-      setConvId(newId)
-      refreshConversations()
-      return newId
-    } catch { return null }
-  }
-
-  // 发送消息
-  const isGenerationRequest = (text) =>
-    ['生成', '梯形图', 'ladder', '程序', '编写'].some(k => text.includes(k))
-
-  const handleSend = async (text) => {
-    if (sending) return
-    openTab('chat')
-    setMessages(prev => [...prev, { role: 'user', content: text }])
-    addLog('info', `[发送] ${text.slice(0, 50)}...`)
-    setSending(true)
-
-    const cid = await ensureConversation()
-    if (cid) addMessage(cid, 'user', text).catch(() => {})
-
-    try {
-      // 梯形图生成
-      if (isGenerationRequest(text)) {
-        try {
-          const result = await generateLadder(text, {}, '', selectedModel)
-          if (result.structured?.networks?.length > 0) {
-            addLog('info', `[生成] ${result.title} (${result.mode})`)
-            setMessages(prev => [...prev, {
-              role: 'assistant', type: 'ladder',
-              title: result.title, description: result.description,
-              structured: result.structured, content: result.text, mode: result.mode,
-            }])
-            if (cid) addMessage(cid, 'assistant', result.text, 'ladder').catch(() => {})
-            setSending(false)
-            return
-          }
-        } catch { addLog('warn', '[生成] 回退 LLM') }
-      }
-
-      // LLM 调用
-      addLog('info', `[LLM] ${selectedModel}`)
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model_id: selectedModel,
-          messages: [...messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
-            { role: 'user', content: text }],
-        }),
-      })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
-
-      const data = await res.json()
-      if (data.fallback) {
-        addLog('warn', `[LLM] 主模型不可用，已切换到 ${data.model}`)
-      }
-      addLog('info', `[LLM] ${data.model} — ${data.content.length}字`)
-      setMessages(prev => [...prev, { role: 'assistant', content: data.content, rag_sources: data.rag_sources }])
-      if (cid) addMessage(cid, 'assistant', data.content).catch(() => {})
-    } catch (err) {
-      addLog('error', `[错误] ${err.message}`)
-      setMessages(prev => [...prev, { role: 'assistant', content: `调用失败: ${err.message}` }])
-    }
-    setSending(false)
+    openTab(id)
   }
 
   const handleTemplateSelect = (content) => {
@@ -219,7 +54,7 @@ export default function App() {
 
   const handleMenuAction = (action) => {
     switch (action) {
-      case 'project:new': handleCreateProject(); break
+      case 'project:new': openCreateDialog(); break
       case 'project:import': importRef.current?.click(); break
       case 'project:settings': openTab('settings'); break
       case 'tool:ladder': openTab('ladder'); break
@@ -240,28 +75,20 @@ export default function App() {
     }
   }
 
-  const renderWorkspace = () => {
-    switch (activeTab) {
-      case 'welcome':
-        return <Dashboard onOpenTab={openTab} onCreateProject={handleCreateProject} />
-      case 'parse':
-        return <CodeExplainer addLog={addLog} />
-      case 'io-table':
-        return <IoTableGenerator addLog={addLog} />
-      case 'diagnose':
-        return <FaultDiagnosis addLog={addLog} />
-      case 'settings':
-        return <SettingsPanel addLog={addLog} />
-      case 'chat':
-      case 'ladder':
-      case 'variables':
-        return <ChatArea messages={messages} onSend={handleSend} initialInput={pendingInput} sending={sending} />
-      default:
-        return <Dashboard onOpenTab={openTab} onCreateProject={handleCreateProject} />
-    }
+  // Tab → 组件映射（已打开的 Tab 保持挂载，切走不丢状态）
+  const workspaces = {
+    welcome: <Dashboard onOpenTab={handleOpenTab} onCreateProject={openCreateDialog} />,
+    chat: <ChatArea messages={messages} onSend={handleSend} initialInput={pendingInput} sending={sending} />,
+    parse: <CodeExplainer addLog={addLog} />,
+    'io-table': <IoTableGenerator addLog={addLog} />,
+    diagnose: <FaultDiagnosis addLog={addLog} />,
+    ladder: <LadderGenerator addLog={addLog} />,
+    variables: <VariableAnalyzer addLog={addLog} />,
+    settings: <SettingsPanel addLog={addLog} />,
   }
 
   return (
+    <ErrorBoundary>
     <div className="h-full flex flex-col">
       <Toolbar models={models} selectedModel={selectedModel} onSelectModel={setSelectedModel} onMenuAction={handleMenuAction} />
 
@@ -284,12 +111,17 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden">
         {showSidebar && (
-          <Sidebar onOpenTab={openTab} activeTab={activeTab} addLog={addLog}
-            onCreateProject={handleCreateProject} currentProject={currentProject}
+          <Sidebar onOpenTab={handleOpenTab} activeTab={activeTab} addLog={addLog}
+            onCreateProject={openCreateDialog} currentProject={currentProject}
             conversations={conversations} currentConvId={convId}
-            onSwitchConversation={handleSwitchConversation} onNewConversation={handleNewConversation} />
+            onSwitchConversation={handleSwitchConversation} onDeleteConversation={handleDeleteConversation}
+            onNewConversation={handleNewConversation} />
         )}
-        {renderWorkspace()}
+        {tabs.map(tab => workspaces[tab.id] && (
+          <div key={tab.id} style={{ display: activeTab === tab.id ? 'flex' : 'none' }} className="flex-1 overflow-hidden">
+            {workspaces[tab.id]}
+          </div>
+        ))}
         {showContext && <ContextPanel addLog={addLog} currentProject={currentProject} />}
       </div>
 
@@ -300,6 +132,14 @@ export default function App() {
       {showTemplates && (
         <PromptTemplateModal onClose={() => setShowTemplates(false)} onSelect={handleTemplateSelect} />
       )}
+
+      {showCreateDialog && (
+        <CreateProjectDialog
+          onSubmit={(data) => { handleCreateProject(data); setShowCreateDialog(false) }}
+          onCancel={() => setShowCreateDialog(false)}
+        />
+      )}
     </div>
+    </ErrorBoundary>
   )
 }
