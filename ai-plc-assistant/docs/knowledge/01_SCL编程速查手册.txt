@@ -1,0 +1,262 @@
+西门子 S7-1200/S7-1500 SCL 编程速查手册
+
+========================================
+第一部分：数据类型
+========================================
+
+布尔与位：
+- Bool（1 bit）：TRUE / FALSE
+- Byte（8 bit）：16#00..16#FF
+- Word（16 bit）：16#0000..16#FFFF
+- DWord（32 bit）：双字
+- LWord（64 bit，仅 S7-1500）
+
+整数：
+- SInt（8 bit）：-128..127
+- Int（16 bit）：-32768..32767
+- DInt（32 bit）：双整数
+- LInt（64 bit，仅 S7-1500）
+- USInt/UInt/UDInt/ULInt：对应无符号版本
+
+浮点：
+- Real（32 bit）：IEEE 754 单精度
+- LReal（64 bit）：双精度（仅 S7-1500）
+
+时间：
+- Time：T#5s, T#2h30m, T#500ms
+- Date：D#2024-12-31
+- TOD：TOD#10:20:30.400
+
+字符串：
+- Char：单个字符，'A'
+- String：最长 254 字符，String[100]
+- WChar/WString：Unicode 版本
+
+数组：
+- ARRAY[1..10] OF INT
+- ARRAY[1..3, 1..4] OF REAL
+- 最多 6 维，索引 -32768..32767
+
+结构体（STRUCT）：
+- 推荐优先使用 UDT（PLC数据类型）
+- UDT 可复用，Struct 只能在块内声明
+
+========================================
+第二部分：变量声明
+========================================
+
+VAR_INPUT：输入参数，块内只读
+VAR_OUTPUT：输出参数
+VAR_IN_OUT：输入输出参数，可修改
+VAR / VAR_STATIC：静态变量，保持值（仅 FB）
+VAR_TEMP：临时变量，不保持
+VAR CONSTANT：常量
+
+========================================
+第三部分：运算符
+========================================
+
+算术：+ - * / MOD **
+比较：= <> < > <= >=
+逻辑：NOT AND(&) XOR OR
+赋值：:=
+组合赋值：+= -= *= /=
+优先级：乘方(2) > 正负(3) > 乘除(4) > 加减(5) > 比较 > 逻辑
+
+========================================
+第四部分：控制结构
+========================================
+
+IF-THEN-ELSIF-ELSE：
+IF Condition THEN
+    // 执行
+ELSIF OtherCondition THEN
+    // 其他
+ELSE
+    // 默认
+END_IF;
+
+CASE-OF（多路分支）：
+CASE State OF
+    0: // 空闲
+    1, 3, 5: // 多个值
+    6..10: // 范围
+    ELSE // 默认
+END_CASE;
+
+FOR 循环：
+FOR i := 1 TO 10 DO
+    Sum := Sum + Values[i];
+END_FOR;
+
+FOR i := 0 TO 100 BY 2 DO  // 步长
+    Even[i/2] := Data[i];
+END_FOR;
+
+WHILE 循环（先判断后执行）：
+WHILE (Total < Target) AND (Attempts < Max) DO
+    Attempts := Attempts + 1;
+END_WHILE;
+
+REPEAT-UNTIL 循环（先执行后判断）：
+REPEAT
+    Readings := Readings + 1;
+UNTIL SensorReady OR (Readings >= Max)
+END_REPEAT;
+
+CONTINUE：跳过当前迭代
+EXIT：立即退出循环
+RETURN：退出当前块
+
+========================================
+第五部分：FC 与 FB 的区别
+========================================
+
+FC（函数）：
+- 无内部状态，每次调用结果仅取决于输入
+- 不用背景数据块
+- 适合：数学计算、数据转换
+
+FB（功能块）：
+- 有内部状态，VAR 变量在调用之间保持
+- 需要背景数据块（Instance DB）
+- 适合：控制器、状态机、设备驱动
+
+FC 调用语法：
+"FC_Name"(Input1 := val1, Input2 := val2, Output1 => result1);
+
+FB 调用语法：
+"DB_Name"(Start := I_Start, Stop := I_Stop);
+
+========================================
+第六部分：定时器
+========================================
+
+TON（接通延时）— 最常用：
+声明：
+    VAR tonInst : TON; END_VAR
+使用：
+    tonInst(IN := Start, PT := T#5S);
+    IF tonInst.Q THEN // 5秒后执行 END_IF;
+    Elapsed := tonInst.ET; // 当前已计时
+
+工作过程：IN=1 开始计时，ET 达到 PT 时 Q=1，IN=0 复位
+
+TOF（关断延时）：
+    tonInst(IN := Signal, PT := T#10S);
+    // IN=1 时 Q 立即=1，IN=0 后延时 PT 才 Q=0
+
+TP（脉冲定时器）：
+    tonInst(IN := Trigger, PT := T#1S);
+    // 触发时输出固定宽度脉冲
+
+TONR（时间累加器）：
+    tonInst(IN := MotorRunning, R := Reset, PT := T#100H);
+    // 累加计时，可暂停，R 复位
+
+========================================
+第七部分：计数器
+========================================
+
+CTU（加计数器）：
+    ctuInst(CU := Signal, R := Reset, PV := 100);
+    IF ctuInst.Q THEN // CV >= 100 END_IF;
+
+CTD（减计数器）：
+    ctdInst(CD := Signal, LD := Load, PV := 50);
+    IF ctdInst.Q THEN // CV <= 0 END_IF;
+
+CTUD（加减计数器）：
+    ctudInst(CU := In, CD := Out, R := Reset, LD := Load, PV := 1000);
+
+注意：计数器基于上升沿触发，内部自动检测
+
+========================================
+第八部分：边沿检测
+========================================
+
+手动实现上升沿：
+    Rising := Signal AND NOT LastSignal;
+    LastSignal := Signal;
+
+使用 R_TRIG / F_TRIG 指令：
+    VAR inst : R_TRIG; END_VAR
+    inst(CLK := Button);
+    IF inst.Q THEN // 上升沿触发 END_IF;
+
+========================================
+第九部分：常见编程模式
+========================================
+
+电机控制（自锁电路）：
+    MotorRun := (Start OR MotorRun) AND NOT Stop AND NOT Fault;
+
+上升沿启动：
+    IF Start AND NOT LastStart AND NOT Fault THEN
+        MotorRun := TRUE;
+    END_IF;
+    IF Stop OR Overload THEN
+        MotorRun := FALSE;
+    END_IF;
+    LastStart := Start;
+
+状态机顺序控制：
+    CASE Step OF
+        0: IF Start THEN Step := 10; END_IF;
+        10: // 步骤1
+            Cylinder1 := TRUE;
+            IF Sensor1 THEN Step := 20; END_IF;
+        20: // 步骤2
+            Cylinder2 := TRUE;
+            IF Sensor2 THEN Step := 99; END_IF;
+        99: // 完成
+            Done := TRUE;
+    END_CASE;
+
+模拟量标定：
+    Scaled := INT_TO_REAL(Raw - RawMin) / INT_TO_REAL(RawMax - RawMin)
+              * (ScaleMax - ScaleMin) + ScaleMin;
+
+========================================
+第十部分：寻址方式
+========================================
+
+符号寻址：
+- DB 变量："MyDB".Variable
+- PLC 变量："StartButton"
+- 局部变量：#Input1
+
+绝对地址：
+- I 区：%I0.0
+- Q 区：%Q0.0
+- M 区：%M100.0
+- DB：%DB2.DBB1
+
+指针语法（PUT/GET）：
+- P#DB1.DBX0.0 BYTE 10
+- P#DB2.DBX0.0 WORD 5
+- P#M100.0 WORD 10
+- P#I0.0 BOOL 1
+
+========================================
+第十一部分：编程最佳实践
+========================================
+
+命名规范：
+- 块名：PascalCase（MotorControl）
+- 变量：camelCase（motorSpeed）
+- 常量：全大写 SNAKE_CASE（MAX_SPEED）
+- 布尔：b 前缀（bIsRunning）
+- 整数：i 前缀（iCounter）
+- 浮点：r 前缀（rTemperature）
+- 定时器：ton 前缀（tonDelayStart）
+- 计数器：ctu 前缀（ctuPartCount）
+
+安全编程：
+- 每个 OB 周期必须对所有输出赋值
+- FOR/WHILE 必须有明确退出条件
+- 除法前检查除数
+- 数组访问前检查索引范围
+- CASE 必须创建 ELSE 分支
+- 用 CASE 代替 ELSIF 分支
+- 避免 GOTO 跳转
