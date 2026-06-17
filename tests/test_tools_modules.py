@@ -13,9 +13,9 @@ import pytest
 import asyncio
 
 PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "mcp-servers" / "plc-mcp-bridge"))
-sys.path.insert(0, str(PROJECT_ROOT / "mcp-servers" / "tia-mcp"))
-sys.path.insert(0, str(PROJECT_ROOT / "mcp_common"))
+sys.path.append(str(PROJECT_ROOT / "mcp-servers" / "plc-mcp-bridge"))
+sys.path.append(str(PROJECT_ROOT / "mcp-servers" / "tia-mcp"))
+sys.path.append(str(PROJECT_ROOT / "mcp_common"))
 
 
 # ═══ tools_diagnostics ═══

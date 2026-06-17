@@ -119,41 +119,52 @@ async def s7_write(address: str, value: str) -> str:
     if not SAFETY_AVAILABLE or safety_val is None:
         return "🚫 写入被拒绝: 安全模块不可用，无法执行安全校验"
 
+    # 影子仿真模块不可用时，拒绝所有写入（安全红线）
+    if shadow_sim is None:
+        return "🚫 写入被拒绝: 影子仿真模块不可用（违反安全红线），请检查 safety/ 目录"
+
     try:
-        # 1. 互锁校验
-        result = safety_val.validate(address, value)
+        # 0. 转换数值类型（确保 validate 和 shadow_sim 接收到正确类型）
+        try:
+            numeric_value = float(value)
+        except (ValueError, TypeError):
+            numeric_value = value
+
+        # 1. 读取当前值（用于跳变检测）
+        try:
+            current_value = adapter.read_address(address)
+        except Exception:
+            current_value = None
+
+        # 2. 互锁校验
+        result = safety_val.validate(address, numeric_value, current_value=current_value)
         if not result.allowed:
             if _audit:
-                _audit.log("write_rejected", address, value, success=False, detail=result.reason)
+                _audit.log("write_rejected", address, str(value), success=False, detail=result.reason)
             return f"🚫 写入被拒绝: {result.reason}"
 
-        # 2. 影子仿真验证
-        if shadow_sim is not None:
-            try:
-                numeric_value = float(value)
-            except (ValueError, TypeError):
-                numeric_value = value
-            sim_result = await shadow_sim.simulate_write(address, numeric_value)
-            if not sim_result.safe:
-                if _audit:
-                    _audit.log("shadow_rejected", address, value, success=False, detail=sim_result.reason)
-                return f"🚫 影子仿真拒绝: {sim_result.reason}"
+        # 3. 影子仿真验证
+        sim_result = await shadow_sim.simulate_write(address, numeric_value, current_value=current_value)
+        if not sim_result.safe:
+            if _audit:
+                _audit.log("shadow_rejected", address, str(value), success=False, detail=sim_result.reason)
+            return f"🚫 影子仿真拒绝: {sim_result.reason}"
 
-        # 3. 执行写入
+        # 4. 执行写入
         write_result = adapter.write_address(address, value)
 
-        # 4. 审计日志
+        # 5. 审计日志
         if _audit:
-            _audit.log("write", address, value, success=True)
+            _audit.log("write", address, str(value), success=True)
 
         return write_result
     except ConnectionError as e:
         if _audit:
-            _audit.log("write_error", address, value, success=False, detail=str(e))
+            _audit.log("write_error", address, str(value), success=False, detail=str(e))
         return f"❌ {e}"
     except Exception as e:
         if _audit:
-            _audit.log("write_error", address, value, success=False, detail=str(e))
+            _audit.log("write_error", address, str(value), success=False, detail=str(e))
         return f"❌ 写入失败 [{address}={value}]: {e}"
 
 

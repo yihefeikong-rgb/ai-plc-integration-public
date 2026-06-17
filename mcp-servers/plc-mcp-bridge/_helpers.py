@@ -204,7 +204,6 @@ class _PreviewStore:
     def put(self, token: str, data: dict) -> None:
         self._evict_expired()
         if len(self._store) >= self._max_size:
-            # 移除最旧的条目
             oldest_key = min(self._store, key=lambda k: self._store[k]["timestamp"])
             del self._store[oldest_key]
         self._store[token] = data
@@ -242,12 +241,10 @@ def _preview_action(action: str, params: dict) -> dict:
 
 
 def _apply_preview(token: str) -> dict:
-    """验证 token 并返回缓存的操作信息"""
+    """验证 token 并返回缓存的操作信息（_PreviewStore.pop 已包含 TTL 清理）"""
     entry = _preview_store.pop(token)
     if entry is None:
         return {"success": False, "error": "Token 无效或已过期"}
-    if time.time() - entry["timestamp"] > _PREVIEW_TTL:
-        return {"success": False, "error": "Token 已过期（有效期 60 秒）"}
     return {"success": True, "action": entry["action"], "params": entry["params"]}
 
 
