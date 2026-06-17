@@ -1,0 +1,582 @@
+制造业应用模板参考
+
+========================================
+第一部分：注塑成型
+========================================
+
+标准注射周期阶段：
+  合模 -> 注射 -> 保压 -> 冷却 -> 开模 -> 顶出
+
+注射阶段细分：
+  - 注射：螺杆高速推进，熔料填充模腔
+  - 过渡：从速度控制切换到压力控制
+  - 保压：维持模腔压力，补偿收缩
+  - 预减压：螺杆后退释放压力
+  - 塑化：螺杆旋转熔融下一周期原料
+  - 后减压：螺杆微退防止流涎
+
+注射转保压过渡条件（三选一）：
+  - 螺杆位置到达切换点
+  - 模腔压力到达设定阈值
+  - 注射时间超限（安全备用）
+
+保压控制（最多 5 段压力-时间曲线）：
+  - 第 1 段：高压 80%，持续 2s
+  - 第 2 段：中压 50%，持续 3s
+  - 第 3 段：低压 30%，持续 2s
+  - 第 4-5 段：递减压力，逐步释放
+
+塑化背压控制（最多 11 段背压-位置/时间曲线）：
+  - 不同螺杆位置对应的背压值
+  - 背压由比例溢流阀控制（模拟量输出）
+  - 范围：5-200 bar
+
+温度区控制：
+  典型 3-5 个加热区 + 喷嘴 + 模具：
+    Zone 1（后端）：180-280°C
+    Zone 2（中部）：190-290°C
+    Zone 3（前端）：200-300°C
+    喷嘴：210-310°C
+    模具：20-120°C（模温机控制）
+
+  偏差报警：+/- 10-15°C 偏离设定值
+  液压油温：最佳范围 40-60°C，超过 70°C 报警
+
+程序结构（Siemens S7）：
+  OB1：主循环顺控（10-50ms 扫描）
+  OB35：循环中断温度监控（100ms 间隔）
+  OB40：硬件中断（急停、压力超限）
+  FB58（TCONT_CP）：温度 PID 控制
+  FB41（CONT_C）：液压阀 PID 定位控制
+  所有 HMI 标签存放在 DB 中，不使用 M 位
+
+PID 温度控制配置：
+  参数       典型值
+  KP         8.0-15.0（加热区）
+  TN（积分） 200-500 秒
+  TV（微分） 0-20 秒
+  采样时间   500-1000ms
+  输出限幅   0-100%
+
+OPC UA 接口标准（OPC-40077）：
+  标准化的注塑机数据类型
+  支持注射速度、保压压力、温度等参数的标准化接口
+  可与 MES/SCADA 系统直接对接
+
+========================================
+第二部分：液压机控制
+========================================
+
+操作模式：
+  单次行程 — 双手按下一次执行一个完整行程
+  连续行程 — 双手按下持续执行（需安全评估）
+  点动（Inch）— 按住运行，松开停止（调试模式）
+  设置模式 — 低速各轴独立操作
+
+行程控制（伺服比例阀）：
+  压力曲线多段配置：
+    快速下降 -> 低压合模（模具保护）-> 增压 -> 保压 -> 释压 -> 回程
+  伺服比例阀控制：模拟量输出（0-10V / 4-20mA）
+  位置反馈：磁致伸缩位移传感器（SSI 或模拟量）
+
+模具保护逻辑：
+  IF Press_Position > Mold_Contact_Point THEN
+      IF Pressure > Low_Pressure_Limit THEN
+          // 检测到异物或对模不正
+          Alarm := TRUE;
+          Press_Stop := TRUE;
+      END_IF;
+  END_IF;
+
+安全互锁（核心要求，必须遵守）：
+  双手控制必须使用独立安全模块，禁止用标准 PLC 实现
+  双手按钮间距大于 260mm
+  双手按钮需在 500ms 内同时按下
+  安全输出直接控制压力阀，PLC 仅用于监控和诊断
+  凸轮开关监控：TDC 凸轮、接管凸轮、制动监控凸轮
+  过行程检测：制动距离异常 -> 阻止启动
+  防连击：单行程模式下按住不放只执行一次
+
+  安全等级要求：
+    PLe, Cat.4（ISO 13849-1）
+    液压控制符合 DIN EN ISO 16092-3
+    OSHA 1910.217 压力机安全标准
+
+功能块设计（安全 PLC）：
+  ABB PLUTO 安全 PLC 功能块：
+    - 单行程功能块
+    - 设置模式功能块
+    - 自动模式功能块
+
+  Pilz PSS 预定义功能块：
+    - 操作模式评估
+    - 凸轮轴评估
+    - 阀门监控
+
+  标准 PLC（非安全）功能：
+    - 压力曲线监控和记录
+    - 模具保护参数设定
+    - 生产计数和节拍统计
+    - 液压油温/油位监控
+    - 故障诊断和日志
+
+========================================
+第三部分：CNC 刀具管理
+========================================
+
+刀具换刀序列（PLC 职责）：
+  PLC 执行换刀管理任务并确认所有位置变更
+  防碰撞监控是 PLC 的专属职责：
+    - 多主轴共用刀库时的路径交叉检查
+    - 大型刀具在换刀臂时禁止链运动
+    - 刀具碰撞检测：T 命令 -> PLC 检测干涉 -> 放行或阻止
+
+换刀接口信号：
+  T 命令：技术信息传到 PLC 接口，通知准备刀具
+  M06 指令：NC 触发物理换刀
+  M06 信号 -> PLC 执行刀库选刀 -> 换刀臂动作 -> 完成确认 -> NC 继续
+
+刀具编号系统：
+  基本号：刀具的唯一标识
+  姐妹刀号：同类型刀具，自动替换
+  变体号：相同基本号的微调变体
+
+  在刀库中支持：
+    空位搜索：找刀库中第一个空闲刀套
+    替代刀具搜索：主要刀具不可用时找替代刀具
+    装载刀库：99 号内部刀库，专用于装卸刀具
+
+刀具寿命跟踪：
+  监控功能启用后，到期刀具自动禁用
+  M101：启用自动换刀（寿命到期自动换到姐妹刀）
+  M102：取消自动换刀
+
+  刀具寿命管理宏程序：
+    O0100 — 数据录入（每把刀具的额定寿命）
+    O9501 — 寿命监控（实时比较当前已用时间与额定寿命）
+    O9500 — 更换后重置（清零该刀具的累计使用时间）
+
+  永久公共变量 #501-#510 存储各刀具剩余使用时间（小时）
+
+SCL 刀具寿命管理逻辑：
+  IF Tool_Used THEN
+      Tool_Usage_Time[Tool_No] := Tool_Usage_Time[Tool_No] + Cycle_Time;
+  END_IF;
+
+  IF Tool_Usage_Time[Tool_No] >= Tool_Life_Limit[Tool_No] THEN
+      Tool_Expired[Tool_No] := TRUE;
+      // 触发换刀
+      IF Auto_Tool_Change_Enable THEN
+          Change_To_Sister[Tool_No] := TRUE;
+          Sister_Tool_No := Tool_Sister_Map[Tool_No];
+      ELSE
+          Tool_Change_Request := TRUE;
+      END_IF;
+  END_IF;
+
+  IF Tool_Replaced[Tool_No] THEN
+      Tool_Usage_Time[Tool_No] := 0;
+      Tool_Expired[Tool_No] := FALSE;
+  END_IF;
+
+刀库列表管理：
+  刀具列表：NC 已知所有刀具（含已卸载但保留数据的）
+  刀库列表：面向位置的刀库映射，刀套号 -> 刀具号
+  刀具使用统计：记录每把刀具的加工件数、加工时间
+
+  刀库旋转控制（PLC 步序）：
+    1. 接收 T 命令 -> 解析目标刀号
+    2. 计算最短旋转方向（正转/反转）
+    3. 启动刀库电机
+    4. 目标刀套到达换刀位 -> 停止
+    5. 刀臂就绪确认 -> 发送 ready 信号到 NC
+    6. NC 执行 M06 -> 刀臂换刀
+    7. 换刀完成信号 -> 更新刀套状态
+
+========================================
+第四部分：装配线工位
+========================================
+
+四层程序骨架：
+  Layer 1 — 流程层（SFC/GRAPH）：
+    上电 -> 回原点 -> 自动循环 -> 停止 -> 急停处理
+  Layer 2 — 工位层（FC）：
+    每工位一个子程序
+    进入条件 = 前工位完成 AND 本地空闲 AND 无故障
+  Layer 3 — 设备层（FB）：
+    气缸 / 伺服 / 变频器 / 机器人各封装为 FB
+    只暴露 Start、Stop、Fault、Busy 接口
+  Layer 4 — 安全层（FBD）：
+    急停 / 光幕 / 安全门 / 双手按钮
+    最高优先级独立任务
+
+六条通用规则：
+  1. 每个输出都有双重互锁（软件条件 AND 硬件反馈）
+  2. 每个气缸都有动作超时定时器，超过 2 秒 -> 故障停机
+  3. 输送机用位置+时间双重检查（限位开关+定时器）检测卡板
+  4. 任何工位故障只停上游，不停下游（避免废品）
+  5. 关键工位（压装/焊接/拧紧）必须收到 Quality_OK 信号才放行
+  6. 未收到 Quality_OK -> 标记 NG 并分流到返修线
+  7. 定时器/计数器/HMI 设定值存储在保持性存储器中
+
+气缸控制模板（SCL FB）：
+  IF Start AND NOT Cyl_Busy AND NOT Fault THEN
+      Cyl_Solenoid := TRUE;
+      ton_Monitor(IN:=TRUE, PT:=Monitor_Time);
+      Cyl_Busy := TRUE;
+  END_IF;
+
+  IF Cyl_End_Sensor AND Cyl_Busy THEN
+      Cyl_Solenoid := FALSE;
+      Cyl_Busy := FALSE;
+      Done := TRUE;
+      ton_Monitor(IN:=FALSE);
+  END_IF;
+
+  // 超时故障
+  IF ton_Monitor.Q AND Cyl_Busy THEN
+      Fault := TRUE;
+      Cyl_Solenoid := FALSE;
+      Cyl_Busy := FALSE;
+      Alarm_Code := 16#10;  // 气缸动作超时
+  END_IF;
+
+零件追踪（移位寄存器）：
+  适用于旋转工作台和多工位输送线
+  每个工位对应寄存器的一位
+  随转台脉冲/输送机编码器移位
+
+  实现方式（S7-1500）：
+  // 旋转台每个脉冲移位一次
+  IF Index_Pulse THEN
+      PART_TRACK := SHL(IN := PART_TRACK, N := 1);
+      IF New_Part_Loaded THEN
+          PART_TRACK.%X0 := 1;  // 新零件标记为 OK
+      END_IF;
+  END_IF;
+
+  // 在检测工位更新质量状态
+  IF Inspection_Done AND Inspection_Fail THEN
+      PART_TRACK.%X[Cur_Station] := 0;  // 标记为 NG
+  END_IF;
+
+  // 到达分拣工位
+  IF Sort_Station AND PART_TRACK.%X[Sort_Pos] = 0 THEN
+      Reject_Cylinder := TRUE;  // 推出 NG 零件
+  END_IF;
+
+Poka-Yoke（防错）：
+  零件在位传感器：零件未到位 -> 机器不启动
+  方向检测：方向不对 -> 报警提示 -> 不允许运行
+  夹具互锁：限位开关/接近传感器确认夹具在位、夹紧到位、工具正确安装
+  拾取顺序联锁：只有轮到该零件时对应输入才生效
+  操作步骤指引：HMI 显示下一步操作（文字+图片），收到确认再继续
+
+========================================
+第五部分：焊接单元
+========================================
+
+PLC-机器人接口架构：
+  PLC 作为单元主站，协调以下组件：
+    - 机器人状态（run/stop/fault）
+    - 变位机转位控制
+    - 气动夹具控制
+    - 光幕屏蔽时序
+    - 焊接参数监控
+
+  机器人控制器作为现场总线从站
+  安全 I/O 必须使用认证安全总线（PROFIsafe / FSoE）
+  不能用标准数字 I/O 做安全通信
+
+  通信协议选型：
+    PROFINET（Siemens 主导）— 主流
+    EtherCAT（运动协调）— 伺服/变位机
+    EtherNet/IP（北美 AB 主导）
+
+夹具复位逻辑（S7-1200 实例）：
+  三重条件必须全部满足：
+    1. 两个零件在位传感器持续关闭 15 秒
+    2. 操作员至少通过区域传感器一次
+    3. 焊接完成信号
+
+  实现：
+    // TOF 定时器：两个传感器关闭持续 15 秒
+    TOF_Part1(IN := NOT Part1_Sensor, PT := T#15S);
+    TOF_Part2(IN := NOT Part2_Sensor, PT := T#15S);
+    Parts_Cleared := TOF_Part1.Q AND TOF_Part2.Q;
+
+    // 操作员区域通过检测（上升沿锁存）
+    P_TRIG_Op(CLK := Operator_Sensor);
+    IF P_TRIG_Op.Q THEN
+        Operator_Passed := TRUE;
+    END_IF;
+
+    // 焊接完成
+    Weld_Done := Weld_Complete_Signal;
+
+    // 复位许可
+    Fixture_Reset_Permit := Parts_Cleared AND Operator_Passed AND Weld_Done;
+
+  TOF 定时器比 TON 更适合此场景（检测持续关闭而非开启时间）
+
+焊接序列管理：
+  PLC 分配焊接任务给机器人（焊缝编号/焊接程序号）
+  焊接参数通过 PLC 监控：
+    - 焊接电流（模拟量输入）
+    - 焊接电压
+    - 送丝速度
+    - 焊接速度
+  焊接日志通过 OPC UA 输出到 MES
+
+  IF Weld_Start AND All_Clamps_Closed THEN
+      Robot_Start := TRUE;
+      Weld_Program_No := Current_Weld_Prog;
+  END_IF;
+
+  IF Robot_Weld_Done THEN
+      // 检查焊缝质量
+      IF Weld_Quality_OK THEN
+          Robot_Start := FALSE;
+          Index_To_Next_Weld := TRUE;
+      ELSE
+          Weld_Fault := TRUE;
+          Alarm := TRUE;
+      END_IF;
+  END_IF;
+
+焊帽修磨管理：
+  自动焊帽修磨器集成在焊接单元中
+  PLC 协调修磨时序：每 N 次焊接后触发
+  IF Weld_Count >= Weld_Per_Dressing THEN
+      Dresser_Request := TRUE;
+      // 机器人进入修磨位
+      IF Robot_At_Dress_Position THEN
+          Dresser_Activate := TRUE;
+          ton_Dress(IN:=TRUE, PT:=Dress_Time);
+          IF ton_Dress.Q THEN
+              Dresser_Activate := FALSE;
+              Weld_Count := 0;
+              Dresser_Request := FALSE;
+          END_IF;
+      END_IF;
+  END_IF;
+
+安全互锁：
+  所有夹具接近传感器确认夹紧 -> 机器人才能启动
+  安全门打开 -> 机器人立即停止 + 焊机关闭
+  光幕触发 -> 暂停变位机旋转
+  安全总线（PROFIsafe/FSoE）传输急停、门锁、光幕信号
+
+========================================
+第六部分：测试台 / 下线测试
+========================================
+
+测试序列状态机：
+  IDLE -> INSPECT -> TRACKING/REJECT -> ACTUATE -> COMPLETE
+
+  简单测试序列由 PLC 控制
+  复杂多仪器分支序列由 PC（NI TestStand）控制
+  总测试时间（装载 + 测试 + 存储 + 卸载）必须在节拍时间内完成
+
+S7-1200 多实例 FB 要点（常见陷阱）：
+  12 个相同测试工位使用同一个 FB 调用 12 次
+  关键错误：FB 内使用全局标签 -> 共享状态机 -> 一个失败导致全部失败
+
+  正确做法：
+    - 顺序器值存入 STAT 变量（每个实例独立）
+    - 定时器使用多实例 IEC Timer（不共用定时器位）
+    - Pass/Fail 定义为 OUTPUT 参数
+    - 每次新测试周期重置内部状态
+
+  FUNCTION_BLOCK FB_TestStation
+  VAR_INPUT
+      Start_Test : BOOL;
+      Test_Value : REAL;
+      High_Limit : REAL;
+      Low_Limit : REAL;
+  END_VAR
+  VAR_OUTPUT
+      Test_Pass : BOOL;
+      Test_Fail : BOOL;
+      Test_Done : BOOL;
+      Fault : BOOL;
+  END_VAR
+  VAR
+      State : INT;  // 每个实例独立的状态
+      ton_Test : TON;  // 多实例定时器
+  END_VAR
+
+  CASE State OF
+      0: // 空闲
+          IF Start_Test THEN State := 10; END_IF;
+      10: // 测量
+          ton_Test(IN:=TRUE, PT:=T#1S);
+          IF ton_Test.Q THEN
+              IF Test_Value >= Low_Limit AND Test_Value <= High_Limit THEN
+                  Test_Pass := TRUE;
+              ELSE
+                  Test_Fail := TRUE;
+              END_IF;
+              State := 20;
+          END_IF;
+      20: // 完成
+          Test_Done := TRUE;
+          State := 0;
+  END_CASE;
+
+Pass/Fail 标准设计：
+  限值基于工程规格和过程能力（SPC）数据
+  限值太紧 -> 假拒绝率升高
+  限值太松 -> 边界产品通过，产生客诉
+
+  FAT 测试矩阵包含：
+    测试 ID、步骤描述、验收标准、Pass/Fail 结果、证据引用
+
+数据记录与追溯：
+  每条测试结果关联唯一产品标识（序列号/批次号）
+  记录字段：
+    - 序列号/批次号
+    - 每条测量结果
+    - 状态信息（Pass/Fail）
+    - 时间戳
+    - 限值集 ID
+    - 工位 ID
+    - 操作员
+    - 软件版本
+    - 设备校准状态
+
+  数据存储：
+    SQL 数据库集中存储（非本地 PC）
+    自动数据验证：摄入时标记异常记录
+    历史趋势分析
+
+故障报警与连锁：
+  IF Test_Fail THEN
+      // 下游输送机拦截该工件
+      Stop_Downstream := FALSE;
+      // 激活分流器
+      Diverter_Activate := TRUE;
+      // 记录到 MES
+      MES_Send_Fail(Product_ID, Fail_Code);
+  END_IF;
+
+========================================
+第七部分：印刷/涂布
+========================================
+
+幅材张力控制（闭环系统）：
+  张力传感器（Load Cell）-> PLC/自动张力控制器 -> PID -> 驱动/制动器
+  浮动辊 + 线性电位器实时张力反馈
+  恒张力控制，支持 A/B 轴自动切换
+  放卷/进料牵引/收卷各段独立张力控制
+
+  PID 参数典型值（SLC 5/03 示例）：
+    KP = 2.0, KI = 0.25, KD = 0.05
+    更新周期：100ms
+
+  张力 PID 控制（SCL）：
+    // 偏差计算
+    Error := Setpoint_Tension - Actual_Tension;
+
+    // 比例项
+    P_Term := KP * Error;
+
+    // 积分项
+    IF Error > Deadband THEN
+        I_Accum := I_Accum + KI * Error * Sample_Time;
+    END_IF;
+    I_Term := I_Accum;
+
+    // 微分项
+    D_Term := KD * (Error - Last_Error) / Sample_Time;
+    Last_Error := Error;
+
+    // 输出限幅
+    PID_Output := P_Term + I_Term + D_Term;
+    IF PID_Output > Output_Max THEN PID_Output := Output_Max; END_IF;
+    IF PID_Output < Output_Min THEN PID_Output := Output_Min; END_IF;
+
+套准控制：
+  摄像头 + 传感器跟踪色点/色标位置
+  PLC 微调伺服轴位置补偿
+
+  预套准系统：+/- 2mm 初始精度
+  竖向套准：计算机自动跟踪，低速同步电机驱动
+  AI 视觉预套准：检测偏差 -> 计算 X/Y 误差 -> 通过以太网传到 PLC -> 实时调整伺服
+
+  套准补偿逻辑：
+    IF Mark_Detect THEN
+        Position_Error := Target_Pos - Actual_Mark_Pos;
+        IF Position_Error > 0.1 THEN
+            // 超前补偿：减速
+            Speed_Correction := Speed_Correction - K_Pos * Position_Error;
+        ELSIF Position_Error < -0.1 THEN
+            // 滞后补偿：加速
+            Speed_Correction := Speed_Correction - K_Pos * Position_Error;
+        ELSE
+            Speed_Correction := 0;
+        END_IF;
+    END_IF;
+
+缺陷检测：
+  100% 在线印刷检查：4K RGB 相机全幅面检测
+  缺陷分类存储，生成卷图和生产报告
+  缺陷编码系统用于全生产过程追溯
+
+  PLC 控制检测复卷机流程：
+    检测到缺陷 -> 即时报警并精确停机 -> 操作员拼接修正 -> 重新启动
+
+干燥系统控制：
+  热风 / UV / 红外固化系统根据基材类型自动调整
+  全封闭烘箱，二次回风，智能恒温控制
+  防止过度固化或固化不足
+
+  烘箱温度控制：
+    PID 温度控制，分区独立调节
+    风速变频控制（风机 VFD）
+    排风量控制（废气浓度检测）
+
+PLC 站控制分配（典型涂布机）：
+  PLC Station 1：
+    - 放卷张力控制
+    - 放卷直径检测
+    - 浮动辊张力控制
+    - 自动切割换卷
+    - 涂布张力控制
+    - 烘箱张力控制
+    - 胶量控制
+
+  PLC Station 2：
+    - 收卷张力控制
+    - 同步电机控制
+    - 不停机自动切割换卷
+    - 长度计数
+    - E/P 转换器控制
+
+缺陷即时停机逻辑：
+  IF Defect_Detected THEN
+      // 立即报警
+      Alarm := TRUE;
+      // 驱动减速停止（保证缺陷在操作位）
+      Main_Drive_Stop := TRUE;
+      // 制动器动作
+      Brake := TRUE;
+      // 张力保持
+      Tension_Hold := TRUE;
+      // 等待操作员处理
+      IF Operator_Confirm THEN
+          Brake := FALSE;
+          Main_Drive_Start := TRUE;
+          Alarm := FALSE;
+      END_IF;
+  END_IF;
+
+断幅检测与处理：
+  IF Web_Break_Sensor THEN
+      Emergency_Stop := TRUE;
+      // 收卷轴立即停止
+      Rewind_Stop := TRUE;
+      // 放卷轴制动
+      Unwind_Brake := TRUE;
+      // 操作员拼接后复位
+  END_IF;

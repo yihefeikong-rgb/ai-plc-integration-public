@@ -1,0 +1,466 @@
+包装、仓储与物流应用模板参考
+
+========================================
+第一部分：包装机（Form-Fill-Seal）
+========================================
+
+典型工艺流程：
+  预制袋包装机四大工位：取袋 -> 开袋 -> 填充 -> 封口
+  连续运动包装机：薄膜放卷 -> 成型器 -> 纵封 -> 横封/切断 -> 成品输出
+
+I/O 分配示例：
+  取袋真空检测 — I0.0
+  开袋传感器 — I0.1
+  填充物到位检测 — I0.2
+  封口温度传感器（模拟量）— IW64
+  色标传感器（伺服同步触发）— I0.3
+  伺服驱动器（PROFINET）— 标准报文3
+  封口加热继电器 — Q0.0
+  真空电磁阀 — Q0.1
+
+状态机骨架（SCL CASE 结构）：
+  CASE OperationMode OF
+      0: // 待机
+          IF Start AND NOT EStop THEN OperationMode := 10; END_IF;
+      10: // 进料/取袋
+          Vacuum_ON := TRUE;
+          IF Bag_Detected THEN OperationMode := 20; END_IF;
+      20: // 开袋
+          Blow_ON := TRUE;
+          IF Bag_Open_Sensor THEN OperationMode := 30; END_IF;
+      30: // 灌装/填充
+          Fill_Valve := TRUE;
+          ton_Fill(IN:=TRUE, PT:=Fill_Time);
+          IF ton_Fill.Q THEN
+              Fill_Valve := FALSE; OperationMode := 40;
+          END_IF;
+      40: // 封口
+          Seal_Heater := TRUE;
+          ton_Seal(IN:=TRUE, PT:=Seal_Time);
+          IF ton_Seal.Q THEN
+              Seal_Heater := FALSE; OperationMode := 50;
+          END_IF;
+      50: // 完成/出料
+          Eject_Cylinder := TRUE;
+          IF Eject_Sensor THEN Eject_Cylinder := FALSE; OperationMode := 0; END_IF;
+  END_CASE;
+
+安全联锁逻辑：
+  Heater_Permissive := (Temp < MaxTemp - 5.0)
+                      AND (FeedValve = FALSE)
+                      AND (EStop = FALSE)
+                      AND (Guard_Switch = TRUE);
+
+  Door_Interlock := Guard_Switch AND NOT Machine_Running;
+  IF Door_Open AND Machine_Running THEN
+      Fault := TRUE;
+      Alarm_Code := 16#A1;  // 门开关异常
+  END_IF;
+
+伺服同步（电子齿轮）：
+  - 色标传感器触发同步捕获
+  - 主轴（传送带编码器）编码器值映射到从轴（横封刀）
+  - 电子齿轮比：Cutter_Position = Film_Length * Gear_Ratio
+  - 横封刀在标记位置同步切断，偏差自动补偿
+
+温度控制（PID）：
+  - 封口温度 PID 控制，设定值 150-250°C
+  - FB58（TCONT_CP）或 FB41（CONT_C）实现
+  - 偏差报警范围：设定值 +/- 15°C
+  - 多温区独立控制（纵封/横封/预热）
+
+模拟量滤波（五阶加权滑动平均）：
+  FOR i := 5 DOWNTO 2 DO
+      Filter_Buffer[i] := Filter_Buffer[i-1];
+  END_FOR;
+  Filter_Buffer[1] := Raw_Value;
+  Filtered_Value := (Filter_Buffer[1]*5 + Filter_Buffer[2]*4
+                   + Filter_Buffer[3]*3 + Filter_Buffer[4]*2
+                   + Filter_Buffer[5]*1) / 15;
+
+配方管理（STRUCT 嵌套）：
+  类型定义：
+    TYPE Recipe_Struct :
+    STRUCT
+        RecipeName : STRING[20];
+        FillWeight : REAL;
+        SealTemp_Zone1 : REAL;
+        SealTemp_Zone2 : REAL;
+        FillTime : TIME;
+        MachineSpeed : INT;
+        CRC_Check : WORD;
+    END_STRUCT;
+    END_TYPE
+
+  配方存储在全局 DB 中，运行时从 DB 加载到 FB 接口
+
+报警环形缓冲区：
+  - 200 条 FIFO 存储，毫秒时间戳
+  - 三级分类：紧急停机（优先级 1）、工艺异常（优先级 2）、提示（优先级 3）
+  - 报警 ID + 时间戳 + 确认状态 + 复位标志
+
+========================================
+第二部分：装箱机/装盒机
+========================================
+
+典型工序流程：
+  进料 -> 伺服传送 -> 产品收集/累积 -> 图案成型 -> 开箱 -> 产品装载 -> 封箱（热熔胶/胶带）-> 出料
+
+产品计数分流逻辑：
+  CTU 计数器累加产品通过数
+  达到设定数量时触发分流气缸/推板
+  IF CTU_Count >= Target_Count THEN
+      Divert_Cylinder := TRUE;
+      ton_Divert(IN:=TRUE, PT:=T#500MS);
+      IF ton_Divert.Q THEN
+          Divert_Cylinder := FALSE;
+          CTU_Reset := TRUE;
+      END_IF;
+  END_IF;
+
+箱体成型序列：
+  步骤 1：从料仓取箱（真空吸盘向下伸出）
+  步骤 2：真空吸盘开箱（吸盘上升+侧面辅助吸盘拉开箱翼）
+  步骤 3：底部折翼（前后折翼器动作）
+  步骤 4：底部封胶（热熔胶枪点胶）
+  步骤 5：压合底部（压板压紧 1-2 秒）
+  步骤 6：产品装入（推杆或机器人装入已累计的产品）
+  步骤 7：顶部封箱（折翼+涂胶+压合）
+  步骤 8：成品送出
+
+状态机步序控制（SCL）：
+  CASE DcupLD_Step OF
+      0: // 空闲
+          IF Start AND Product_Ready THEN DcupLD_Step := 10; END_IF;
+      10: // 取箱下降
+          Pick_Cyl_Down := TRUE;
+          IF Cyl_Down_Sensor THEN DcupLD_Step := 20; END_IF;
+      20: // 真空吸开
+          Vacuum_ON := TRUE; ton_Vac(IN:=TRUE, PT:=T#300MS);
+          IF ton_Vac.Q THEN DcupLD_Step := 30; END_IF;
+      30: // 底部折翼
+          Flap_Fold := TRUE;
+          IF Flap_Sensor THEN DcupLD_Step := 40; END_IF;
+      40: // 底部热熔胶
+          Glue_Gun := TRUE; ton_Glue(IN:=TRUE, PT:=T#800MS);
+          IF ton_Glue.Q THEN Glue_Gun := FALSE; DcupLD_Step := 50; END_IF;
+      50: // 产品装入
+          Pusher := TRUE;
+          IF Pusher_End THEN Pusher := FALSE; DcupLD_Step := 60; END_IF;
+      60: // 顶部封箱
+          Top_Flap := TRUE; Top_Glue := TRUE;
+          ton_TopSeal(IN:=TRUE, PT:=T#1000MS);
+          IF ton_TopSeal.Q THEN DcupLD_Step := 70; END_IF;
+      70: // 出料
+          Eject := TRUE;
+          IF Eject_Sensor THEN Eject := FALSE; DcupLD_Step := 0; END_IF;
+  END_CASE;
+
+关键设计要点：
+  - 空箱检测：料仓低位传感器报警，提醒补充纸箱
+  - 卡箱检测：取箱位置 TON 超时（典型 2 秒），超时报警
+  - CIP（在线清洗）：食品级设计，防水/防尘等级 IP65
+  - 热熔胶温度：150-180°C，温控 PID + 低温/高温报警
+  - 伺服轴同步：主传送带跟随主轴编码器，产品收集和推箱动作与传送位置同步
+
+========================================
+第三部分：码垛机/卸垛机
+========================================
+
+核心控制要素：
+  - 层模式配置：每层排列方式（行数 x 列数）
+  - Z 轴层偏移：每层完成 Z 轴累加一个箱高
+  - 行列计数：行、列、层独立计数，满行换列，满列换层
+  - 滑片插入：特定层完成后插入滑片（隔层纸/板）
+  - 满垛检测：层数到达上限后发出满垛信号
+  - 混合码垛（Rainbow Palletizing）：不同产品混合码放
+
+行列计数器逻辑：
+  R[1] 行计数器
+  R[2] 列计数器
+  R[3] 总箱数计数器
+  R[4] 层计数器
+
+  列满换行：IF R[2] >= Max_Col THEN R[1] += 1; R[2] := 1; END_IF
+  行满换层：IF R[1] > Max_Row THEN R[4] += 1; R[1] := 1; R[2] := 1; END_IF
+
+层偏移算法：
+  - 每层放置位置在 Z 轴累加箱高
+  - 第一层 Z_Base，第二层 Z_Base + Box_Height，以此类推
+  - 对于机器人系统：PR[20,3] = PR[20,3] + Box_Height
+  - 对于 PLC 伺服：目标 Z 位置 = Z_Base + (Layer_No - 1) * Box_Height
+
+码垛序列（SCL 伪代码）：
+  IF (Robot_Ready) AND (Box_Ready) THEN
+      // 取料
+      Gripper_Close := TRUE;
+      ton_Grip(IN:=TRUE, PT:=T#500MS);
+      // 上升
+      IF ton_Grip.Q THEN
+          Z_Axis := Lift_Height;
+          // 移动到放置位
+          X_Axis := Pallet_X[Row];  // 行位置
+          Y_Axis := Pallet_Y[Col];  // 列位置
+          Z_Axis := Pallet_Z[Layer];  // 层位置
+          // 释放
+          Gripper_Open := TRUE;
+          ton_Release(IN:=TRUE, PT:=T#300MS);
+          // 更新计数
+          Col_Count += 1;
+          Total_Count += 1;
+      END_IF;
+  END_IF;
+
+满垛检测：
+  IF Layer_Count >= Max_Layers THEN
+      Pallet_Full := TRUE;
+      // 通知 WMS/上层系统
+      Pallet_Full_Signal := TRUE;
+      // 输送线将满垛移出
+      Pallet_Out_Conveyor := TRUE;
+      // 新托盘就位后复位
+      IF New_Pallet_Ready THEN
+          Pallet_Full := FALSE;
+          Row_Count := 1;
+          Col_Count := 1;
+          Layer_Count := 1;
+          Total_Count := 0;
+      END_IF;
+  END_IF;
+
+滑片插入控制：
+  IF Slip_Sheet_Required[Layer_Count] THEN
+      // 暂停码垛，执行滑片插入
+      Pause_Palletizing := TRUE;
+      // 吸取滑片
+      Sheet_Vacuum := TRUE;
+      // 移动到滑片位置
+      Sheet_X := Sheet_Pos_X;
+      Sheet_Y := Sheet_Pos_Y;
+      Sheet_Z := Pallet_Z[Layer_Count] + Sheet_Thickness;
+      // 释放滑片
+      ton_Sheet(IN:=TRUE, PT:=T#300MS);
+      IF ton_Sheet.Q THEN Sheet_Vacuum := FALSE; END_IF
+      // 恢复码垛
+      Pause_Palletizing := FALSE;
+  END_IF;
+
+========================================
+第四部分：收缩/缠绕包装
+========================================
+
+典型工作流程：
+  收缩包装：产品进入 -> 封切（薄膜包裹+横封切割）-> 热收缩（通过热风烘道）-> 冷却输出
+  缠绕包装：托盘就位 -> 薄膜夹持 -> 转台旋转 -> 膜架升降 -> 底部/顶部加缠 -> 切膜/夹膜 -> 完成
+
+缠绕控制参数：
+  转台速度：3-22 RPM（VFD 变频驱动）
+  膜架升降速度：独立变频控制
+  顶部/底部加缠圈数：0-9 圈（HMI 可设）
+  预拉伸比：200-400%（通过预拉伸辊速差实现）
+  薄膜张力：气动/电磁制动器控制
+
+自动高度检测（光电传感器）：
+  光电传感器（SICK/KEYENCE）从底部向上扫描
+  PLC 记录最高点位置，自动设定缠绕上限
+  IF Height_Scan_Active AND Sensor_Trig THEN
+      Pallet_Height := Lift_Position;
+      Wrap_Top := Pallet_Height;
+      Height_Scan_Active := FALSE;
+  END_IF;
+
+缠绕圈数控制（SCL）：
+  // 底部加缠
+  WHILE Bottom_Count < Bottom_Wraps DO
+      IF Turntable_Enc >= 36000 THEN  // 1圈=36000增量
+          Bottom_Count += 1;
+      END_IF;
+  END_WHILE;
+  // 上升缠绕
+  Lift_Speed := Normal_Speed;
+  WHILE Lift_Position < Pallet_Height DO
+      IF Turntable_Enc >= 36000 THEN
+          Lift_Position += Lift_Pitch;
+      END_IF;
+  END_WHILE;
+  // 顶部加缠
+  WHILE Top_Count < Top_Wraps DO
+      // 同上逻辑
+  END_WHILE;
+  // 切膜夹膜
+  Cut_Knife := TRUE; Clamp := TRUE;
+
+封刀温度控制（收缩包装）：
+  - PID 温控 100-260°C，K 型热电偶输入
+  - 封刀加热采用脉冲控制（快速升温，5 秒内冷却）
+  - TON 定时控制封刀保持时间（典型 0.5-2 秒）
+  - 温度不足禁止封切（Interlock 逻辑）
+  IF Seal_Temp < Min_Seal_Temp THEN
+      Seal_Permissive := FALSE;
+  ELSE
+      Seal_Permissive := TRUE;
+  END_IF;
+
+========================================
+第五部分：AGV/AMR 调度
+========================================
+
+核心系统架构：
+  上位调度系统（Fleet Manager）
+      |--- MQTT/HTTP ---|
+  PLC 区域控制器 <--- EtherNet/IP --> AGV 车载 PLC
+
+  区域控制（Zone Control）：
+    Master PLC 管理所有区域占用状态
+    AGV 请求进入区域 -> 检查区域空闲 -> 授权进入 -> 占用区域 -> 离开释放
+
+区域授权逻辑：
+  Zone1_Grant_AGV1 := Zone1_Request
+                      AND AGV1_At_Zone
+                      AND NOT Zone1_Occupied
+                      AND NOT Emergency_Mode;
+  Zone1_Occupied := Zone1_Grant_AGV1
+                    AND NOT Zone1_Leave_Sensor;
+
+交通管制策略：
+  - 预约-占用策略：AGV 在进入前 N 个路点时预约路线
+  - MQTT 上报：AGV 经过路点时上报位置
+  - 调度系统判断前方路点是否空闲
+  - 空闲 -> 放行；占用 -> 等待/重新规划路径
+  - 死锁解除：评估各 AGV 的电量、负载、移动成本
+  - 选择成本最小的 AGV 重新规划路径
+
+电池管理：
+  模拟量输入监测电池电压（4-20mA 或 0-10V）
+  多级阈值策略：
+    - 正常（>50%）：正常执行任务
+    - 低电量（20-50%）：完成当前任务后自动回充
+    - 临界（<20%）：立即停止当前任务，就近回充
+  三种充电策略：
+    - 换电：人工/自动更换电池组
+    - 自动充电：AGV 自动对接充电桩
+    - 机会充电：任务间隙短时补电
+
+通信架构：
+  MQTT：AGV <-> 调度系统，5Hz 状态刷新
+  HTTP REST：后端系统 <-> 调度系统（任务下发）
+  Redis 消息队列：异步状态同步
+  VDA 5050 协议接口：标准化 AGV 通信
+
+PLC-AGV 接口信号表：
+  AGV_Request（I）— AGV 请求进入区域
+  Zone_Grant（O）— 区域授权信号
+  AGV_In_Zone（I）— AGV 已进入区域
+  AGV_Leave（I）— AGV 已离开区域
+  Zone_Occupied（内部）— 区域占用状态
+  Charge_Request（I）— AGV 请求充电
+  Charge_Grant（O）— 充电位授权
+  Emergency_Stop（I/O）— 急停信号连锁
+
+========================================
+第六部分：自动化立体仓库/堆垛机
+========================================
+
+核心控制要素：
+  X 轴：行走机构（水平移动）
+  Y 轴：提升机构（垂直升降）
+  Z 轴：货叉伸缩（取放货物）
+  三轴联动定位到目标库位
+
+三轴定位控制（MC_MoveAbsolute）：
+  MC_MoveAbsolute_AxisX(
+      Axis := Axis_X,
+      Position := Target_X_Pos,
+      Velocity := 2.0,     // m/s
+      Acceleration := 0.5,
+      Deceleration := 0.5,
+      Done => Move_Done_X,
+      Busy => Move_Busy_X,
+      Error => Move_Err_X
+  );
+
+  MC_MoveAbsolute_AxisY(
+      Axis := Axis_Y,
+      Position := Target_Y_Pos,
+      Velocity := 1.0,     // m/s
+      Acceleration := 0.3,
+      Deceleration := 0.3
+  );
+
+库位坐标计算：
+  - 固定间距自动寻址
+  X_pos := X_Base + (Column_No - 1) * Column_Pitch
+  Y_pos := Y_Base + (Row_No - 1) * Row_Pitch
+
+  示例：如果货架列间距 1200mm，目标第 5 列
+  Target_X := 500mm + (5 - 1) * 1200mm = 5300mm
+
+速度分区策略：
+  远距离（>10m）：高速运行（2.0 m/s）
+  中距离（2-10m）：中速运行（1.0 m/s）
+  近距离（0.5-2m）：低速爬行（0.3 m/s）
+  到位（<0.5m）：点动微调/停止
+
+  IF Distance > 10.0 THEN
+      Velocity := 2.0;
+  ELSIF Distance > 2.0 THEN
+      Velocity := 1.0;
+  ELSIF Distance > 0.5 THEN
+      Velocity := 0.3;
+  ELSE
+      Velocity := 0.05;
+  END_IF;
+
+货叉速度曲线：
+  - 左/右伸缩独立可调速度
+  - 进出库口使用特殊速度曲线（减速入场/加速出场）
+  - 托盘归位使用第四种曲线（低速精确对位）
+  - 货叉行程末端软限位 + 硬限位双重保护
+
+振荡抑制（高动态堆垛机桅杆）：
+  S120 驱动内置振荡阻尼（ODD 功能）
+  加速度/减速度曲线平滑（S 型曲线）
+  加减速实时补偿桅杆摆动
+  适用于高度 > 20m 的高动态堆垛机
+
+WMS 通信（两种模式）：
+  模式一：电报格式（TCP 原始报文）
+    请求电报：STX + 指令码 + 库位号 + 条码 + ETX + 校验
+    应答电报：STX + 状态码 + 数据 + ETX + 校验
+
+  模式二：OPC UA 方法调用
+    StoreToLocation(BinID)
+    RetrieveFromLocation(BinID)
+    ReadBarcode(BinID)
+
+入库作业流程：
+  1. WMS 下存入库任务（OPC UA/TCP）
+  2. 堆垛机移动到入库口接货位置（X=Infeed_Pos, Y=Infeed_Pos）
+  3. 输送线将托盘送到接货位
+  4. 货叉伸出取货 -> 缩回
+  5. 移动到目标库位（X=Target_Col, Y=Target_Row）
+  6. 货叉伸出放置 -> 缩回
+  7. 上报完成（WMS 更新库存）
+
+出库作业流程：
+  1. WMS 下发取货任务（目标库位号）
+  2. 移动到目标库位
+  3. 货叉伸出取货 -> 缩回
+  4. 移动到出库口位置
+  5. 货叉伸出放置 -> 缩回
+  6. 上报完成
+
+双深度货架控制：
+  - 同一列两个库位（前排/后排）
+  - 前排空位检测：光电传感器确认前排是否有托盘
+  - 双深货叉：两段伸缩 + 中间锁止机构
+  - 取后排货物时需先移开前排空托盘
+  - 只存储同 SKU 于双深位置
+
+安全保护：
+  - 行走/提升超程限位开关（硬限位）
+  - 货叉行程两端末端缓冲
+  - 提升防坠落装置（机械制动 + 电气互锁）
+  - 光幕保护（巷道入口/出口）
+  - 安全门互锁：门开时禁止行走
+  - 重量超限检测：过载保护停机

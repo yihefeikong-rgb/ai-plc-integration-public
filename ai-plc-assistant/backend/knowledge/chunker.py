@@ -22,7 +22,60 @@ def chunk_text(
     if not text.strip():
         return []
 
-    # 先按段落分割
+    # 按 ======== 章节边界切分，每个 chunk 带章节标题前缀
+    sections = _split_sections(text)
+    chunks = []
+
+    for section_title, section_body in sections:
+        section_chunks = _chunk_paragraphs(section_body, chunk_size, chunk_overlap)
+        for sc in section_chunks:
+            if section_title:
+                sc["text"] = section_title + "\n" + sc["text"]
+            chunks.append(sc)
+
+    # 添加索引
+    for i, chunk in enumerate(chunks):
+        chunk["chunk_index"] = i
+
+    return chunks
+
+
+def _split_sections(text: str) -> List[tuple]:
+    """按 ======== 分隔符切分章节，返回 [(title, body), ...]"""
+    # 匹配 ={5,} 行作为分隔符
+    parts = re.split(r"={5,}", text)
+
+    if len(parts) <= 1:
+        # 没有章节分隔符，整体作为一个无标题章节
+        return [("", text.strip())]
+
+    sections = []
+    doc_title = parts[0].strip()  # 文档标题（第一个分隔符之前的内容）
+    i = 1
+    while i < len(parts):
+        title_part = parts[i].strip()
+        # 章节标题后面紧跟又一个 === 分隔符，再后面是正文
+        if i + 1 < len(parts):
+            body = parts[i + 1].strip()
+            full_title = (doc_title + " > " + title_part) if doc_title else title_part
+            if body:
+                sections.append((full_title, body))
+            i += 2
+        else:
+            # 最后一个片段
+            if title_part:
+                sections.append((doc_title, title_part))
+            i += 1
+
+    # 如果没有成功提取任何章节，回退到整体
+    if not sections:
+        return [("", text.strip())]
+
+    return sections
+
+
+def _chunk_paragraphs(text: str, chunk_size: int, chunk_overlap: int) -> List[dict]:
+    """将一段文本按段落累积分块"""
     paragraphs = _split_paragraphs(text)
     chunks = []
     current = []
@@ -31,7 +84,6 @@ def chunk_text(
     for para in paragraphs:
         para_len = len(para)
 
-        # 单一段落超过块大小 → 按句子拆分后独立成块
         if para_len > chunk_size:
             if current:
                 chunks.append(_join_chunk(current))
@@ -41,10 +93,8 @@ def chunk_text(
                 chunks.append(sentence_chunk)
             continue
 
-        # 累积段落直到达到块大小
         if current_len + para_len > chunk_size and current:
             chunks.append(_join_chunk(current))
-            # 保留 overlap 段
             overlap_texts = _get_overlap(current, chunk_overlap)
             current = overlap_texts
             current_len = sum(len(t) for t in overlap_texts)
@@ -54,10 +104,6 @@ def chunk_text(
 
     if current:
         chunks.append(_join_chunk(current))
-
-    # 添加索引
-    for i, chunk in enumerate(chunks):
-        chunk["chunk_index"] = i
 
     return chunks
 

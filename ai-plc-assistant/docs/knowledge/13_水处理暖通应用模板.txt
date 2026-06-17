@@ -1,0 +1,337 @@
+水处理与暖通空调 PLC 应用模板参考
+
+========================================
+第一部分：水泵站控制（多泵轮换与液位分级）
+========================================
+
+核心控制要素：
+  - 多泵轮换（Lead-Lag Rotation）：根据累计运行时间选择最先启动的泵
+  - 液位分级启动：不同液位触发不同数量的泵运行
+  - 干转保护：低液位停泵，防止水泵空转损坏
+  - 故障旁路：故障泵自动跳过，健康泵接替
+  - 最小运行时间保护：防止泵短时间内频繁启停
+
+泵控制 UDT 结构（SCL 模板）：
+  TYPE Pump_Control :
+  STRUCT
+      Run_Command : BOOL;
+      Available : BOOL;
+      Runtime_Hours : REAL;
+      Lead_Priority : INT;
+  END_STRUCT;
+  END_TYPE
+
+液位分级启动模式（以 4 泵为例）：
+  - 液位 20%：启动 1 台（Lead 泵）
+  - 液位 40%：启动 2 台（Lead + Lag1）
+  - 液位 60%：启动 3 台（Lead + Lag1 + Lag2）
+  - 液位 80%：启动 4 台（全部投入）
+  - 液位 100%：高报警，持续运行
+  - 液位低于 10%：全部停止（干转保护）
+
+Lead-Lag 轮换策略对比：
+  - 固定 Lead：始终 Pump1 先启动，逻辑简单但磨损不均
+  - 轮换 Lead：按累计运行时间排序，最短时间泵优先，磨损均匀
+  - 权重轮换：备用泵运行 75% 负载，折中方案
+
+SCL 轮换算法核心逻辑：
+  FOR i := 0 TO Max_Pumps - 1 DO
+      IF Pumps[i].Available AND
+         Pumps[i].Runtime_Hours < Min_Runtime THEN
+          Min_Runtime := Pumps[i].Runtime_Hours;
+          Selected_Pump := i;
+      END_IF;
+  END_FOR;
+
+泵启动停滞逻辑（错峰启动）：
+  - Lead 泵启动后，等待 2-5 秒让压力建立，再启动 Lag 泵
+  - 每台泵之间间隔 2 秒，减少冲击电流
+  - 最小运行时间 30-60 秒，防止短循环
+
+故障处理：
+  - 当 Lead 泵故障时，自动切换到下一个可用泵
+  - 故障泵从轮换列表移除，故障恢复后自动重新加入
+  - 多故障场景：仅剩 1 台可用时报"能力不足"预警
+
+备用泵管理：
+  - N-1 冗余设计：4 台泵最多运行 3 台，留 1 台备用
+  - 备用泵定期轮换运行（建议每周），防止长期闲置锈死
+  - 维护模式：人工将某台泵设为不可用，PLC 自动跳过
+
+========================================
+第二部分：冷却塔与冷水机控制
+========================================
+
+核心控制要素：
+  - 冷却塔风机级联启停（按出水温度分档）
+  - 冷水机压缩机启停顺序控制（多台冷机轮换）
+  - 温度级联控制：冷冻水出水温度 → 冷机启停
+  - 冷却水温度 PID 控制调节风机速度/启停台数
+  - 流量保护：蒸发器/冷凝器水流开关联锁
+
+启动顺序（设备级联）：
+  1. 冷却塔风机启动
+  2. 冷却水泵启动
+  3. 冷冻水泵启动
+  4. 冷水机压缩机启动
+  （每步间隔 30 秒，防止电流冲击）
+
+冷水机启动许可条件：
+  - NOT_LOW_PRESSURE：吸气压力高于最低阈值
+  - NOT_HIGH_PRESSURE：排气压力低于最高限值（通常需手动复位）
+  - EVAPORATOR_FLOW_OK：蒸发器水流开关确认
+  - CONDENSER_FLOW_OK：冷凝器水流开关确认
+  - FREEZESTAT_OK：防冻温控器正常
+  - COMP_OVERLOAD_OK：压缩机电机过载保护正常
+
+I/O 地址分配示例（S7-300）：
+  I 0.0 = 低压开关（NC）
+  I 0.1 = 高压开关（NC）
+  I 0.2 = 蒸发器水流开关（NO）
+  I 0.3 = 冷凝器水流开关（NO）
+  I 0.4 = 防冻开关（NC）
+  I 0.5 = 压缩机过载保护（NC）
+  Q 4.0 = 压缩机接触器
+  Q 4.1 = 供液电磁阀
+  Q 4.2 = 冷凝风机/水泵
+  Q 4.3 = 报警输出
+
+温度级联控制策略：
+  - 一级控制：冷冻水出水温度 PID 控制冷机加载/卸载
+  - 二级控制：冷却水温度 PID 控制风机速度或台数
+  - 死区设置 2-5%，防止频繁启停
+  - 冷冻水出水设定值 7℃，死区 ±1℃
+
+冷却塔风机级联逻辑：
+  - 1 台风机：冷却水温度 > 27℃ 启动，< 22℃ 停止
+  - 2 台风机：> 32℃ 启动第二台，< 27℃ 停止第二台
+  - 变风量：变频器 + PID 控制风机速度
+
+多台冷机轮换设计：
+  - 与水泵轮换相同原则，基于累计运行时间
+  - 冷机之间互为备用
+  - 满载启动顺序：先启动运行时间最少的一台
+  - 冷机停机后 5 分钟最小停机时间保护
+
+========================================
+第三部分：SBR 序批式污水处理
+========================================
+
+核心控制要素：
+  - SBR 五阶段循环：进水 → 反应（曝气）→ 沉淀 → 排水 → 闲置
+  - DO（溶解氧）PID 控制曝气量
+  - 鼓风机启停与变频调速
+  - 化学加药控制（除磷/脱氮）
+  - 污泥排放时间控制
+
+SBR 五阶段状态机（SCL CASE 结构）：
+  CASE SBR_Step OF
+      10:  // 进水阶段
+          Inlet_Valve := TRUE;
+          IF Tank_Level >= Fill_High_Level THEN
+              Inlet_Valve := FALSE;
+              SBR_Step := 20;
+          END_IF;
+      20:  // 曝气反应阶段
+          Blower := TRUE;
+          Aeration_Valve := TRUE;
+          Aer_Timer(IN:=TRUE, PT:=Aeration_Time);
+          // DO 控制 PID 调节曝气量
+          DO_PID(Setpoint:=DO_Setpoint, PV:=DO_Sensor,
+                 Output=>Aeration_Speed);
+          IF Aer_Timer.Q THEN
+              Blower := FALSE;
+              Aeration_Valve := FALSE;
+              SBR_Step := 30;
+          END_IF;
+      30:  // 沉淀阶段
+          Settle_Timer(IN:=TRUE, PT:=Settle_Time);
+          IF Settle_Timer.Q THEN
+              SBR_Step := 40;
+          END_IF;
+      40:  // 排水阶段
+          Drain_Valve := TRUE;
+          IF Tank_Level <= Drain_Low_Level THEN
+              Drain_Valve := FALSE;
+              SBR_Step := 50;
+          END_IF;
+      50:  // 闲置阶段
+          Idle_Timer(IN:=TRUE, PT:=Idle_Time);
+          IF Idle_Timer.Q THEN
+              Cycle_Count := Cycle_Count + 1;
+              SBR_Step := 10;  // 新循环
+          END_IF;
+  END_CASE;
+
+DO 控制策略：
+  - 好氧段 DO 设定值：2.0-3.0 mg/L
+  - 缺氧段 DO 设定值：< 0.5 mg/L（需要停止曝气搅拌）
+  - 厌氧段 DO 设定值：< 0.2 mg/L（需要严格密封）
+  - PID 控制鼓风机频率或曝气阀门开度
+  - DO 传感器故障时切换到定时曝气模式（安全模式）
+
+多池协调运行：
+  - 2-4 个 SBR 池交替运行
+  - 确保总进水量连续
+  - 一个池在排水时，另一个池在进水
+  - 相位偏移 = 循环总时间 / 池数量
+
+========================================
+第四部分：锅炉控制与 BMS 燃烧管理
+========================================
+
+核心控制要素：
+  - BMS 燃烧器启停顺序控制（预吹扫 → 点火 → 主火焰 → 调制）
+  - 蒸汽压力 PID 控制燃烧器加载/卸载
+  - 锅炉水位三冲量控制（液位 + 蒸汽流量 + 给水流量）
+  - 火焰检测与熄火保护
+  - 低水位/高压力联锁停机
+
+BMS 燃烧器启动序列：
+  1. 预吹扫（Prepurge）：吹扫炉膛 30-60 秒（排除残留可燃气体）
+  2. 点火试探（Trial for Ignition）：点火变压器通电，引火阀打开
+  3. 火焰确认：紫外/红外火焰检测器确认引火点燃
+  4. 主火焰试探（Main Trial for Ignition）：主燃料阀打开
+  5. 火焰稳定期：约 5-10 秒，确认主火焰稳定
+  6. 释放调制：燃烧器进入 PID 调制模式
+
+燃烧安全联锁条件：
+  - 所有火焰检测器正常（无虚假火焰信号）
+  - 炉膛压力正常（通常在 ±4"WC 范围内）
+  - 预吹扫完成
+  - 低水位开关正常
+  - 高蒸汽压力开关正常
+  - 燃料压力正常
+
+燃烧器 PID 三重控制回路：
+  主回路：蒸汽压力 PID（设定值 → 燃烧率需求）
+  副回路 1：燃料流量 PID（燃烧率需求 → 燃料阀）
+  副回路 2：空气流量 PID（燃烧率需求 + 交叉限幅 → 风门）
+  交叉限幅：增负荷时空气先于燃料，减负荷时燃料先于空气
+
+锅炉水位三冲量控制：
+  - 一次信号：汽包液位（主被控量）
+  - 前馈信号 1：蒸汽流量（负荷变化前馈）
+  - 前馈信号 2：给水流量（反馈平衡）
+  - PID 结构：主 PID（液位偏差）→ 输出作为给水流量设定值
+  - 副 PID（给水流量偏差）→ 调节给水阀门/泵速
+
+M 多台锅炉分级启动逻辑：
+  - 通过主温控器使能，确保多台锅炉不同时启动
+  - 1 号锅炉 Power1 启动 → 5 分钟后 Power2 → 5 分钟后 2 号锅炉
+  - 到达目标温度后按顺序停机（后进先出）
+  - 温度下降时从最小功率重新开始
+
+BMS 与 PLC 接口信号：
+  BMS → PLC 输入：
+    - 预吹扫完成（Purge Complete）
+    - 火焰确认（Flame Proven）
+    - 运行许可（Run Permissive）
+    - 火焰失败（Flame Failure）
+  PLC → BMS 输出：
+    - 燃料使能（Fuel Enable）
+    - 点火使能（Ignition Enable）
+    - 燃烧率指令（Firing Rate Command）
+    - 系统就绪（System Ready）
+
+燃油/燃气燃烧器 PID 调制：
+  P 值（比例带）= 设定点与零输出之间的过程变量差
+  例：设定 200 PSI，P=40，则在 160-200 PSI 之间线性调制
+  100% 输出（160 PSI）到 0% 输出（200 PSI）
+  50% 输出时 PV = 180 PSI
+
+========================================
+第五部分：CIP 就地清洗系统
+========================================
+
+核心控制要素：
+  - CIP 多阶段清洗顺序控制（预冲洗 → 碱洗 → 中间冲洗 → 酸洗/消毒 → 最终冲洗）
+  - 温度控制：加热到设定温度并保温
+  - 电导率监测：检测清洗液浓度
+  - 流量控制：保证清洗机械力
+  - 配方管理：不同设备不同清洗参数
+
+CIP 标准清洗阶段：
+  1. 预冲洗（Pre-Rinse）：清水冲洗，去除残留物料
+  2. 碱洗（Caustic Wash）：NaOH 溶液循环清洗，温度 70-80℃
+  3. 中间冲洗（Intermediate Rinse）：清水冲去残留碱液
+  4. 酸洗/消毒（Acid Wash/Sanitize）：磷酸/硝酸或消毒剂
+  5. 最终冲洗（Final Rinse）：纯水/无菌水冲洗至中性
+  6. 排水/吹扫（Drain/Purge）：排空管道，压缩空气吹扫
+
+CIP 阶段参数矩阵（配方数据表结构）：
+  DW0 = 清洗类型（0=预冲洗, 1=碱洗, 2=酸洗, 3=消毒, 4=最终冲洗）
+  DW1 = 清洗回路（0=回路1, 1=回路2）
+  DW2 = 持续时间（秒）
+  DW3 = 流量设定值（L/min）
+  DW4 = 温度设定值（℃）
+  DW5 = 排放时间（秒）
+  DW6 = 延迟时间（秒）
+  DW7 = 是否循环（0=直排, 1=循环）
+  DW8 = 浓度设定值（% 或 ppm）
+
+PLC 清洗流程（SCL 顺序控制）：
+  CASE CIP_Step OF
+      0:  // 空闲，等待启动
+          IF Start_CIP AND Recipe_Loaded THEN
+              CIP_Step := 10;
+          END_IF;
+      10: // 预冲洗
+          Open_Valve(Rinse_Water);
+          Start_Pump(CIP_Pump);
+          Rinse_Timer(IN:=TRUE, PT:=PreRinse_Time);
+          IF Rinse_Timer.Q THEN
+              Stop_Pump(CIP_Pump);
+              Close_All_Valves;
+              Delay_Timer(IN:=TRUE, PT:=T#5S);
+              IF Delay_Timer.Q THEN CIP_Step := 20; END_IF;
+          END_IF;
+      20: // 碱洗
+          Open_Valve(Caustic_Tank);
+          Start_Pump(CIP_Pump);
+          Heat_To_Temp(Caustic_Temp_Set);
+          Conductivity_Check();
+          Wash_Timer(IN:=TRUE, PT:=Caustic_Time);
+          IF Conductivity < Conductivity_Min THEN
+              Add_Chemical(Dosing_Pump);
+          END_IF;
+          IF Wash_Timer.Q THEN CIP_Step := 30; END_IF;
+      30: // 中间冲洗
+          ... // 类似预冲洗逻辑
+      40: // 酸洗/消毒
+          ... // 类似碱洗逻辑，使用酸/消毒剂
+      50: // 最终冲洗
+          ... // 冲洗至 pH 中性
+      60: // 排水吹扫
+          Open_Drain_Valve;
+          Purge_Air(IN:=TRUE, PT:=T#30S);
+          IF Purge_Air.Q THEN
+              Close_All_Valves;
+              CIP_Step := 99;
+          END_IF;
+      99: // 完成
+          CIP_Done := TRUE;
+  END_CASE;
+
+电导率反馈加药控制：
+  - PLC 读取电导率变送器模拟量输入（4-20mA）
+  - 电导率低于设定值时自动补加清洗剂
+  - 通过蠕动泵/气动隔膜泵计量加药
+  - 电导率到达目标值后停止加药
+
+CIP 系统硬件配置：
+  - PLC 数字量 I/O：控制阀门开闭、泵启停、状态反馈
+  - PLC 模拟量 I/O：温度传感器、电导率传感器、流量计、液位变送器
+  - HMI：显示流程图、清洗阶段、参数设定、报警管理
+  - 数据记录：每个清洗批次的参数记录，用于合规追溯
+
+清洗回路切换逻辑：
+  - 通过 HMI 选择要清洗的设备（回路选择）
+  - PLC 自动切换对应的阀门组
+  - 不同回路可配置不同的清洗参数（管道长度、容积不同）
+  - 回路切换前确认阀门状态正确
+
+水回收优化策略：
+  - 最终冲洗的清洁水回收至中间水箱，作为下次预冲洗用水
+  - 电导率传感器检测回收水质，超标则排放
+  - 可减少 30-50% 的 CLEAN 用水量

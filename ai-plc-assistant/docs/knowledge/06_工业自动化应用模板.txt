@@ -1,0 +1,266 @@
+西门子 S7 工业自动化应用模板参考
+
+========================================
+第一部分：传送带控制
+========================================
+
+核心控制要素：
+  - 启停控制：Start/Stop 按钮 + 急停（E-Stop NC 常闭接线）
+  - 速度控制：多速模式（快/慢）或变频器模拟量控制
+  - 堵塞检测：TON 定时器监控产品通过时间（典型 15-20 秒超时）
+  - 多区段协调：每段传送带独立控制，传感器触发启停
+
+典型 I/O 分配：
+  产品到达传感器 — I0.0
+  启动按钮 — I1.0
+  停止按钮 — I1.1
+  急停按钮（NC）— I1.2
+  主传送带电机 — Q0.1
+
+SCL 堵塞检测逻辑：
+  IF S1 AND NOT Timer_Done THEN
+      Timer_IN := TRUE;
+      Timer_PT := T#15S;
+  END_IF;
+  IF Timer_Done AND NOT (S6 OR S7) THEN
+      Alarm := TRUE;
+      Motor := FALSE;  // 停机
+  END_IF;
+
+多区段传送带协调原则：
+  - 每段有自己的启动/停止条件
+  - 下游段满则上游段停止
+  - 急停信号全局生效
+  - 重启需按顺序从上游到下游逐步启动
+
+========================================
+第二部分：分拣系统
+========================================
+
+状态机实现（SCL CASE 结构）：
+  CASE current_state OF
+      IDLE:
+          IF S1 AND Auto_Mode THEN current_state := DETECT_HEIGHT; END_IF;
+      DETECT_HEIGHT:
+          IF S2 AND NOT S3 THEN current_state := DIVERT_RIGHT;
+          ELSIF S2 AND S3 THEN current_state := DIVERT_LEFT;
+          ELSE current_state := FAULT_HEIGHT_INVALID;
+          END_IF;
+      DIVERT_RIGHT:
+          SOL_RIGHT := TRUE;
+          current_state := RUNNING_RIGHT;
+      RUNNING_RIGHT:
+          IF S7 THEN SOL_RIGHT := FALSE; current_state := COMPLETE;
+          ELSIF Timer_Done THEN current_state := FAULT_JAM;
+          END_IF;
+      FAULT_JAM:
+          Alarm := TRUE; Motor := FALSE;
+          current_state := ALARM_STATE;
+      ALARM_STATE:
+          IF Acknowledge THEN current_state := IDLE; END_IF;
+  END_CASE;
+
+分拣类型：
+  - 按高度分拣：双光电传感器（高/低）检测尺寸
+  - 按颜色分拣：视觉传感器 + 通信
+  - 按重量分拣：称重传感器 + 比较器
+
+========================================
+第三部分：灌装/装瓶机
+========================================
+
+典型工序流程：
+  1. 传送带运行 → 瓶子到达填充位（接近传感器检测）
+  2. 传送带停止 → 填充阀打开（电磁阀）
+  3. 液位传感器检测满瓶 → 填充阀关闭
+  4. 传送带重新启动 → 进入封盖工位
+  5. 活塞/气缸执行封盖 → 计数器累加
+
+SCL 灌装控制：
+  CASE current_step OF
+      0:  // 等待启动
+          IF start_button AND NOT emergency_stop THEN current_step := 1; END_IF;
+      1:  // 传送带运行至填充位
+          conveyor_run := TRUE;
+          IF fill_position_sensor THEN
+              conveyor_run := FALSE; current_step := 2;
+          END_IF;
+      2:  // 灌装 3 秒
+          fill_valve := TRUE;
+          ton_fill(IN:=TRUE, PT:=T#3S);
+          IF ton_fill.Q THEN
+              fill_valve := FALSE;
+              ton_fill(IN:=FALSE);
+              current_step := 3;
+          END_IF;
+      3:  // 移出瓶子
+          conveyor_run := TRUE;
+          IF exit_sensor THEN conveyor_run := FALSE; current_step := 0; END_IF;
+  END_CASE;
+
+关键设计要点：
+  - 多瓶型支持：通过 HMI 选择瓶型，从数据表读取不同填充时间
+  - 批次计数：CTU 上升沿计数器，预设值控制批量
+  - 移位寄存器：追踪不同尺寸瓶子在传送带上的位置
+
+========================================
+第四部分：电机控制与变频器
+========================================
+
+控制方式对比：
+  模拟量（0-10V/4-20mA）— 简单速度控制，短距离
+  PROFINET（标准报文 Telegram 1）— 实时闭环控制
+  PROFIBUS DP — 传统系统
+
+模拟量控制流程（S7-1200→VFD）：
+  1. 接线：模拟输出模块 → VFD 速度参考端子
+  2. 缩放：NORM_X/SCALE_X 将工程值转为模拟值
+  3. 编程：工程值 → NORM_X(0~27648) → SCALE_X → 工程单位
+
+PROFINET VFD 控制要点（SINAMICS V90 为例）：
+  - 标准报文 1：2PZD 收/2PZD 发
+  - 控制字（QW）：启动/停止/速度设定
+  - 状态字（IW）：运行状态/实际速度/故障码
+  - 参考速度 p2000 对应满量程 4000H（十进制 16384）
+
+SCL 电机控制封装（FB 模板）：
+  IF Start AND NOT Fault THEN
+      Motor_Run := TRUE;
+  ELSIF Stop OR Fault THEN
+      Motor_Run := FALSE;
+  END_IF;
+
+  IF Motor_Run AND NOT Run_Feedback THEN
+      Run_Timeout_Timer(IN:=TRUE, PT:=T#5S);
+      IF Run_Timeout_Timer.Q THEN
+          Fault := TRUE;
+          Alarm_Code := 16#01;  // 运行反馈超时
+      END_IF;
+  ELSE
+      Run_Timeout_Timer(IN:=FALSE);
+  END_IF;
+
+========================================
+第五部分：状态机与交通灯
+========================================
+
+步计数器法（CASE 结构）：
+  CASE Step_No OF
+      10: // 南北绿灯 + 东西红灯（30 秒）
+          N_S_Green := TRUE; E_W_Red := TRUE;
+          IF Timer_Done THEN Step_No := 20; END_IF;
+      20: // 南北黄灯 + 东西红灯（5 秒）
+          N_S_Yellow := TRUE; E_W_Red := TRUE;
+          IF Timer_Done THEN Step_No := 30; END_IF;
+      30: // 全红（2 秒安全间隔）
+          N_S_Red := TRUE; E_W_Red := TRUE;
+          IF Timer_Done THEN Step_No := 40; END_IF;
+      40: // 南北红灯 + 东西绿灯（30 秒）
+          ...
+  END_CASE;
+
+闪烁红灯（夜间模式）：
+  IF NOT Master_Run THEN
+      TON Flasher_Timer 500ms;
+      N_S_Red := Flasher_Active;
+      E_W_Red := Flasher_Active;
+  END_IF;
+
+========================================
+第六部分：自动/手动模式切换
+========================================
+
+核心设计原则：
+  - 上电默认手动模式（安全）
+  - 任何时刻只能有一个模式激活（互斥）
+  - 模式切换需在停止状态下进行
+  - 手动模式下顺序器不得自动推进
+
+状态机模式架构：
+  CASE gSystemMode OF
+      modeINIT:
+          Initialize_System();
+      modeMANUAL:
+          Process_Manual_Commands();
+          IF gCommand.Start_Auto AND Safe_For_Auto THEN
+              gSystemMode := modeAUTO;
+          END_IF;
+      modeAUTO:
+          Process_Auto_Sequence();
+          IF gSystemFault.Active THEN gSystemMode := modeFAULT; END_IF;
+      modeFAULT:
+          Emergency_Stop_All();
+          IF gCommand.Ack_Fault AND NOT gSystemFault.Active THEN
+              gSystemMode := modeMANUAL;
+          END_IF;
+  END_CASE;
+
+Auto 到 Manual 同步方案：
+  方案 A：全序列复位（最简单，但生产损失大）
+  方案 B：传感器状态跟踪（自动匹配物理状态到逻辑步）
+  方案 C：操作员辅助步进恢复（HMI 显示当前步+前进/后退按钮）
+
+========================================
+第七部分：报警管理与故障处理
+========================================
+
+S7-1500 报警类别：
+  系统报警（优先级 1 最高）— 需要立即确认
+  过程报警（优先级 8）— 标准操作员响应
+  诊断报警（优先级 16）— 信息记录
+
+报警编程方法：
+  Program_Alarm 指令（S7-1500）— 事件驱动，自带时间戳和确认状态
+  字级位打包（S7-1200/通用）— 16 位 WORD 每位对应一个报警
+
+报警设计最佳实践：
+  - 安全关键故障使用锁定报警（需手动确认）
+  - 信息类警告使用自恢复报警
+  - 急停不得断开 PLC 处理器电源（只断输出电源）
+
+E-Stop 恢复策略：
+  序列恢复（热启动）— 15-60 秒，连续流程/高速包装
+  操作员辅助恢复 — 1-3 分钟，夹具转移装配
+  全冷启动 — 5-15 分钟，危险品/安全关键
+
+========================================
+第八部分：Pick & Place（取放机构）
+========================================
+
+状态序列：
+  0-空闲：全部关闭
+  1-左移：水平缩回，到左限位
+  2-下降抓取：垂直伸出，到下限位
+  3-上升（带件）：垂直缩回，到上限位
+  4-右移：水平伸出，到右限位
+  5-下降放置：垂直伸出，到下限位
+  6-上升（空）：垂直缩回，到上限位
+
+转换条件：自动模式 + 启动 + 全部归位 + 传感器到位
+
+========================================
+第九部分：ISA-88 批处理与配方管理
+========================================
+
+ISA-88 物理模型层次：
+  控制模块（CM）— 单个 I/O 标签、PID 回路、阀门逻辑
+  设备模块（EM）— 功能性设备组，FB 或 UDT
+  单元（Unit）— 独立处理工站，设备相
+  过程 — 主配方，主状态机
+
+配方与设备分离原则：
+  - 配方参数存储在 UDT 数据结构中，运行时加载
+  - 设备控制逻辑独立于工艺流程
+  - 相（Phase）作为最小可执行单元：加料、加热、搅拌、转料
+
+SCL 配方执行模式（CASE 结构控制相步骤）：
+  CASE Phase_Step OF
+      0: // 空闲 - 等待启动命令
+      1: // 初始化 - 加载配方参数
+      2: // 打开阀门
+      3: // 加热到目标温度
+      4: // 测量电导率
+      5: // 排放
+      6: // 完成
+      7: // 故障处理
+  END_CASE;

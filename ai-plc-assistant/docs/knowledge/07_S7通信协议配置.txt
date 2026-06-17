@@ -1,0 +1,230 @@
+西门子 S7 通信协议配置手册
+
+========================================
+第一部分：PUT/GET S7 通信
+========================================
+
+概述：
+  PUT/GET 是西门子 S7 系列 PLC 之间最简单的数据交换方式。
+  PUT 写入远程 CPU 数据，GET 读取远程 CPU 数据。
+  远程 CPU 无需编程，只需被动允许访问。
+
+配置步骤：
+  1. 在两个 PLC 的网络视图中建立 PROFINET 子网
+  2. 被动方 CPU 属性 > Protection & Security > Connection mechanisms
+     勾选"Permit access with PUT/GET communication from remote partner"
+  3. FW V4.7+的 S7-1200 / FW V3.1+的 S7-1500 还需启用 Anonymous 用户
+  4. 主动方 OB1 中拖入 GET/PUT 指令，创建实例 DB
+  5. Connection parameter 中选远程 PLC 为连接伙伴
+  6. 配置 ADDR（远程数据区地址）和 RD/SD（本地数据缓冲区）
+
+关键参数：
+  REQ — 上升沿触发读/写操作
+  ID — 连接 ID（TIA Portal 自动分配）
+  NDR/DONE — 操作完成指示
+  ADDR_1~4 — 远程 CPU 数据区地址
+  RD_1~4 (GET) / SD_1~4 (PUT) — 本地数据缓冲区
+
+安全警告（西门子官方）：
+  - PUT/GET 没有任何安全特性，无加密、无认证
+  - 任何能访问网络的设备都可以读写 CPU 数据
+  - 若攻击者能物理访问网络，可能读写数据
+  - 必须通过限制物理访问来保护
+  - 安全要求高的场景建议用 OPC UA 替代
+
+数据一致性：
+  ADDR 和 RD/SD 参数的字节长度和数据类型必须匹配。
+  PUT/GET 只能访问标准（非优化）数据块。
+
+========================================
+第二部分：开放用户通信（TSEND_C/TRCV_C）
+========================================
+
+概述：
+  开放用户通信（OUC）是程序控制的通信方式，支持 TCP、ISO-on-TCP、UDP 协议。
+  灵活性高，可与任何支持这些协议的设备通信。
+
+核心指令：
+  TSEND_C — 建立连接 + 发送数据（集成式）
+  TRCV_C — 建立连接 + 接收数据（集成式）
+  TCON — 仅建立连接
+  TDISCON — 断开连接
+  TSEND/TRCV — 仅发送/接收数据（需先 TCON 建立连接）
+
+TCON_IP_v4 结构关键字段：
+  InterfaceId — PROFINET 接口硬件标识符
+  ID — 连接引用（1~4095）
+  ConnectionType — 06=TCP, 0B=UDP, 0C=ISO-on-TCP
+  ActiveEstablished — TRUE=主动建立连接
+  RemoteAddress — 远程 IP 地址
+  RemotePort — 远程端口号（默认 2000）
+  LocalPort — 本地端口号
+
+连接建立流程：
+  1. TSEND_C 端：CONT=1 建立连接，REQ=1 触发发送
+  2. TRCV_C 端：CONT=1 建立连接，EN_R=1 启用接收
+  3. 一方必须设为主动连接（Active），另一方被动（Passive）
+
+安全通信：S7-1500 FW V2.5+ 支持 Secure OUC (TLS)
+  使用 TCON_IP_V4_SEC 或 TCON_QDN_SEC 结构。
+
+========================================
+第三部分：OPC UA 服务器（S7-1500）
+========================================
+
+概述：
+  OPC UA 是工业 4.0 首选的跨平台通信协议。
+  S7-1500 内置 OPC UA 服务器功能（FW V2.5+）。
+
+启用步骤：
+  1. CPU 属性 > OPC UA > Server > General
+  2. 勾选"Activate OPC UA server"
+  3. 确认安全提示
+  4. 设置 Runtime license > OPC UA
+  5. 配置端口号（默认 4840）
+  6. 配置最小发布间隔和采样间隔
+  7. 编译并下载
+
+服务器接口配置：
+  - 默认启用"Standard SIMATIC Server interface"
+  - 自动暴露已启用的 PLC 标签
+  - 可在 Project tree > OPC UA communication 中自定义
+  - 将需要的 DB 块拖入 OPC UA Server Interface
+
+安全策略配置：
+  No Security — 无加密无签名（不推荐）
+  Basic256Sha256 - Sign — 签名但不加密
+  Basic256Sha256 - Sign & Encrypt — 推荐，签名且加密
+
+证书管理：
+  STEP 7 自动生成 SHA256 签名的服务器证书
+  路径：Properties > OPC UA > Server > Security > Secure Channel
+  推荐使用全局安全设置
+
+版本要求：
+  S7-1200：FW V4.4+（仅服务器，不支持客户端）
+  S7-1500：FW V2.5+（服务器和客户端）
+  TIA Portal：V16+ 已包含 OPC UA 证书许可
+
+OPC UA 连接地址格式：opc.tcp://PLC_IP:4840
+
+========================================
+第四部分：PROFINET IO 配置
+========================================
+
+设备名称（Device Name）：
+  - 出厂时 IO 设备没有设备名称
+  - 设备名称遵循 DNS 规范，小写字母
+  - IO 控制器通过设备名称识别 IO 设备
+
+设备名称分配方式：
+  1. STEP 7 > Accessible devices > 选择 MAC 地址 > Assign Name
+  2. 拓扑自动分配（LLDP 邻居关系识别）
+  3. CPU 显示屏设置（S7-1500）
+  4. 存储卡
+  5. 用户程序（T_CONFIG 指令）
+
+IP 地址分配：
+  IO 设备的 IP 由 IO 控制器在启动时自动分配
+  IP 在 STEP 7 中配置，从 IO 控制器 IP 按升序分配
+  STEP 7 V17+ 支持 DHCP 分配
+
+GSD 文件：
+  GSD 文件描述 PROFINET IO 设备的属性
+  安装：Options > Manage general station description files (GSD)
+  安装后设备出现在硬件目录 > Other field devices > PROFINET IO
+  I-Device 可导出为 GSD 文件供其他项目使用
+
+Shared Device（共享设备）：
+  一个 IO 设备可被多个 IO 控制器访问
+  每个传输区域只能分配给一个 IO 控制器
+  所有项目的 IP 地址和设备名称必须一致
+
+I-Device（智能设备）：
+  S7-1500 可同时作为 IO 控制器和 IO 设备
+  FW V3.1+ 支持分配多个 IO 控制器
+
+========================================
+第五部分：Modbus TCP（MB_CLIENT/MB_SERVER）
+========================================
+
+S7-1200/S7-1500 原生支持 Modbus TCP，无需额外硬件。
+
+MB_SERVER（PLC 作为 Modbus 从站）：
+  1. 创建全局 DB，添加 Array[0..99] of Word 作为保持寄存器
+  2. 关闭 DB 的"Optimized block access"（关键步骤）
+  3. 在 OB1 中添加 MB_SERVER 指令
+  4. 参数：DISCONNECT=FALSE, CONNECT_ID=1, IP_PORT=502
+  5. MB_HOLD_REG 指向保持寄存器 DB
+
+MB_CLIENT（PLC 作为 Modbus 主站）：
+  1. 创建 TCON_IP_v4 连接参数 DB
+     ConnectionType=11, ActiveEstablished=TRUE
+  2. 创建数据接收 DB
+  3. 在 OB1 中添加 MB_CLIENT 指令
+  4. 配置 MB_MODE（0=读, 1=写），MB_DATA_ADDR（1 基），MB_DATA_LEN
+  5. REQ 需脉冲触发，必须等 DONE=TRUE 后才能发下一个请求
+
+Modbus 地址映射（1 基）：
+  40001 = 第一个保持寄存器
+  30001 = 第一个输入寄存器
+  00001 = 第一个线圈
+
+版本要求：
+  S7-1200：FW V4.0+ 完整支持
+
+========================================
+第六部分：Modbus RTU（CM1241 RS485）
+========================================
+
+S7-1200 通过 CM1241 通信模块扩展 Modbus RTU。
+每个 S7-1200 最多扩展 3 个通信模块。
+
+所需指令：
+  Modbus_Comm_Load — 配置通信端口参数（必须先调用）
+  Modbus_Master — 作为 Modbus 主站
+  Modbus_Slave — 作为 Modbus 从站
+
+Modbus_Comm_Load 配置：
+  - 必须在第一个程序周期调用（OB100 或 OB1 首次扫描）
+  - PORT：CM1241 的硬件标识符
+  - BAUD：波特率 300~115200
+  - PARITY：0=无, 1=奇, 2=偶
+  - MODE：4=RS485 半双工两线制
+
+CM1241 RS485 接线：
+  引脚 3 — TxD+/RxD+ (A)，数据正
+  引脚 8 — TxD-/RxD- (B)，数据负
+  引脚 5 — GND，信号地
+  电缆超过 10m 需启用 120Ω 终端电阻
+
+========================================
+第七部分：PROFIBUS DP
+========================================
+
+PROFIBUS DP 是传统现场总线协议，采用主从架构。
+正在被 PROFINET 取代，但大量现有设备仍在使用。
+
+配置步骤：
+  1. 安装 GSD 文件（Options > Manage GSD）
+  2. 创建 DP 主系统
+  3. 添加 DP 从站并连接到 PROFIBUS 接口
+  4. 配置从站模块
+  5. 设置 PROFIBUS 地址和 I/O 地址
+
+S7-1500 需通过 CM/CP 模块（如 CP 1542-5）支持 PROFIBUS。
+
+========================================
+第八部分：HMS Anybus 网关集成
+========================================
+
+HMS Anybus 网关用于在不同工业网络之间传输数据。
+与 PROFINET 相关的常见组合：
+  PROFINET ↔ EtherNet/IP
+  PROFINET ↔ Modbus TCP
+  PROFINET ↔ EtherCAT
+  PROFINET ↔ Modbus RTU
+
+PROFINET 侧性能：最大 1024 字节 I/O，最小循环时间 1ms
+集成步骤：安装 GSDML 文件 → 添加为 PROFINET IO 设备 → 配置 I/O 模块
+→ 通过网关 Web 界面配置另一侧协议参数

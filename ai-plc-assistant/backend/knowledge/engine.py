@@ -27,7 +27,17 @@ def _create_embedding_function(model_name: str):
                 self._model = TextEmbedding(model_name=model_name)
 
             def __call__(self, input):
+                return self.embed_documents(input)
+
+            def embed_documents(self, input):
                 return [e.tolist() for e in self._model.embed(input)]
+
+            def embed_query(self, input):
+                # ChromaDB passes list of texts, expects list of embeddings
+                return [e.tolist() for e in self._model.embed(input)]
+
+            def name(self):
+                return "fastembed-" + model_name
 
         return FastEmbedFunction()
     except ImportError:

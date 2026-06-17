@@ -1,0 +1,282 @@
+开源 PLC 库与项目参考
+
+========================================
+第一部分：Siemens Open Library（DMC 开源库）
+========================================
+
+项目概述：
+  - DMC（DMC Inc.）维护的开源西门子 PLC 库
+  - 提供常用传感器、设备驱动和 PID 控制的功能块
+  - 广泛应用于西门子 S7-1200/S7-1500 系列
+  - 与 TIA Portal 完全兼容
+
+库主要内容：
+  - 数字量传感器驱动（光电、接近、限位）
+  - 模拟量传感器驱动（温度、压力、流量）
+  - 电机控制功能块（启停、正反转、变频器接口）
+  - PID 控制封装（连续 PID、开关 PID、级联 PID）
+  - 阀门控制（开关阀、调节阀、三通阀）
+  - HMI 数据接口 UDT
+
+典型应用场景：
+  - HVAC 系统控制（西门子 Open Library + Siemens S7-1500H）
+  - DMC 在多个项目中用于空处理单元（AHU）、冷水机、干冷器控制
+  - 与西门子 Desigo CC 楼宇管理系统集成
+  - 支持 BACnet、Modbus TCP、Modbus RTU 通信协议
+
+========================================
+第二部分：LBP V2.8 西门子官方库
+========================================
+
+项目概述：
+  - Siemens SIMATIC 官方工艺库 LBP（Library of Basic Process）
+  - 版本 V2.8，适用于 TIA Portal
+  - 面向过程工业标准应用场景
+
+库模块分类：
+  电机控制类：
+    - LBP_Motor：标准电机控制（带 HOA 选择）
+    - LBP_Motor_VFD：变频器电机控制
+    - LBP_Motor_SoftStart：软启动电机控制
+    - 特性：运行反馈、过载保护、启动超时检测
+
+  阀门控制类：
+    - LBP_Valve_OnOff：开关阀控制
+    - LBP_Valve_Regulating：调节阀控制
+    - 特性：开/关到位反馈、执行器故障检测、中间位置检测
+
+  仪表类：
+    - LBP_AnalogInput：模拟量输入处理（量程转换、滤波、限值报警）
+    - LBP_AnalogOutput：模拟量输出处理
+    - LBP_Counter：计数器功能块
+    - LBP_Timer：定时器功能块
+
+  PID 控制类：
+    - LBP_PID_Continuous：连续 PID 控制器
+    - LBP_PID_Step：步进 PID（适合阀门执行器）
+    - LBP_PID_Cascade：级联 PID
+
+  报警处理类：
+    - LBP_Alarm：报警管理功能块
+    - LBP_AlarmGroup：报警分组管理
+
+FB/FC 命名规范：
+  - 以 LBP_ 开头，后接功能名称
+  - 输入参数以 i_ 前缀
+  - 输出参数以 o_ 前缀
+  - 输入输出参数以 io_ 前缀
+
+========================================
+第三部分：PackML 状态机实现
+========================================
+
+PackML（Packaging Machine Language）标准概述：
+  - 由 OMAC 组织制定，被采纳为 ANSI/ISA-TR88.00.02 标准
+  - 定义 17 种标准化状态和状态转换规则
+  - 适用于包装机械、制造设备、自动化生产线
+  - 提供统一的机器数据接口（PackTags）
+
+17 种 PackML 状态：
+  - Acting 状态（执行逻辑）：Starting, Execute, Completing, Resetting,
+    Holding, Unholding, Suspending, Unsuspending, Stopping, Aborting, Clearing
+  - Wait 状态（等待命令）：Idle, Complete, Held, Suspended, Stopped, Aborted
+
+SIMATIC AX LPMLV2022 库（西门子官方）：
+  - 完整实现 OMAC PackML V2022 标准
+  - 支持多模式运行：Production（生产）、Maintenance（维护）、Manual（手动）
+  - 最多支持 28 个用户自定义模式
+  - 17 个标准化状态完整实现
+  - 灵活的配置：启用的模式、禁用的状态、模式转换和命令处理
+  - Stacklight 状态管理（三色灯塔）
+  - 内置诊断和状态报告
+  - 通过 apax add 安装，以编译二进制包交付
+
+Open.PackML（C# 开源库）：
+  - 开源 ISA-88 / PackML 标准实现，MIT 许可证
+  - 提供预定义的类库用于构建 PackML 控制系统
+  - 适用于 .NET / C# 环境
+  - 包含状态机核心、模式管理器、命令接口
+
+PackML 状态机实现模式（SFC 转换）：
+  - 将 PackML 状态图映射为 SFC（顺序功能图）
+  - 正常操作序列：Stopped → Resetting → Idle → Starting → Execute
+  - Execute 后有 3 条路径：Complete、Hold、Suspend
+  - Hold 和 Suspend 最终回到 Execute
+  - 全部状态可通过 Stop 或 Abort 中断
+  - 错误处理：集中式（所有错误指向同一错误步）或分散式（每步独立错误循环）
+
+PackML MQTT 模拟器（libremfg/PackML-MQTT-Simulator）：
+  - 基于 MQTT 通信的 PackML 虚拟产线模拟器
+  - 支持 SparkPlugB 和基本 MQTT 主题结构
+  - 发布订阅命令主题：Command/Start, Command/Stop, Command/Abort 等
+  - 状态发布主题：Status/StateCurrent, Status/StateCurrentStr
+  - 适合 Industry 4.0 软件方案开发
+
+PackML Pypi 包（aljoshakoecher/PackMLpy）：
+  - PackML 状态机的 Python 实现
+  - 基于 asyncio 异步设计
+  - 完整 17 状态和有效转换约束
+  - Builder 模式构建状态机实例
+  - 支持添加自定义动作到每个 Acting 状态
+
+TwinCAT HMI PackML 状态图控件（hijaaack/JB.TcHmiPackMLStateDiagram）：
+  - TwinCAT HMI 的 PackML 状态图可视化控件
+  - 通过 NuGet 包安装
+  - 连接 PLC 的 PackML 状态结构体（ST_PMLs）
+  - 显示当前状态、单元模式
+
+========================================
+第四部分：可复用 FB 库（电机/阀门/PID）
+========================================
+
+Rockwell LogixLibraries（Vadoola/LogixLibraries）：
+  - Rockwell Studio 5000 AOI、UDT、设计模式和示例程序集合
+  - 使用结构化文本定义 AOI，便于在不同 IEC 61131-3 平台间移植
+  - 仅包含 .L5X（Logix 5000 XML）文件
+
+模块分类：
+  - Array_：数组处理工具
+  - Dvc：设备驱动（电机、阀门）
+  - Filter_：信号滤波
+  - Lp：过程控制块（PID、累计器）
+  - MBTCP：Modbus TCP 客户端驱动
+  - Recipe（Rec_）：配方参数处理（实验性）
+  - Sys：系统诊断、WallClock、ISA 18.2 报警管理
+  - UI_：HMI 辅助功能块
+  - RTC：精确脉冲/定时工具
+
+UDT 命名规范（对应 AOI）：
+  - ST_Dvc_abc（设备驱动 UDT）
+  - ST_Sys_xyz（系统功能 UDT）
+  - 外部访问权限按需设置（Read / Read/Write）
+
+Flintium（jlbcontrols/Flintium）— HMI 面库：
+  - Ignition SCADA 平台的开源面库
+  - 与 Rockwell Automation Process Library AOI 配对使用
+  - 提供了标准的电机、阀门、仪表 HMI 面面
+  - 通过 OPC UA 连接 PLC 画面
+
+ABB Pumping 功能块库（ABB AC500）：
+  - PmpLevelComparator：液位比较器，根据过程需求计算机泵数量
+  - PmpLevelDistributor：泵分发器，根据需求量发送启停命令和速度参考
+  - PmpInterfaceVFD：变频器泵接口功能块
+  - PmpInterfaceDol：直接启动泵接口功能块
+  - PmpProtectionAnalog：模拟量保护功能块（干转、过流）
+  - PmpProtectionBinary：数字量保护功能块
+  - PmpAntijam：防卡堵功能块
+
+ABB 功能块数据流：
+  PmpLevelComparator（液位偏差 → 需求量）
+    ↓ NumberOfPumpDemand
+  PmpLevelDistributor（需求量 → 各泵启停 + 速度参考）
+    ↓ AutoStartCmd / SpeedRef
+  PmpInterfaceVFD/Dol（接口控制 → 物理泵）
+
+========================================
+第五部分：Modbus/OPC UA 通信封装
+========================================
+
+Modbus TCP 客户端驱动（LogixLibraries MBTCP）：
+  - 基于 Rockwell Logix 的通用消息指令封装
+  - 支持 Modbus 功能码：01（读线圈）、03（读寄存器）、
+    05（写单线圈）、06（写单寄存器）、15（写多线圈）、16（写多寄存器）
+  - 自动请求重试和超时处理
+  - 寄存器映射到 PLC 标签
+
+OPC UA 集成（RWTH IAT Recipol）：
+  - Recipol 是开源的过程编排层（Process Orchestration Layer）
+  - 基于 ISA-88 BatchML 标准格式
+  - 通过 OPC UA 与模块化工厂的 PEA（工艺设备组件）通信
+  - 每个 PEA 在其 PLC 上运行 OPC UA 服务器
+  - 支持 MTP（Module Type Package，模块类型包）导入
+  - MTP 包含 P&ID、服务、参数、传感接口和 OPC UA 连接元数据
+
+西门子 S7 通信模式：
+  - TSEND_C / TRCV_C 指令：用于开放式用户通信（Open User Communication）
+  - 支持 TCP、UDP、ISO-on-TCP 协议
+  - 在冗余系统（S7-1500H）中使用 MRP（介质冗余协议）环网
+  - 支持 BACnet、Modbus TCP、Modbus RTU 多协议集成
+
+========================================
+第六部分：配方与数据记录
+========================================
+
+ISA-88 配方结构（BatchML 标准）：
+  - 主配方（Master Recipe）：定义生产工艺流程和参数
+  - 控制配方（Control Recipe）：具体设备执行的实例化版本
+  - 配方通过 BatchML（XML 格式）文件描述
+  - 配方与设备分离：配方参数存储在 UDT 数据结构中
+
+配方参数 UDT 结构模板：
+  TYPE CIP_Recipe :
+  STRUCT
+      Recipe_Name : STRING[20];
+      PreRinse_Time : TIME := T#2M;
+      Caustic_Temp : REAL := 75.0;
+      Caustic_Time : TIME := T#15M;
+      Caustic_Concentration : REAL := 2.0;
+      IntRinse_Time : TIME := T#3M;
+      Acid_Temp : REAL := 65.0;
+      Acid_Time : TIME := T#10M;
+      FinalRinse_Time : TIME := T#3M;
+      Flow_Rate : REAL := 200.0;
+  END_STRUCT;
+  END_TYPE
+
+配方执行引擎（RWTH IAT Recipol）：
+  - control.py — 通过 OPC UA 执行配方
+  - b2mmlparser.py — 解析并验证 BatchML/S88 配方文件
+  - mtpparser.py — 解析 MTP 文件
+  - orchestration.py — 将工艺步骤编排为线性/分支执行列表
+  - DataHistory.csv — 时间戳记录执行日志
+
+数据记录模式（环形缓冲区）：
+  - 在 PLC 内存中维护环形缓冲区（Ring Buffer）
+  - 持续记录关键过程变量的最近 N 个采样值
+  - 故障触发时锁定故障前 30 秒的数据用于事后分析
+  - 适用于冷却水、锅炉等关键设备的事故追溯
+
+========================================
+第七部分：HMI 报警管理与诊断
+========================================
+
+ISA-18.2 报警管理标准（GOPLC 开源实现）：
+  - 阈值规则引擎：hi/hihi/lo/lolo 四限值 + 死区
+  - 变化率限值报警（Rate-of-Change）
+  - 偏差报警（Deviation from Setpoint）
+  - 严重级别分级：info / warning / error / critical
+  - 按区域/优先级分组
+  - 历史数据库记录报警转换日志
+
+GOPLC（Go 语言 PLC 运行时）报警结构：
+  - pkg/alarms — 工业报警引擎
+  - 阈值评估 → 状态机转换 → SQLite 历史记录
+  - 事件总线集成：报警触发时发送事件到 Webhook/MQTT/审计日志
+  - ST 内建函数：ALARM_RAISE, ALARM_CLEAR, ALARM_ACK
+  - API 端点：/api/alarms/active（当前报警）、/api/alarms/ack（确认）
+
+PyAutomation 开源 SCADA 报警（know-ai/PyAutomation）：
+  - 全面遵循 ISA-18.2 标准
+  - 报警类型：BOOL, HIGH, LOW, HIGH-HIGH, LOW-LOW
+  - 完整生命周期跟踪：触发 → 确认 → 恢复 → 记录
+  - CSV 导出合规报告
+  - React 前端界面，支持黑暗/明亮主题
+
+HMI 模版参考（HMEye — Blazor Server + MudBlazor）：
+  - 轻量级 TwinCAT HMI 模板
+  - 属性驱动的符号发现：PLC 通过自定义属性声明 HMI 变量
+  - 单一通信点 + 值缓存，支持多客户端同时访问
+  - YARP 反向代理集成 Grafana/Node-RED 等服务
+
+GOPLC 集成 HMI 功能：
+  - 内建 Web IDE（Monaco 编辑器），语句级调试器
+  - 集成 Node-RED（7 个自定义 PLC 节点用于建立 HMI 仪表板）
+  - 趋势组件自动缩放和事件标记叠加
+  - 预报警归档（Pre-Error Archive）：故障前 30 秒数据锁定
+
+报警设计最佳实践：
+  - 安全关键故障使用锁定报警（需手动确认）
+  - 信息类警告使用自恢复报警
+  - 每个报警需配置：描述、严重级别、所属区域、标签名
+  - 报警分组存放在父类下（如 Sys_Group），便于 HMI 统一管理
+  - 报警确认后自动复位输出
