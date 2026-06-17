@@ -24,6 +24,8 @@ P3_SCRIPT = PROJECT_ROOT / "p3_flow.py"
 
 # ── 配置 ──
 # 追加到 sys.path 尾部，避免覆盖标准库同名模块
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 if str(TIA_MCP_DIR) not in sys.path:
     sys.path.append(str(TIA_MCP_DIR))
 try:
