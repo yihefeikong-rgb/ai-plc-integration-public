@@ -1,11 +1,23 @@
 # AI 接入 PLC 与工业机器人
-此项目为 纯AI制作
-> 构建生产级 AI Agent 系统，让 AI 通过自然语言直接监控、控制西门子 PLC、
-> 三菱 PLC 和工业机器人，并具备自动生成西门子 PLC 梯形图 (LAD) / SCL 代码的能力。
 
-**技术栈：** MCP + Python + C#/.NET + Docker + OPC UA / Modbus / MC 协议 + TIA Portal Openness
+> 构建生产级 AI Agent 系统 + 本地工业自动化 AI 工作台。
+> 让 AI 通过自然语言监控、控制西门子 PLC，并自动生成 SCL/LAD 代码。
 
-**版本：** TIA Portal V21 / PLCSIM Advanced V8.0 / Factory I/O
+**技术栈：** MCP + Python + C#/.NET + Electron + React + FastAPI + Docker
+
+**版本：** TIA Portal V18 / PLCSIM Advanced V8.0
+
+---
+
+## AI PLC Assistant（桌面应用）
+
+本地运行的工业自动化 AI 编程工作台，位于 `ai-plc-assistant/`。
+
+**功能：** AI 聊天(DeepSeek/Claude/OpenAI/Kimi) | RAG 知识库 | PLC 工程搜索 | 梯形图生成 | SCL/XML/HMI 导出 | Prompt 模板 | 项目管理
+
+**启动：** 双击 `ai-plc-assistant/start.bat`
+
+**详细文档：** 见 [ai-plc-assistant/README.md](ai-plc-assistant/README.md)
 
 ---
 
