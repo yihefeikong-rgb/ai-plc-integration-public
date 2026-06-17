@@ -8,6 +8,7 @@ import ContextPanel from './components/ContextPanel'
 import LogPanel from './components/LogPanel'
 import PromptTemplateModal from './components/PromptTemplateModal'
 import SettingsPanel from './components/SettingsPanel'
+import CodeExplainer from './components/CodeExplainer'
 import {
   getModels, generateLadder, createProject,
   createConversation, addMessage, getConversation, listConversations,
@@ -181,7 +182,10 @@ export default function App() {
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
 
       const data = await res.json()
-      addLog('info', `[LLM] ${data.content.length}字`)
+      if (data.fallback) {
+        addLog('warn', `[LLM] 主模型不可用，已切换到 ${data.model}`)
+      }
+      addLog('info', `[LLM] ${data.model} — ${data.content.length}字`)
       setMessages(prev => [...prev, { role: 'assistant', content: data.content, rag_sources: data.rag_sources }])
       if (cid) addMessage(cid, 'assistant', data.content).catch(() => {})
     } catch (err) {
@@ -223,11 +227,12 @@ export default function App() {
     switch (activeTab) {
       case 'welcome':
         return <Dashboard onOpenTab={openTab} onCreateProject={handleCreateProject} />
+      case 'parse':
+        return <CodeExplainer addLog={addLog} />
       case 'settings':
         return <SettingsPanel addLog={addLog} />
       case 'chat':
       case 'ladder':
-      case 'parse':
       case 'diagnose':
       case 'io-table':
       case 'variables':

@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from llm.service import chat, PLC_SYSTEM_PROMPT
+from llm.service import chat_with_fallback, PLC_SYSTEM_PROMPT
 from routes import knowledge as kb_module
 
 router = APIRouter()
@@ -21,7 +21,8 @@ class ChatResponse(BaseModel):
     role: str = "assistant"
     content: str
     model: str = ""
-    rag_sources: list[str] = []  # 引用的知识库来源
+    fallback: bool = False  # 是否切换了模型
+    rag_sources: list[str] = []
 
 
 def _rag_search(query: str, top_k: int = 3) -> tuple[str, list[str]]:
@@ -98,13 +99,18 @@ async def chat_with_llm(request: ChatRequest):
                 break
 
     try:
-        content = chat(
+        result = chat_with_fallback(
             model_id=request.model_id,
             messages=messages,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
         )
-        return ChatResponse(content=content, model=request.model_id, rag_sources=rag_sources)
+        return ChatResponse(
+            content=result["content"],
+            model=result["model"],
+            fallback=result["fallback"],
+            rag_sources=rag_sources,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

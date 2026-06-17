@@ -96,6 +96,57 @@ def _call_anthropic(cfg: dict, messages: list, temperature: float, max_tokens: i
     return content
 
 
+PROVIDER_ORDER = ["deepseek", "openai", "kimi", "claude", "custom"]
+
+
+def get_available_providers() -> list[str]:
+    """获取所有已配置 API Key 的提供商"""
+    store = get_settings_store()
+    if store is None:
+        return []
+    return [p for p in PROVIDER_ORDER if store.get(f"{p}_api_key")]
+
+
+def chat_with_fallback(
+    model_id: str = "deepseek",
+    messages: list[dict] | None = None,
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+) -> dict:
+    """带自动切换的聊天 — 主模型失败时尝试下一个
+
+    Returns:
+        {"content": str, "model": str, "fallback": bool}
+    """
+    if messages is None:
+        messages = []
+
+    # 先尝试指定模型
+    try:
+        content = chat(model_id, messages, temperature, max_tokens)
+        return {"content": content, "model": model_id, "fallback": False}
+    except Exception as primary_err:
+        pass
+
+    # 主模型失败 → 尝试其他已配置模型
+    available = get_available_providers()
+    provider_map = {"deepseek": "deepseek", "openai": "openai", "kimi": "kimi", "claude": "claude", "custom": "custom"}
+    tried = {provider_map.get(model_id, model_id)}
+
+    for provider in available:
+        if provider in tried:
+            continue
+        tried.add(provider)
+        try:
+            content = chat(provider, messages, temperature, max_tokens)
+            return {"content": content, "model": provider, "fallback": True}
+        except Exception:
+            continue
+
+    # 全部失败
+    raise ValueError(f"所有模型调用均失败。主模型 {model_id}: {primary_err}")
+
+
 PLC_SYSTEM_PROMPT = """你是一名资深的西门子PLC工程师，精通TIA Portal V18/V19编程。
 
 专业能力：
