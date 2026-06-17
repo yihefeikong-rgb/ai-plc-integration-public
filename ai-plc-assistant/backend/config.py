@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     kimi_model: str = "moonshot-v1-8k"
 
     deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
 
     openrouter_api_key: str = ""

@@ -10,7 +10,7 @@
     },
     "exa": {
       "type": "http",
-      "url": "https://mcp.exa.ai/mcp"
+      "url": "https://mcp.exa.ai/mcp?exaApiKey=9fddd390-6092-4eb5-b657-581664c81b7b"
     },
     "memory": {
       "command": "npx",

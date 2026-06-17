@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 DEFAULT_SETTINGS = {
     "deepseek_api_key": "",
-    "deepseek_base_url": "https://api.deepseek.com/v1",
+    "deepseek_base_url": "https://api.deepseek.com",
     "deepseek_model": "deepseek-v4-flash",
     "openai_api_key": "",
     "openai_base_url": "https://api.openai.com/v1",

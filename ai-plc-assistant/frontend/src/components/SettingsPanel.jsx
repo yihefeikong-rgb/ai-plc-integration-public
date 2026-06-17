@@ -6,7 +6,7 @@ import { getSettings, updateSettings, getProviders, testProvider } from '../api'
 const FALLBACK_PROVIDERS = {
   deepseek: {
     label: 'DeepSeek',
-    base_url: 'https://api.deepseek.com/v1',
+    base_url: 'https://api.deepseek.com',
     models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     default: 'deepseek-v4-flash',
   },
