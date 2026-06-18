@@ -124,3 +124,21 @@ async def knowledge_status():
         raise HTTPException(status_code=503, detail="知识库引擎未初始化")
     stats = engine.get_stats()
     return StatsResponse(**stats)
+
+
+@router.get("/code-templates")
+async def list_code_templates():
+    """列出可用的 SCL 代码模板文件"""
+    templates_dir = Path(__file__).parent.parent.parent.parent / "plc-code-templates" / "siemens-scl"
+    if not templates_dir.exists():
+        return {"templates": []}
+
+    files = []
+    for f in sorted(templates_dir.iterdir()):
+        if f.suffix in (".scl", ".md") and f.name != "README.md":
+            files.append({
+                "name": f.stem,
+                "type": f.suffix[1:],
+                "size": f.stat().st_size,
+            })
+    return {"templates": files}

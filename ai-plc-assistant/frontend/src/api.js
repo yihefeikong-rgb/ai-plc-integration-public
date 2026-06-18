@@ -163,6 +163,10 @@ export async function streamChat({ model_id = 'deepseek', messages = [], tempera
   }
 }
 
+// ---- 代码模板（SCL 文件列表）----
+
+export const listCodeTemplates = () => request('/knowledge/code-templates')
+
 // ---- 健康检查 ----
 
 export const healthCheck = () => request('/health')
