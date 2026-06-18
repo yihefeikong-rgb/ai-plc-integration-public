@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, BookOpen, Download, FileCode, FileText as FileXml, Table2, ArrowDown } from 'lucide-react'
+import { Send, Bot, User, BookOpen, Download, FileCode, FileText as FileXml, Table2, ArrowDown, Eye, Code } from 'lucide-react'
 import { exportCode } from '../api'
 import ReactMarkdown from 'react-markdown'
+import LadderVisualizer from './LadderVisualizer'
 
 function downloadFile(content, filename, mime = 'text/plain') {
   const blob = new Blob([content], { type: `${mime};charset=utf-8` })
@@ -32,6 +33,7 @@ async function handleExport(structured, format, title) {
 function LadderResult({ msg }) {
   const { title, description, structured } = msg
   const { variables, networks } = structured || {}
+  const [svgMode, setSvgMode] = useState(true)  // true=SVG, false=text
 
   return (
     <div className="space-y-3">
@@ -68,7 +70,17 @@ function LadderResult({ msg }) {
 
       {networks?.length > 0 && (
         <div className="space-y-2">
-          <div className="text-2xs font-medium text-text-secondary uppercase tracking-wider">程序逻辑</div>
+          <div className="flex items-center justify-between">
+            <div className="text-2xs font-medium text-text-secondary uppercase tracking-wider">程序逻辑</div>
+            <button
+              onClick={() => setSvgMode(!svgMode)}
+              className="flex items-center gap-1 px-2 py-0.5 text-2xs text-text-dim hover:text-accent border border-transparent hover:border-accent/40 rounded transition-colors"
+              title={svgMode ? '显示源码' : '显示图形'}
+            >
+              {svgMode ? <Code size={12} /> : <Eye size={12} />}
+              {svgMode ? '源码' : '图形'}
+            </button>
+          </div>
           {networks.map((n, i) => (
             <div key={i} className="border border-ide-border rounded overflow-hidden">
               <div className="px-3 py-1.5 bg-ide-panel border-b border-ide-border flex items-center gap-2">
@@ -80,7 +92,10 @@ function LadderResult({ msg }) {
                   // {n.comment}
                 </div>
               )}
-              {n.code && (
+              {n.code && svgMode && (
+                <LadderVisualizer code={n.code} networkTitle={`Network ${n.number}: ${n.title}`} />
+              )}
+              {n.code && !svgMode && (
                 <pre className="px-3 py-2 text-xs text-text-secondary font-mono leading-relaxed overflow-x-auto bg-ide-panel">
                   {n.code}
                 </pre>
