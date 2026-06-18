@@ -49,11 +49,11 @@ def _parse_docx(file_path: str) -> str:
     return "\n".join(paragraphs)
 
 
-def get_file_metadata(file_path: str) -> dict:
+def get_file_metadata(file_path: str, original_name: str = "") -> dict:
     """获取文件元信息"""
     p = Path(file_path)
     return {
-        "filename": p.name,
+        "filename": original_name or p.name,
         "extension": p.suffix.lower(),
         "size_bytes": p.stat().st_size,
         "modified": p.stat().st_mtime,

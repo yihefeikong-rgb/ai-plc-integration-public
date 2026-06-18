@@ -63,8 +63,9 @@ async def import_document(file: UploadFile = File(...)):
             tmp.write(content)
             tmp_path = tmp.name
 
-        # 索引
-        result = engine.index_file(tmp_path)
+        # 索引（传入原始文件名，避免显示 tmp_xxx）
+        original_name = Path(file.filename or "").name
+        result = engine.index_file(tmp_path, original_filename=original_name)
         return {
             "document_id": result["document_id"],
             "filename": result["filename"],

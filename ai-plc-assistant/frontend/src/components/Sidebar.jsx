@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   FolderOpen, ChevronRight, ChevronDown, Plus, Upload,
   BookOpen, FileText, LayoutTemplate,
@@ -37,6 +37,44 @@ function SidebarItem({ icon: Icon, label, count, onClick, active, indent = false
       <span className={`truncate flex-1 text-left ${dimLabel ? 'text-text-dim' : ''}`}>{label}</span>
       {count !== undefined && <span className="text-text-dim text-2xs">{count}</span>}
     </button>
+  )
+}
+
+/* 可折叠的知识库文档分组 */
+function DocGroup({ label, icon: Icon, docs, prefixRange, onDelete }) {
+  const [open, setOpen] = useState(true)
+  const [min, max] = prefixRange || [0, 99]
+  const groupDocs = useMemo(() =>
+    docs.filter(d => {
+      const m = (d.filename || '').match(/^(\d+)/)
+      const n = m ? parseInt(m[1]) : 99
+      return n >= min && n <= max
+    }),
+    [docs, min, max]
+  )
+  if (groupDocs.length === 0) return null
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-1.5 pl-6 pr-3 py-1 text-2xs font-medium text-text-dim hover:text-text-secondary">
+        {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        <Icon size={12} />
+        <span>{label}</span>
+        <span className="ml-auto text-text-dim font-normal">{groupDocs.length}篇</span>
+      </button>
+      {open && groupDocs.map(doc => (
+        <div key={doc.document_id}
+          className="group flex items-center gap-1 pl-9 pr-3 py-0.5 text-xs text-text-dim hover:bg-ide-hover">
+          <FileText size={12} className="shrink-0" />
+          <span className="truncate flex-1">{doc.filename.replace(/\.txt$/,'')}</span>
+          <span className="text-2xs">{doc.chunk_count}</span>
+          <button onClick={() => onDelete(doc.document_id, doc.filename)}
+            className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-status-error ml-1">
+            <Trash2 size={11} />
+          </button>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -135,18 +173,11 @@ export default function Sidebar({
             className="w-full flex items-center gap-2 pl-5 px-3 py-1 text-xs text-accent hover:bg-ide-hover disabled:opacity-50">
             <Upload size={13} /> {uploading ? '上传中...' : '导入文档'}
           </button>
-          {docs.map((doc) => (
-            <div key={doc.document_id}
-              className="group flex items-center gap-1 pl-7 pr-3 py-0.5 text-xs text-text-dim hover:bg-ide-hover">
-              <FileText size={12} className="shrink-0" />
-              <span className="truncate flex-1">{doc.filename}</span>
-              <span className="text-2xs">{doc.chunk_count}</span>
-              <button onClick={() => handleDelete(doc.document_id, doc.filename)}
-                className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-status-error ml-1">
-                <Trash2 size={11} />
-              </button>
-            </div>
-          ))}
+
+          {/* 分组文档列表 */}
+          <DocGroup label="基础参考" icon={BookOpen} docs={docs} prefixRange={[1, 3]} indent="pl-7" onDelete={handleDelete} />
+          <DocGroup label="进阶参考" icon={FileText} docs={docs} prefixRange={[4, 10]} indent="pl-7" onDelete={handleDelete} />
+          <DocGroup label="行业模板" icon={LayoutTemplate} docs={docs} prefixRange={[11, 99]} indent="pl-7" onDelete={handleDelete} />
         </Section>
 
         {/* AI工具 */}

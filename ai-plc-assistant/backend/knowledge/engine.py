@@ -113,7 +113,7 @@ class KnowledgeEngine:
 
     # ---- Indexing ----
 
-    def index_file(self, file_path: str) -> dict:
+    def index_file(self, file_path: str, original_filename: str = "") -> dict:
         """索引单个文件：解析 → 分块 → 写入向量库
 
         Returns:
@@ -121,7 +121,7 @@ class KnowledgeEngine:
         """
         # 解析
         text = parse_file(file_path)
-        metadata = get_file_metadata(file_path)
+        metadata = get_file_metadata(file_path, original_name=original_filename)
 
         # 分块
         chunks = chunk_text(text)
