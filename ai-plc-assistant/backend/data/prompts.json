@@ -6,10 +6,21 @@
     "description": "生成十字路口交通灯控制程序（SCL）",
     "content": "你是一名西门子PLC工程师，使用TIA Portal V18编程。\n请生成一个十字路口交通灯控制程序。\n\n要求：\n- 使用SCL语言\n- 包含红灯、黄灯、绿灯控制\n- 东西方向和南北方向交替通行\n- 绿灯持续时间：{green_time}秒\n- 黄灯持续时间：{yellow_time}秒\n- 包含急停输入\n- 包含启动/停止按钮\n\n请生成完整的FB块，包含变量声明和逻辑代码。",
     "variables": [
-      {"name": "green_time", "label": "绿灯时间(秒)", "default": "30", "type": "int"},
-      {"name": "yellow_time", "label": "黄灯时间(秒)", "default": "3", "type": "int"}
+      {
+        "name": "green_time",
+        "label": "绿灯时间(秒)",
+        "default": "30",
+        "type": "int"
+      },
+      {
+        "name": "yellow_time",
+        "label": "黄灯时间(秒)",
+        "default": "3",
+        "type": "int"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "motor-fwd-rev",
@@ -18,9 +29,15 @@
     "description": "生成电机正反转控制FB（SCL/LAD）",
     "content": "你是一名西门子PLC工程师。\n请生成一个电机正反转控制程序。\n\n要求：\n- 使用{language}语言\n- 包含正转启动、反转启动、停止按钮\n- 正反转互锁\n- 过载保护输入\n- 急停输入\n- 输出：正转接触器、反转接触器、故障指示\n- 带故障复位功能\n\n请生成完整的FB块。",
     "variables": [
-      {"name": "language", "label": "编程语言", "default": "SCL", "type": "string"}
+      {
+        "name": "language",
+        "label": "编程语言",
+        "default": "SCL",
+        "type": "string"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "pid-controller",
@@ -29,10 +46,21 @@
     "description": "生成PID温度控制程序（SCL）",
     "content": "你是一名西门子PLC工程师。\n请生成一个PID温度控制程序。\n\n要求：\n- 使用SCL语言\n- 目标温度：{target_temp}°C\n- 采样周期：{sample_time}ms\n- 包含手动/自动切换\n- 输出限幅：0-100%\n- 包含加热器输出和冷却输出\n- PID参数可通过HMI调节\n\n请生成完整的FB块和DB。",
     "variables": [
-      {"name": "target_temp", "label": "目标温度(°C)", "default": "100", "type": "int"},
-      {"name": "sample_time", "label": "采样周期(ms)", "default": "500", "type": "int"}
+      {
+        "name": "target_temp",
+        "label": "目标温度(°C)",
+        "default": "100",
+        "type": "int"
+      },
+      {
+        "name": "sample_time",
+        "label": "采样周期(ms)",
+        "default": "500",
+        "type": "int"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "modbus-rtu",
@@ -41,11 +69,27 @@
     "description": "生成Modbus RTU主站通信程序",
     "content": "你是一名西门子PLC工程师。\n请生成Modbus RTU通信程序。\n\n要求：\n- 使用TIA Portal V18\n- 使用Modbus_Comm_Load和Modbus_Master功能块\n- 波特率：{baud_rate}\n- 数据格式：8数据位，{parity}校验，1停止位\n- 从站地址：{slave_address}\n- 读取保持寄存器和输入寄存器\n- 错误处理和通信超时\n\n请生成主站通信程序，包含数据映射和错误处理。",
     "variables": [
-      {"name": "baud_rate", "label": "波特率", "default": "9600", "type": "string"},
-      {"name": "parity", "label": "校验方式", "default": "无", "type": "string"},
-      {"name": "slave_address", "label": "从站地址", "default": "1", "type": "int"}
+      {
+        "name": "baud_rate",
+        "label": "波特率",
+        "default": "9600",
+        "type": "string"
+      },
+      {
+        "name": "parity",
+        "label": "校验方式",
+        "default": "无",
+        "type": "string"
+      },
+      {
+        "name": "slave_address",
+        "label": "从站地址",
+        "default": "1",
+        "type": "int"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "step-sequence",
@@ -54,9 +98,15 @@
     "description": "生成步进顺控程序（SCL）",
     "content": "你是一名西门子PLC工程师。\n请生成一个步进顺控程序。\n\n要求：\n- 使用SCL语言\n- 包含{step_count}个工步\n- 每步包含：启动条件、执行动作、完成条件\n- 包含手动/自动切换\n- 包含单步运行/连续运行模式\n- 包含急停和复位功能\n- 每一步都有超时保护和报警\n\n请生成完整的FB块。",
     "variables": [
-      {"name": "step_count", "label": "工步数", "default": "4", "type": "int"}
+      {
+        "name": "step_count",
+        "label": "工步数",
+        "default": "4",
+        "type": "int"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "analog-processing",
@@ -65,11 +115,27 @@
     "description": "生成模拟量采集和标定程序",
     "content": "你是一名西门子PLC工程师。\n请生成模拟量信号处理程序。\n\n要求：\n- 使用SCL语言\n- 输入信号：{signal_type}（4-20mA / 0-10V）\n- 量程转换：{range_min}-{range_max}\n- 包含滤波处理\n- 包含断线检测\n- 包含上下限报警\n- 采样周期可配置\n\n请生成完整的FC块。",
     "variables": [
-      {"name": "signal_type", "label": "信号类型", "default": "4-20mA", "type": "string"},
-      {"name": "range_min", "label": "量程下限", "default": "0", "type": "int"},
-      {"name": "range_max", "label": "量程上限", "default": "100", "type": "int"}
+      {
+        "name": "signal_type",
+        "label": "信号类型",
+        "default": "4-20mA",
+        "type": "string"
+      },
+      {
+        "name": "range_min",
+        "label": "量程下限",
+        "default": "0",
+        "type": "int"
+      },
+      {
+        "name": "range_max",
+        "label": "量程上限",
+        "default": "100",
+        "type": "int"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "alarm-management",
@@ -78,9 +144,15 @@
     "description": "生成报警管理FC",
     "content": "你是一名西门子PLC工程师。\n请生成一个报警管理程序。\n\n要求：\n- 使用SCL语言\n- 支持{alarm_count}个报警点\n- 每个报警包含：触发位、确认位、报警文本\n- 报警分级（警告/报警/紧急）\n- 首次报警记录\n- 报警时间戳\n- 蜂鸣器输出\n- 报警自动复位功能\n\n请生成完整的FC和DB。",
     "variables": [
-      {"name": "alarm_count", "label": "报警数量", "default": "16", "type": "int"}
+      {
+        "name": "alarm_count",
+        "label": "报警数量",
+        "default": "16",
+        "type": "int"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "explain-code",
@@ -89,9 +161,15 @@
     "description": "让AI解释一段PLC代码的逻辑",
     "content": "请解释下面的PLC代码：\n\n{code}\n\n请说明：\n1. 这段代码的功能是什么\n2. 关键变量的作用\n3. 逻辑执行流程\n4. 可能的优化建议",
     "variables": [
-      {"name": "code", "label": "PLC代码", "default": "", "type": "string"}
+      {
+        "name": "code",
+        "label": "PLC代码",
+        "default": "",
+        "type": "string"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "generate-io-table",
@@ -100,9 +178,15 @@
     "description": "根据设备描述生成PLC IO表",
     "content": "你是一名西门子PLC工程师。\n请根据以下设备描述生成PLC IO表：\n\n{description}\n\n请以表格形式列出：\n| 地址 | 符号名 | 数据类型 | 说明 | 设备位置 |\n\n包含：\n- 数字量输入\n- 数字量输出\n- 模拟量输入\n- 模拟量输出",
     "variables": [
-      {"name": "description", "label": "设备描述", "default": "", "type": "string"}
+      {
+        "name": "description",
+        "label": "设备描述",
+        "default": "",
+        "type": "string"
+      }
     ],
-    "created_at": 1781709886.457, "updated_at": 1781709886.457
+    "created_at": 1781709886.457,
+    "updated_at": 1781709886.457
   },
   {
     "id": "pump-station",
@@ -111,9 +195,15 @@
     "description": "生成多泵轮换/液位分级启停程序",
     "content": "你是一名西门子PLC工程师。\n请生成一个水泵站多泵控制程序。\n\n要求：\n- 使用SCL语言\n- 泵数量：{pump_count}台\n- 液位分级启停（20%增量对应1台泵）\n- Lead/Lag轮换策略（按累计运行时间）\n- 干运行保护（低液位+电流检测）\n- 故障泵自动切换到下一可用泵\n- 最小运行时间保护\n- 泵运行时间累计记录\n\n请生成完整的FB块，含泵管理UDT和轮换逻辑。",
     "variables": [
-      {"name": "pump_count", "label": "泵数量", "default": "4", "type": "int"}
+      {
+        "name": "pump_count",
+        "label": "泵数量",
+        "default": "4",
+        "type": "int"
+      }
     ],
-    "created_at": 1781820000.000, "updated_at": 1781820000.000
+    "created_at": 1781820000.0,
+    "updated_at": 1781820000.0
   },
   {
     "id": "packaging-machine",
@@ -122,9 +212,15 @@
     "description": "生成包装机状态机控制程序",
     "content": "你是一名西门子PLC工程师。\n请生成一个包装机控制程序。\n\n要求：\n- 使用SCL语言\n- 包含状态机：IDLE->STARTING->RUNNING->COMPLETE->FAULT\n- 每步超时检测和报警\n- 批次计数功能\n- 自动/手动模式切换\n- 伺服同步控制（电子齿轮）\n- 封刀温度PID控制（分别设定）\n- 安全联锁：门开关、急停、光幕\n- 产品计数和批量切换\n\n请生成完整的FB块，包含状态枚举和超时处理。",
     "variables": [
-      {"name": "batch_size", "label": "每批数量", "default": "100", "type": "int"}
+      {
+        "name": "batch_size",
+        "label": "每批数量",
+        "default": "100",
+        "type": "int"
+      }
     ],
-    "created_at": 1781820000.000, "updated_at": 1781820000.000
+    "created_at": 1781820000.0,
+    "updated_at": 1781820000.0
   },
   {
     "id": "sbr-process",
@@ -133,10 +229,21 @@
     "description": "生成序批式污水处理控制程序",
     "content": "你是一名西门子PLC工程师。\n请生成SBR序批式污水处理控制程序。\n\n要求：\n- 使用SCL语言\n- 5阶段控制：FILL（注水）-> AERATE（曝气）-> SETTLE（沉淀）-> DECANT（排水）-> IDLE（待机）\n- 每个阶段时间可调\n- 曝气溶解氧DO控制（2.0-4.0mg/L目标）\n- 鼓风机分级启动\n- 排泥控制\n- 异常处理：鼓风机故障、滗水器故障\n- 阶段时间记录和统计\n\n请生成完整的FB块，各阶段通过CASE语句切换。",
     "variables": [
-      {"name": "fill_time", "label": "注水时间(min)", "default": "30", "type": "int"},
-      {"name": "aerate_time", "label": "曝气时间(min)", "default": "120", "type": "int"}
+      {
+        "name": "fill_time",
+        "label": "注水时间(min)",
+        "default": "30",
+        "type": "int"
+      },
+      {
+        "name": "aerate_time",
+        "label": "曝气时间(min)",
+        "default": "120",
+        "type": "int"
+      }
     ],
-    "created_at": 1781820000.000, "updated_at": 1781820000.000
+    "created_at": 1781820000.0,
+    "updated_at": 1781820000.0
   },
   {
     "id": "cip-system",
@@ -145,10 +252,21 @@
     "description": "生成CIP就地清洗系统控制程序",
     "content": "你是一名西门子PLC工程师。\n请生成一个CIP清洗系统控制程序。\n\n要求：\n- 使用SCL语言\n- 5阶段清洗：RINSE1->CAUSTIC->RINSE2->ACID->FINAL_RINSE\n- 每阶段温度和时长可调\n- 碱液浓度电导率监控\n- 酸液浓度电导率监控\n- 清洗液回收到对应的罐\n- 不合格排放判断\n- 温度未达标延时等待\n- 配方参数化（可存多组配方）\n\n请生成完整的FB块，包含配方UDT和阶段切换CASE逻辑。",
     "variables": [
-      {"name": "caustic_temp", "label": "碱洗温度(°C)", "default": "75", "type": "int"},
-      {"name": "acid_temp", "label": "酸洗温度(°C)", "default": "60", "type": "int"}
+      {
+        "name": "caustic_temp",
+        "label": "碱洗温度(°C)",
+        "default": "75",
+        "type": "int"
+      },
+      {
+        "name": "acid_temp",
+        "label": "酸洗温度(°C)",
+        "default": "60",
+        "type": "int"
+      }
     ],
-    "created_at": 1781820000.000, "updated_at": 1781820000.000
+    "created_at": 1781820000.0,
+    "updated_at": 1781820000.0
   },
   {
     "id": "cooling-tower",
@@ -157,9 +275,15 @@
     "description": "生成冷却塔多风机VFD控制程序",
     "content": "你是一名西门子PLC工程师。\n请生成冷却塔多风机控制程序。\n\n要求：\n- 使用SCL语言\n- 风机数量：{fan_count}台\n- 每台风机带VFD变频控制\n- 温度PID级联控制（回水温度）\n- 风机延时启停（2-5分钟间隔）\n- 等速运行优于满速（节能策略）\n- 冷水机安全联锁：流量开关、低压/高压保护、防冻保护\n- 冷水机启停序列：风机->水泵->冷水机\n- 运行时间累计和轮换\n\n请生成完整的FB块和联锁逻辑。",
     "variables": [
-      {"name": "fan_count", "label": "风机数量", "default": "4", "type": "int"}
+      {
+        "name": "fan_count",
+        "label": "风机数量",
+        "default": "4",
+        "type": "int"
+      }
     ],
-    "created_at": 1781820000.000, "updated_at": 1781820000.000
+    "created_at": 1781820000.0,
+    "updated_at": 1781820000.0
   },
   {
     "id": "asrs-crane",
@@ -168,10 +292,21 @@
     "description": "生成自动化立体仓库堆垛机控制程序",
     "content": "你是一名西门子PLC工程师。\n请生成自动化立体仓库堆垛机控制程序。\n\n要求：\n- 使用SCL语言\n- 三轴控制：X行走、Y提升、Z货叉\n- 库位坐标计算（自动寻址）\n- 速度分区控制（高速->减速->爬行->到位）\n- MC_MoveAbsolute定位\n- WMS通信接口（入库/出库请求）\n- 入库/出库任务队列管理\n- 货叉伸缩速度独立可调\n- 双深度货架支持\n\n请生成堆垛机控制FB和WMS通信接口FC。",
     "variables": [
-      {"name": "cols", "label": "列数", "default": "40", "type": "int"},
-      {"name": "rows", "label": "行数", "default": "10", "type": "int"}
+      {
+        "name": "cols",
+        "label": "列数",
+        "default": "40",
+        "type": "int"
+      },
+      {
+        "name": "rows",
+        "label": "行数",
+        "default": "10",
+        "type": "int"
+      }
     ],
-    "created_at": 1781820000.000, "updated_at": 1781820000.000
+    "created_at": 1781820000.0,
+    "updated_at": 1781820000.0
   },
   {
     "id": "agv-dispatch",
@@ -180,9 +315,15 @@
     "description": "生成AGV交通管制和任务调度程序",
     "content": "你是一名西门子PLC工程师。\n请生成AGV调度管理程序。\n\n要求：\n- 使用SCL语言\n- AGV数量：{agv_count}台\n- 区域交通管制（Zone Control）\n- 电池管理（低电量自动回充）\n- 任务队列和分配\n- 充电桩管理\n- 死锁检测和解除\n- MQTT通信接口\n- 紧急停止全部AGV\n\n请生成主调度FB和区域管制逻辑。",
     "variables": [
-      {"name": "agv_count", "label": "AGV数量", "default": "5", "type": "int"}
+      {
+        "name": "agv_count",
+        "label": "AGV数量",
+        "default": "5",
+        "type": "int"
+      }
     ],
-    "created_at": 1781820000.000, "updated_at": 1781820000.000
+    "created_at": 1781820000.0,
+    "updated_at": 1781820000.0
   },
   {
     "id": "elevator-control",
@@ -191,10 +332,21 @@
     "description": "生成多楼层电梯控制程序（SCL）",
     "content": "你是一名西门子PLC工程师。\n请生成一个电梯控制系统程序。\n\n要求：\n- 使用SCL语言\n- 楼层数：{floor_count}层\n- 包含轿厢内选层按钮和厅外召唤按钮\n- 方向判断逻辑（上/下行）\n- 集选控制（Collective Selective Control）\n- 开关门时序控制（开门延时：{door_delay}秒）\n- 楼层定位（限位开关或编码器）\n- 安全互锁：门锁、急停、限位\n- 超载检测\n- 消防归底功能\n- 楼层显示输出到7段码\n\n请生成电梯控制FB，包含请求队列管理算法。",
     "variables": [
-      {"name": "floor_count", "label": "楼层数", "default": "6", "type": "int"},
-      {"name": "door_delay", "label": "开门延时(秒)", "default": "5", "type": "int"}
+      {
+        "name": "floor_count",
+        "label": "楼层数",
+        "default": "6",
+        "type": "int"
+      },
+      {
+        "name": "door_delay",
+        "label": "开门延时(秒)",
+        "default": "5",
+        "type": "int"
+      }
     ],
-    "created_at": 1781913600.000, "updated_at": 1781913600.000
+    "created_at": 1781913600.0,
+    "updated_at": 1781913600.0
   },
   {
     "id": "parking-management",
@@ -203,9 +355,15 @@
     "description": "生成停车场入口/出口/计费管理控制程序",
     "content": "你是一名西门子PLC工程师。\n请生成一个停车场管理系统控制程序。\n\n要求：\n- 使用SCL语言\n- 总车位：{total_spaces}个\n- 入口控制：地感线圈→道闸升起→车辆进入→道闸落下\n- 出口控制：地感线圈→计费完成→道闸升起→车辆离开→道闸落下\n- 车位计数：入口+1，出口-1\n- 满位指示（满位时禁止入场）\n- 入口LED显示屏（剩余车位实时更新）\n- 包含自动和手动模式\n- 道闸上下限位保护\n- 车辆防砸保护（地感+红外双重检测）\n\n请生成停车场管理FB，包含车位计数和LED显示驱动逻辑。",
     "variables": [
-      {"name": "total_spaces", "label": "总车位数", "default": "100", "type": "int"}
+      {
+        "name": "total_spaces",
+        "label": "总车位数",
+        "default": "100",
+        "type": "int"
+      }
     ],
-    "created_at": 1781913600.000, "updated_at": 1781913600.000
+    "created_at": 1781913600.0,
+    "updated_at": 1781913600.0
   },
   {
     "id": "hvac-control",
@@ -214,10 +372,21 @@
     "description": "生成楼宇暖通空调新风机组控制程序",
     "content": "你是一名西门子PLC工程师。\n请生成一个楼宇自控HVAC控制程序。\n\n要求：\n- 使用SCL语言\n- 新风机组（AHU）控制：送风机、回风机、新风阀、回风阀、排风阀\n- 温度控制：夏季制冷/冬季制热模式自动切换\n- PID级联控制：回风温度→供水温度→阀门开度\n- 风阀/水阀联动控制\n- CO2浓度控制新风量\n- 防冻保护（低温关闭新风阀、打开热水阀）\n- 过滤器压差报警\n- 时间表控制（工作日/周末/节假日）\n- 手自动切换\n\n请生成AHU控制FB，包含模式切换和PID级联逻辑。",
     "variables": [
-      {"name": "cool_setpoint", "label": "制冷设定温度(°C)", "default": "24", "type": "int"},
-      {"name": "heat_setpoint", "label": "制热设定温度(°C)", "default": "20", "type": "int"}
+      {
+        "name": "cool_setpoint",
+        "label": "制冷设定温度(°C)",
+        "default": "24",
+        "type": "int"
+      },
+      {
+        "name": "heat_setpoint",
+        "label": "制热设定温度(°C)",
+        "default": "20",
+        "type": "int"
+      }
     ],
-    "created_at": 1781913600.000, "updated_at": 1781913600.000
+    "created_at": 1781913600.0,
+    "updated_at": 1781913600.0
   },
   {
     "id": "vav-control",
@@ -226,10 +395,21 @@
     "description": "生成VAV变风量末端箱控制器程序",
     "content": "你是一名西门子PLC工程师。\n请生成VAV变风量末端箱控制程序。\n\n要求：\n- 使用SCL语言\n- 风量传感器信号采集和标定\n- 风量PID控制（通过风阀调节保持设定风量）\n- 温度PID级联控制（回风温度→风量设定值重设）\n- 最小/最大风量限制\n- 制冷/加热模式自动切换\n- 再热阀控制（电加热或热水）\n- 压力无关控制模式\n- 夜间节能模式（Nigh Setback）\n\n请生成VAV控制FB，含压力无关控制和温度重设逻辑。",
     "variables": [
-      {"name": "min_airflow", "label": "最小风量(CFM)", "default": "200", "type": "int"},
-      {"name": "max_airflow", "label": "最大风量(CFM)", "default": "1000", "type": "int"}
+      {
+        "name": "min_airflow",
+        "label": "最小风量(CFM)",
+        "default": "200",
+        "type": "int"
+      },
+      {
+        "name": "max_airflow",
+        "label": "最大风量(CFM)",
+        "default": "1000",
+        "type": "int"
+      }
     ],
-    "created_at": 1781913600.000, "updated_at": 1781913600.000
+    "created_at": 1781913600.0,
+    "updated_at": 1781913600.0
   },
   {
     "id": "chiller-plant",
@@ -238,8 +418,34 @@
     "description": "生成中央冷站多台冷水机组群控程序",
     "content": "你是一名西门子PLC工程师。\n请生成中央冷站群控程序。\n\n要求：\n- 使用SCL语言\n- 冷水机组：{chiller_count}台\n- 冷冻水泵：一次泵+二次泵变流量控制\n- 冷却塔风机联动\n- 供回水温差控制\n- 机组轮换（按累计运行时间）\n- 负荷需求自动加减机\n- 冷冻水/冷却水流量保护\n- 制冷季节/过渡季节模式\n- 能耗优化策略（等百分比负荷优先）\n\n请生成中央冷站群控FB，含加减机策略和轮换逻辑。",
     "variables": [
-      {"name": "chiller_count", "label": "冷机台数", "default": "4", "type": "int"}
+      {
+        "name": "chiller_count",
+        "label": "冷机台数",
+        "default": "4",
+        "type": "int"
+      }
     ],
-    "created_at": 1781913600.000, "updated_at": 1781913600.000
+    "created_at": 1781913600.0,
+    "updated_at": 1781913600.0
+  },
+  {
+    "id": "新测试模板",
+    "name": "新测试模板",
+    "category": "测试类别",
+    "description": "测试用",
+    "content": "请生成测试程序。",
+    "variables": [],
+    "created_at": 1781780772.3371418,
+    "updated_at": 1781780772.3371418
+  },
+  {
+    "id": "test",
+    "name": "test",
+    "category": "test",
+    "description": "",
+    "content": "test content",
+    "variables": [],
+    "created_at": 1781780783.0237982,
+    "updated_at": 1781780783.0237982
   }
 ]
