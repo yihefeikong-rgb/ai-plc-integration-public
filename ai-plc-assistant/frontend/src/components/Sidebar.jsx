@@ -96,6 +96,7 @@ export default function Sidebar({
   const [projects, setProjects] = useState([])
   const [docs, setDocs] = useState([])
   const [uploading, setUploading] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(null) // conversation id pending delete
 
   useEffect(() => {
     listProjects(20).then(d => setProjects(d.projects || [])).catch(() => {})
@@ -155,10 +156,20 @@ export default function Sidebar({
               onClick={() => onSwitchConversation?.(c.id)}>
               <MessageSquare size={14} className="shrink-0" />
               <span className="truncate flex-1">{c.title}</span>
-              <button onClick={(e) => { e.stopPropagation(); onDeleteConversation?.(c.id) }}
-                className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-status-error shrink-0">
-                <Trash2 size={11} />
-              </button>
+              {deleteConfirm === c.id ? (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={(e) => { e.stopPropagation(); onDeleteConversation?.(c.id); setDeleteConfirm(null) }}
+                    className="text-status-success hover:text-status-success/80 text-2xs font-medium">确认</button>
+                  <span className="text-text-dim text-2xs">/</span>
+                  <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(null) }}
+                    className="text-text-dim hover:text-text-primary text-2xs">取消</button>
+                </div>
+              ) : (
+                <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(c.id) }}
+                  className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-status-error shrink-0">
+                  <Trash2 size={11} />
+                </button>
+              )}
             </div>
           ))}
           <button onClick={onNewConversation}
