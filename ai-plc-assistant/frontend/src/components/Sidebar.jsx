@@ -168,8 +168,8 @@ export default function Sidebar({
 
         {/* 知识库 */}
         <Section title="知识库" icon={BookOpen} defaultOpen={false} count={docs.length}>
-          <SidebarItem icon={LayoutTemplate} label="Prompt模板" onClick={() => onOpenTab?.('templates')} indent />
-          <SidebarItem icon={CodeIcon} label="代码模板" onClick={() => onOpenCodeTemplates?.()} indent />
+          <SidebarItem icon={LayoutTemplate} label="提示词模板" onClick={() => onOpenTab?.('templates')} indent />
+          <SidebarItem icon={CodeIcon} label="SCL代码模板" onClick={() => onOpenCodeTemplates?.()} indent />
           <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" onChange={handleUpload} className="hidden" />
           <button onClick={() => fileRef.current?.click()} disabled={uploading}
             className="w-full flex items-center gap-2 pl-5 px-3 py-1 text-xs text-accent hover:bg-ide-hover disabled:opacity-50">
