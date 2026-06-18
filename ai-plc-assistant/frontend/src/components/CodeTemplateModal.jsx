@@ -59,8 +59,8 @@ export default function CodeTemplateModal({ onClose }) {
                     : 'bg-surface-alt border border-transparent hover:border-surface-border'
                 }`}
               >
-                <div className="font-medium text-text-primary mb-0.5">{t.name}</div>
-                <div className="text-text-dim text-2xs">{t.type.toUpperCase()} · {t.size}字节</div>
+                <div className="font-medium text-text-primary mb-0.5">{t.title || t.name}</div>
+                <div className="text-text-dim text-2xs">{t.type.toUpperCase()} · {t.name}.{t.type}</div>
               </button>
             ))}
             {templates.length === 0 && (

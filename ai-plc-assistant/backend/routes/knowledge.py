@@ -133,6 +133,28 @@ async def list_code_templates():
     if not templates_dir.exists():
         return {"templates": []}
 
+    # 英文文件名 → 中文标题映射
+    titles = {
+        "pump-station": "水泵站多泵控制",
+        "cooling-tower": "冷却塔风机控制",
+        "packaging-machine": "包装机状态机",
+        "sbr-process": "SBR污水处理",
+        "cip-system": "CIP清洗系统",
+        "pid-control": "PID控制器封装",
+        "pid-controller": "PID控制器文档",
+        "motor-control": "电机控制文档",
+        "batch_counter": "批次计数器",
+        "conveyor-with-timer": "传送带定时控制",
+        "mixer": "搅拌器控制",
+        "tank_level": "水箱液位控制",
+        "traffic_light": "十字路口交通灯",
+        "conveyor": "传送带文档",
+        "material-cart": "料车控制文档",
+        "general": "编程通用指南",
+        "motor": "电机控制参考",
+        "pid": "PID控制参考",
+    }
+
     files = []
     for f in sorted(templates_dir.iterdir()):
         if f.suffix in (".scl", ".md") and f.name != "README.md":
@@ -140,6 +162,7 @@ async def list_code_templates():
                 "name": f.stem,
                 "type": f.suffix[1:],
                 "size": f.stat().st_size,
+                "title": titles.get(f.stem, f.stem),
             })
     return {"templates": files}
 
