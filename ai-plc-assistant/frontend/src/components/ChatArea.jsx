@@ -147,6 +147,14 @@ function MessageBlock({ msg }) {
           <span className="text-2xs font-medium text-text-dim uppercase tracking-wider">
             {isUser ? '输入' : 'AI 助手'}
           </span>
+          {msg.fallback && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs bg-status-warning/15 text-status-warning border border-status-warning/30">
+              已切换至 {msg.model || '备用模型'}
+            </span>
+          )}
+          {msg.model && !msg.fallback && !isUser && (
+            <span className="text-2xs text-text-dim">{msg.model}</span>
+          )}
           {msg.rag_sources?.length > 0 && (
             <span className="flex items-center gap-1 text-2xs text-status-info ml-auto">
               <BookOpen size={11} /> 引用 {msg.rag_sources.length} 个文档

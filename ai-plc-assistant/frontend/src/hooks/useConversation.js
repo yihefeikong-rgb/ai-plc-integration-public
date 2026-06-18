@@ -136,6 +136,8 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
                 ...updated[updated.length - 1],
                 streaming: false,
                 rag_sources: data?.rag_sources,
+                model: data?.model,
+                fallback: data?.fallback,
               }
               return updated
             })
@@ -173,6 +175,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
             const updated = [...prev]
             updated[updated.length - 1] = {
               role: 'assistant', content: data.content, streaming: false, rag_sources: data.rag_sources,
+              model: data.model, fallback: data.fallback,
             }
             return updated
           })
