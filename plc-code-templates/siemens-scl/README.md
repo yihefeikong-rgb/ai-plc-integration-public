@@ -5,6 +5,7 @@ AI 生成 PLC 代码时的 Prompt 模板，每个模板含完整 SCL 代码示�
 ## 模板列表
 
 | 文件 | 场景 | 复杂度 |
+|:------|------|:------:|
 |------|------|:------:|
 | `motor-control.md` | 电机正反转 + 急停 + 过载 + 限位 | ⭐⭐ |
 | `conveyor.md` | 多段传送带 + 堵料检测 + 满料停止 | ⭐⭐ |
@@ -14,6 +15,9 @@ AI 生成 PLC 代码时的 Prompt 模板，每个模板含完整 SCL 代码示�
 | `sbr-process.md` | SBR 污水处理 + 五阶段时序 + DO 分档曝气 + 参数可配 | ⭐⭐⭐ |
 | `cip-system.md` | CIP 清洗系统 + 五阶段清洗 + 温度控制 + 电导率监控 | ⭐⭐⭐⭐ |
 | `cooling-tower.md` | 冷却塔 + 多风机分级 + VFD + 冷机联锁 + 防冻 | ⭐⭐⭐⭐ |
+| `电梯控制系统.md` | 电梯集选控制 + 顺向截梯 + 门控时序 + 消防归底 | ⭐⭐⭐⭐ |
+| `停车场管理系统.md` | 停车场出入口 + 车位计数 + 防砸 + 满位控制 | ⭐⭐⭐ |
+| `楼宇自控HVAC系统.md` | AHU新风机组 + 制冷/制热/防冻 + PID + CO2新风 | ⭐⭐⭐⭐ |
 
 ## SCL 源文件
 
@@ -32,6 +36,9 @@ AI 生成 PLC 代码时的 Prompt 模板，每个模板含完整 SCL 代码示�
 | `sbr-process.scl` | SBRProcess | 污水 SBR 五阶段处理 |
 | `cip-system.scl` | CIPSystem | CIP 自动清洗系统 |
 | `cooling-tower.scl` | CoolingTower | 冷却塔多风机分级控制 |
+| `电梯控制系统.scl` | ElevatorControl | 电梯集选控制 + 顺向截梯 |
+| `停车场管理系统.scl` | ParkingManagement | 停车场出入口管理 |
+| `楼宇自控HVAC系统.scl` | AHUControl | AHU新风机组 + PID + 防冻 |
 
 ## 引用的提示模板（在 server.py 的 _LAD_PROMPT_TEMPLATE 中）
 

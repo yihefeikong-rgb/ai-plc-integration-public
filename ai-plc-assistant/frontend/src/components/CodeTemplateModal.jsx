@@ -1,10 +1,29 @@
 import { useState, useEffect } from 'react'
 import { listCodeTemplates, getCodeTemplateContent } from '../api'
 
+function IoTable({ title, signals }) {
+  if (!signals || signals.length === 0) return null
+  return (
+    <div className="mb-3">
+      <div className="text-2xs font-semibold text-text-dim mb-1 uppercase tracking-wider">{title}</div>
+      <div className="space-y-0.5">
+        {signals.map((s, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className="text-text-primary font-medium">{s.comment || s.name}</span>
+            <span className="text-2xs text-text-dim bg-surface-alt px-1 rounded">{s.type}</span>
+            <span className="text-2xs text-text-dim">({s.name})</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function CodeTemplateModal({ onClose }) {
   const [templates, setTemplates] = useState([])
   const [selected, setSelected] = useState(null)
   const [content, setContent] = useState('')
+  const [ioData, setIoData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [showScl, setShowScl] = useState(true)
 
@@ -15,9 +34,11 @@ export default function CodeTemplateModal({ onClose }) {
   const handleSelect = async (t) => {
     setSelected(t)
     setLoading(true)
+    setIoData(null)
     try {
       const data = await getCodeTemplateContent(t.name)
       setContent(data.content || '')
+      if (data.io) setIoData(data.io)
     } catch { setContent('// 加载失败') }
     setLoading(false)
   }
@@ -73,7 +94,18 @@ export default function CodeTemplateModal({ onClose }) {
             {loading ? (
               <div className="flex items-center justify-center h-full text-text-dim text-xs">加载中...</div>
             ) : content ? (
-              <pre className="p-4 text-xs text-text-primary font-mono leading-relaxed whitespace-pre-wrap overflow-x-auto">{content}</pre>
+              <div className="p-4">
+                {/* IO 表（仅 SCL 代码展示） */}
+                {ioData && selected?.type === 'scl' && (
+                  <div className="mb-4 p-3 bg-surface-alt rounded-lg border border-surface-border">
+                    <div className="text-xs font-semibold text-text-primary mb-2">接口信号（中文）</div>
+                    <IoTable title="输入" signals={ioData.inputs} />
+                    <IoTable title="输出" signals={ioData.outputs} />
+                    <IoTable title="输入输出" signals={ioData.inouts} />
+                  </div>
+                )}
+                <pre className="text-xs text-text-primary font-mono leading-relaxed whitespace-pre-wrap overflow-x-auto">{content}</pre>
+              </div>
             ) : (
               <div className="flex items-center justify-center h-full text-text-dim text-xs">选择一个模板查看代码</div>
             )}

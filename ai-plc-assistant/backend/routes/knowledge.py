@@ -153,6 +153,9 @@ async def list_code_templates():
         "general": "编程通用指南",
         "motor": "电机控制参考",
         "pid": "PID控制参考",
+        "电梯控制系统": "电梯控制系统",
+        "停车场管理系统": "停车场管理系统",
+        "楼宇自控HVAC系统": "楼宇自控HVAC系统",
     }
 
     files = []
@@ -170,9 +173,152 @@ async def list_code_templates():
 @router.get("/code-templates/{name}")
 async def get_code_template(name: str):
     """获取单个 SCL 代码模板内容"""
+    import re as _re
     templates_dir = Path(__file__).parent.parent.parent.parent / "plc-code-templates" / "siemens-scl"
     for ext in (".scl", ".md"):
         f = templates_dir / f"{name}{ext}"
         if f.exists():
-            return {"name": name, "type": ext[1:], "content": f.read_text(encoding="utf-8")}
+            content = f.read_text(encoding="utf-8")
+            result = {"name": name, "type": ext[1:], "content": content}
+
+            # 对 .scl 文件额外解析中文 IO 表
+            if ext == ".scl":
+                io_table = {"inputs": [], "outputs": [], "inouts": []}
+                current_section = None
+                for line in content.splitlines():
+                    stripped = line.strip()
+                    if stripped == "VAR_INPUT":
+                        current_section = "inputs"
+                        continue
+                    if stripped == "VAR_OUTPUT":
+                        current_section = "outputs"
+                        continue
+                    if stripped == "VAR_IN_OUT":
+                        current_section = "inouts"
+                        continue
+                    if stripped == "END_VAR" or stripped == "VAR":
+                        current_section = None
+                        continue
+                    if current_section and stripped:
+                        m = _re.match(r'(\w+)\s*:\s*(\w+[.\w]*)\s*;?\s*(?://\s*(.*))?', stripped)
+                        if m:
+                            io_table[current_section].append({
+                                "name": m.group(1),
+                                "type": m.group(2),
+                                "comment": (m.group(3) or "").strip(),
+                            })
+                result["io"] = io_table
+
+            return result
     raise HTTPException(status_code=404, detail=f"模板 {name} 不存在")
+
+
+@router.get("/ladder-templates")
+async def list_ladder_templates():
+    """列出可用的梯形图 LAD 模板（JSON 格式）"""
+    import json as _json
+    templates_dir = Path(__file__).parent.parent.parent.parent / "mcp-servers" / "tia-mcp" / "templates"
+    if not templates_dir.exists():
+        return {"templates": []}
+
+    files = []
+    for f in sorted(templates_dir.iterdir()):
+        if f.suffix == ".json":
+            try:
+                data = _json.loads(f.read_text(encoding="utf-8"))
+                networks = data.get("networks", [])
+                inputs = data.get("interface", {}).get("inputs", [])
+                outputs = data.get("interface", {}).get("outputs", [])
+                files.append({
+                    "name": f.stem,
+                    "blockName": data.get("blockName", f.stem),
+                    "networkCount": len(networks),
+                    "inputCount": len(inputs),
+                    "outputCount": len(outputs),
+                    "networks": [n.get("title", "") for n in networks],
+                })
+            except Exception:
+                pass
+    return {"templates": files}
+
+
+@router.get("/ladder-templates/{name}")
+async def get_ladder_template(name: str):
+    """获取单个梯形图模板完整 JSON + 文本化展示"""
+    import json as _json
+    templates_dir = Path(__file__).parent.parent.parent.parent / "mcp-servers" / "tia-mcp" / "templates"
+    f = templates_dir / f"{name}.json"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail=f"梯形图模板 {name} 不存在")
+
+    data = _json.loads(f.read_text(encoding="utf-8"))
+
+    # 生成文本化展示
+    text_lines = []
+    text_lines.append(f"功能块: {data.get('blockName', name)}")
+    text_lines.append("")
+
+    # 构建 operand→中文名 映射（网络元素展示用）
+    cn_map = {}
+    iface = data.get("interface", {})
+    for sig in iface.get("inputs", []):
+        cn_map[sig["name"]] = sig.get("comment", sig["name"])
+    for sig in iface.get("outputs", []):
+        cn_map[sig["name"]] = sig.get("comment", sig["name"])
+    for sig in iface.get("local", []):
+        cn_map[sig["name"]] = sig.get("comment", sig["name"])
+
+    # IO 表（中文名为主）
+    if iface.get("inputs"):
+        text_lines.append("【输入】")
+        for sig in iface["inputs"]:
+            addr = sig.get("address", "")
+            cname = sig.get("comment", sig["name"])
+            text_lines.append(f"  {cname} ({sig['name']}) : {sig['type']}  {addr}")
+    if iface.get("outputs"):
+        text_lines.append("【输出】")
+        for sig in iface["outputs"]:
+            addr = sig.get("address", "")
+            cname = sig.get("comment", sig["name"])
+            text_lines.append(f"  {cname} ({sig['name']}) : {sig['type']}  {addr}")
+    if iface.get("local"):
+        text_lines.append("【中间变量】")
+        for sig in iface["local"]:
+            cname = sig.get("comment", sig["name"])
+            text_lines.append(f"  {cname} ({sig['name']}) : {sig['type']}")
+
+    text_lines.append("")
+
+    # 网络文本化
+    element_map = {
+        "normally_open": "NO",
+        "normally_closed": "NC",
+        "coil": "( )",
+        "coil_set": "(S)",
+        "coil_reset": "(R)",
+    }
+    for i, net in enumerate(data.get("networks", []), 1):
+        title = net.get("title", f"网络{i}")
+        comment = net.get("comment", "")
+        text_lines.append(f"网络{i}: {title}")
+        if comment:
+            text_lines.append(f"  // {comment}")
+        elements = net.get("elements", [])
+        parts = []
+        for el in elements:
+            etype = el.get("type", "")
+            operand = el.get("operand", "?")
+            symbol = element_map.get(etype, etype)
+            cn_operand = cn_map.get(operand, operand)
+            if etype in ("normally_open", "normally_closed"):
+                parts.append(f"[{cn_operand} {symbol}]")
+            else:
+                parts.append(f"({cn_operand} {symbol})")
+        text_lines.append(f"  {' ── '.join(parts)}")
+        text_lines.append("")
+
+    return {
+        "name": name,
+        "data": data,
+        "text": "\n".join(text_lines),
+    }

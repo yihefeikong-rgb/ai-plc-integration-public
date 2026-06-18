@@ -183,5 +183,63 @@
       {"name": "agv_count", "label": "AGV数量", "default": "5", "type": "int"}
     ],
     "created_at": 1781820000.000, "updated_at": 1781820000.000
+  },
+  {
+    "id": "elevator-control",
+    "name": "电梯控制系统",
+    "category": "运动控制",
+    "description": "生成多楼层电梯控制程序（SCL）",
+    "content": "你是一名西门子PLC工程师。\n请生成一个电梯控制系统程序。\n\n要求：\n- 使用SCL语言\n- 楼层数：{floor_count}层\n- 包含轿厢内选层按钮和厅外召唤按钮\n- 方向判断逻辑（上/下行）\n- 集选控制（Collective Selective Control）\n- 开关门时序控制（开门延时：{door_delay}秒）\n- 楼层定位（限位开关或编码器）\n- 安全互锁：门锁、急停、限位\n- 超载检测\n- 消防归底功能\n- 楼层显示输出到7段码\n\n请生成电梯控制FB，包含请求队列管理算法。",
+    "variables": [
+      {"name": "floor_count", "label": "楼层数", "default": "6", "type": "int"},
+      {"name": "door_delay", "label": "开门延时(秒)", "default": "5", "type": "int"}
+    ],
+    "created_at": 1781913600.000, "updated_at": 1781913600.000
+  },
+  {
+    "id": "parking-management",
+    "name": "停车场管理系统",
+    "category": "顺序控制",
+    "description": "生成停车场入口/出口/计费管理控制程序",
+    "content": "你是一名西门子PLC工程师。\n请生成一个停车场管理系统控制程序。\n\n要求：\n- 使用SCL语言\n- 总车位：{total_spaces}个\n- 入口控制：地感线圈→道闸升起→车辆进入→道闸落下\n- 出口控制：地感线圈→计费完成→道闸升起→车辆离开→道闸落下\n- 车位计数：入口+1，出口-1\n- 满位指示（满位时禁止入场）\n- 入口LED显示屏（剩余车位实时更新）\n- 包含自动和手动模式\n- 道闸上下限位保护\n- 车辆防砸保护（地感+红外双重检测）\n\n请生成停车场管理FB，包含车位计数和LED显示驱动逻辑。",
+    "variables": [
+      {"name": "total_spaces", "label": "总车位数", "default": "100", "type": "int"}
+    ],
+    "created_at": 1781913600.000, "updated_at": 1781913600.000
+  },
+  {
+    "id": "hvac-control",
+    "name": "楼宇自控HVAC系统",
+    "category": "过程控制",
+    "description": "生成楼宇暖通空调新风机组控制程序",
+    "content": "你是一名西门子PLC工程师。\n请生成一个楼宇自控HVAC控制程序。\n\n要求：\n- 使用SCL语言\n- 新风机组（AHU）控制：送风机、回风机、新风阀、回风阀、排风阀\n- 温度控制：夏季制冷/冬季制热模式自动切换\n- PID级联控制：回风温度→供水温度→阀门开度\n- 风阀/水阀联动控制\n- CO2浓度控制新风量\n- 防冻保护（低温关闭新风阀、打开热水阀）\n- 过滤器压差报警\n- 时间表控制（工作日/周末/节假日）\n- 手自动切换\n\n请生成AHU控制FB，包含模式切换和PID级联逻辑。",
+    "variables": [
+      {"name": "cool_setpoint", "label": "制冷设定温度(°C)", "default": "24", "type": "int"},
+      {"name": "heat_setpoint", "label": "制热设定温度(°C)", "default": "20", "type": "int"}
+    ],
+    "created_at": 1781913600.000, "updated_at": 1781913600.000
+  },
+  {
+    "id": "vav-control",
+    "name": "VAV变风量末端控制",
+    "category": "过程控制",
+    "description": "生成VAV变风量末端箱控制器程序",
+    "content": "你是一名西门子PLC工程师。\n请生成VAV变风量末端箱控制程序。\n\n要求：\n- 使用SCL语言\n- 风量传感器信号采集和标定\n- 风量PID控制（通过风阀调节保持设定风量）\n- 温度PID级联控制（回风温度→风量设定值重设）\n- 最小/最大风量限制\n- 制冷/加热模式自动切换\n- 再热阀控制（电加热或热水）\n- 压力无关控制模式\n- 夜间节能模式（Nigh Setback）\n\n请生成VAV控制FB，含压力无关控制和温度重设逻辑。",
+    "variables": [
+      {"name": "min_airflow", "label": "最小风量(CFM)", "default": "200", "type": "int"},
+      {"name": "max_airflow", "label": "最大风量(CFM)", "default": "1000", "type": "int"}
+    ],
+    "created_at": 1781913600.000, "updated_at": 1781913600.000
+  },
+  {
+    "id": "chiller-plant",
+    "name": "中央冷站群控系统",
+    "category": "过程控制",
+    "description": "生成中央冷站多台冷水机组群控程序",
+    "content": "你是一名西门子PLC工程师。\n请生成中央冷站群控程序。\n\n要求：\n- 使用SCL语言\n- 冷水机组：{chiller_count}台\n- 冷冻水泵：一次泵+二次泵变流量控制\n- 冷却塔风机联动\n- 供回水温差控制\n- 机组轮换（按累计运行时间）\n- 负荷需求自动加减机\n- 冷冻水/冷却水流量保护\n- 制冷季节/过渡季节模式\n- 能耗优化策略（等百分比负荷优先）\n\n请生成中央冷站群控FB，含加减机策略和轮换逻辑。",
+    "variables": [
+      {"name": "chiller_count", "label": "冷机台数", "default": "4", "type": "int"}
+    ],
+    "created_at": 1781913600.000, "updated_at": 1781913600.000
   }
 ]

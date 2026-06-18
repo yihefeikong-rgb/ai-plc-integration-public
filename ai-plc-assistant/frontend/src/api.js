@@ -168,6 +168,11 @@ export async function streamChat({ model_id = 'deepseek', messages = [], tempera
 export const listCodeTemplates = () => request('/knowledge/code-templates')
 export const getCodeTemplateContent = (name) => request(`/knowledge/code-templates/${encodeURIComponent(name)}`)
 
+// ---- 梯形图模板（LAD JSON）----
+
+export const listLadderTemplates = () => request('/knowledge/ladder-templates')
+export const getLadderTemplate = (name) => request(`/knowledge/ladder-templates/${encodeURIComponent(name)}`)
+
 // ---- 健康检查 ----
 
 export const healthCheck = () => request('/health')

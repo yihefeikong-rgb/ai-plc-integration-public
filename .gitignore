@@ -83,6 +83,9 @@ coverage.xml
 # 审查报告（本地生成，不提交）
 审查报告_*.md
 
+# Deep Research 中间产物
+research_*
+
 # Weave AI 会话缓存
 .weave/
 mcp-servers/tiacommander-mcp/

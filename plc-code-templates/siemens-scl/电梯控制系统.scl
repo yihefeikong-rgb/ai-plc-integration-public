@@ -1,0 +1,347 @@
+FUNCTION_BLOCK "ElevatorControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bDoorClosed : Bool;                  // 门关到位
+    bDoorOpened : Bool;                  // 门开到位
+    bDoorObstructed : Bool;              // 门障碍物检测
+    bOverload : Bool;                    // 超载检测
+    bFireReturn : Bool;                  // 消防归底信号
+    bCarCall1 : Bool;                    // 轿厢内呼1层
+    bCarCall2 : Bool;                    // 轿厢内呼2层
+    bCarCall3 : Bool;                    // 轿厢内呼3层
+    bCarCall4 : Bool;                    // 轿厢内呼4层
+    bCarCall5 : Bool;                    // 轿厢内呼5层
+    bCarCall6 : Bool;                    // 轿厢内呼6层
+    bHallUp2 : Bool;                     // 2层厅外上呼
+    bHallUp3 : Bool;                     // 3层厅外上呼
+    bHallUp4 : Bool;                     // 4层厅外上呼
+    bHallUp5 : Bool;                     // 5层厅外上呼
+    bHallDn2 : Bool;                     // 2层厅外下呼
+    bHallDn3 : Bool;                     // 3层厅外下呼
+    bHallDn4 : Bool;                     // 4层厅外下呼
+    bHallDn5 : Bool;                     // 5层厅外下呼
+    bHallDn6 : Bool;                     // 6层厅外下呼
+    bFloorSensor1 : Bool;               // 1层到位传感器
+    bFloorSensor2 : Bool;               // 2层到位传感器
+    bFloorSensor3 : Bool;               // 3层到位传感器
+    bFloorSensor4 : Bool;               // 4层到位传感器
+    bFloorSensor5 : Bool;               // 5层到位传感器
+    bFloorSensor6 : Bool;               // 6层到位传感器
+    tiDoorOpenDelay : Time;              // 开门保持时间
+    tiDoorCloseDelay : Time;             // 关门时间
+END_VAR
+
+VAR_OUTPUT
+    bMotorUp : Bool;                     // 上行接触器
+    bMotorDown : Bool;                   // 下行接触器
+    bDoorOpenCmd : Bool;                 // 开门指令
+    bDoorCloseCmd : Bool;                // 关门指令
+    bFloorDisplay : Byte;                // 楼层显示（BCD码）
+    bDirectionUp : Bool;                 // 方向灯上行
+    bDirectionDn : Bool;                 // 方向灯下行
+    bAlarm : Bool;                       // 故障报警
+    bFireMode : Bool;                    // 消防模式指示
+    iCurrentFloor : Int;                 // 当前楼层
+    sState : String[20];                 // 当前状态
+END_VAR
+
+VAR
+    // 状态枚举
+    eState : Int;                        // 0=IDLE 1=MOVING 2=DOOR_OPEN 3=DOOR_CLOSING 4=FAULT 5=FIRE
+
+    // 请求队列（位数组模拟）
+    bUpRequests : Array[1..6] of Bool;   // 上行请求
+    bDnRequests : Array[1..6] of Bool;   // 下行请求
+    iTargetFloor : Int;                  // 目标楼层
+
+    // 门控定时器
+    tonDoorOpen : TON;                   // 开门保持定时器
+    tonDoorClose : TON;                  // 关门定时器
+
+    // 运行方向标志
+    bDirectionDecided : Bool;            // 方向已确定
+
+    // 防抖动定时器
+    tonFloorConfirm : TON;               // 楼层确认滤波
+    iLastFloor : Int;                    // 上一次楼层
+
+    // 超时保护
+    tonMoveTimeout : TON;                // 运行超时保护
+    tiMoveTimeout : Time;                // 运行超时时间
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认值
+    // ============================================
+    IF tiDoorOpenDelay = T#0ms THEN tiDoorOpenDelay := T#5s; END_IF;
+    IF tiDoorCloseDelay = T#0ms THEN tiDoorCloseDelay := T#3s; END_IF;
+    IF tiMoveTimeout = T#0ms THEN tiMoveTimeout := T#15s; END_IF;
+
+    // ============================================
+    // 急停处理（最高优先级）
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        bMotorUp := FALSE;
+        bMotorDown := FALSE;
+        bAlarm := TRUE;
+        eState := 4;  // FAULT
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 消防归底模式
+    // ============================================
+    IF bFireReturn THEN
+        bFireMode := TRUE;
+        bDoorOpenCmd := FALSE;
+        // 非1层则向下运行
+        IF iCurrentFloor > 1 THEN
+            bMotorDown := TRUE;
+            bMotorUp := FALSE;
+            eState := 1;  // MOVING
+        ELSE
+            bMotorDown := FALSE;
+            bMotorUp := FALSE;
+            bDoorOpenCmd := TRUE;
+            eState := 2;  // DOOR_OPEN
+        END_IF;
+        RETURN;
+    ELSE
+        bFireMode := FALSE;
+    END_IF;
+
+    // ============================================
+    // 超载处理
+    // ============================================
+    IF bOverload THEN
+        bDoorOpenCmd := TRUE;
+        bMotorUp := FALSE;
+        bMotorDown := FALSE;
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 楼层同步
+    // ============================================
+    IF bFloorSensor1 THEN iCurrentFloor := 1; END_IF;
+    IF bFloorSensor2 THEN iCurrentFloor := 2; END_IF;
+    IF bFloorSensor3 THEN iCurrentFloor := 3; END_IF;
+    IF bFloorSensor4 THEN iCurrentFloor := 4; END_IF;
+    IF bFloorSensor5 THEN iCurrentFloor := 5; END_IF;
+    IF bFloorSensor6 THEN iCurrentFloor := 6; END_IF;
+
+    // 楼层显示编码
+    bFloorDisplay := INT_TO_BYTE(iCurrentFloor);
+
+    // ============================================
+    // 请求登记
+    // ============================================
+    // 轿厢内呼
+    IF bCarCall1 THEN bUpRequests[1] := TRUE; bDnRequests[1] := TRUE; END_IF;
+    IF bCarCall2 THEN bUpRequests[2] := TRUE; bDnRequests[2] := TRUE; END_IF;
+    IF bCarCall3 THEN bUpRequests[3] := TRUE; bDnRequests[3] := TRUE; END_IF;
+    IF bCarCall4 THEN bUpRequests[4] := TRUE; bDnRequests[4] := TRUE; END_IF;
+    IF bCarCall5 THEN bUpRequests[5] := TRUE; bDnRequests[5] := TRUE; END_IF;
+    IF bCarCall6 THEN bUpRequests[6] := TRUE; bDnRequests[6] := TRUE; END_IF;
+
+    // 厅外召唤
+    IF bHallUp2 THEN bUpRequests[2] := TRUE; END_IF;
+    IF bHallUp3 THEN bUpRequests[3] := TRUE; END_IF;
+    IF bHallUp4 THEN bUpRequests[4] := TRUE; END_IF;
+    IF bHallUp5 THEN bUpRequests[5] := TRUE; END_IF;
+    IF bHallDn2 THEN bDnRequests[2] := TRUE; END_IF;
+    IF bHallDn3 THEN bDnRequests[3] := TRUE; END_IF;
+    IF bHallDn4 THEN bDnRequests[4] := TRUE; END_IF;
+    IF bHallDn5 THEN bDnRequests[5] := TRUE; END_IF;
+    IF bHallDn6 THEN bDnRequests[6] := TRUE; END_IF;
+
+    // ============================================
+    // 主状态机
+    // ============================================
+    CASE eState OF
+
+        // ----- 空闲状态 -----
+        0:  // IDLE
+            bMotorUp := FALSE;
+            bMotorDown := FALSE;
+            sState := 'IDLE';
+
+            // 查找新的目标楼层
+            iTargetFloor := 0;
+            IF bDirectionDecided THEN
+                // 上行方向：找当前层以上最近的请求
+                IF bDirectionUp THEN
+                    FOR i := iCurrentFloor + 1 TO 6 DO
+                        IF bUpRequests[i] THEN
+                            iTargetFloor := i;
+                            EXIT;
+                        END_IF;
+                    END_FOR;
+                    // 没有上行请求则检查下行
+                    IF iTargetFloor = 0 THEN
+                        FOR i := 6 DOWNTO 1 DO
+                            IF bDnRequests[i] THEN
+                                iTargetFloor := i;
+                                bDirectionUp := FALSE;
+                                EXIT;
+                            END_IF;
+                        END_FOR;
+                    END_IF;
+                ELSE
+                    // 下行方向：找当前层以下最近的请求
+                    FOR i := iCurrentFloor - 1 DOWNTO 1 DO
+                        IF bDnRequests[i] THEN
+                            iTargetFloor := i;
+                            EXIT;
+                        END_IF;
+                    END_FOR;
+                    IF iTargetFloor = 0 THEN
+                        FOR i := 1 TO 6 DO
+                            IF bUpRequests[i] THEN
+                                iTargetFloor := i;
+                                bDirectionUp := TRUE;
+                                EXIT;
+                            END_IF;
+                        END_FOR;
+                    END_IF;
+                END_IF;
+            ELSE
+                // 初次决定方向
+                FOR i := 1 TO 6 DO
+                    IF bUpRequests[i] OR bDnRequests[i] THEN
+                        iTargetFloor := i;
+                        bDirectionUp := (i > iCurrentFloor);
+                        bDirectionDecided := TRUE;
+                        EXIT;
+                    END_IF;
+                END_FOR;
+            END_IF;
+
+            // 有目标则切换运行
+            IF iTargetFloor > 0 AND iTargetFloor <> iCurrentFloor THEN
+                eState := 1;  // MOVING
+            ELSIF iTargetFloor = iCurrentFloor THEN
+                // 已在目标层，开门
+                bUpRequests[iCurrentFloor] := FALSE;
+                bDnRequests[iCurrentFloor] := FALSE;
+                eState := 2;  // DOOR_OPEN
+            END_IF;
+
+        // ----- 运行状态 -----
+        1:  // MOVING
+            sState := 'MOVING';
+
+            IF iTargetFloor > iCurrentFloor THEN
+                bMotorUp := TRUE;
+                bMotorDown := FALSE;
+                bDirectionUp := TRUE;
+            ELSIF iTargetFloor < iCurrentFloor THEN
+                bMotorUp := FALSE;
+                bMotorDown := TRUE;
+                bDirectionUp := FALSE;
+            END_IF;
+
+            // 到达目标层
+            IF iCurrentFloor = iTargetFloor THEN
+                bMotorUp := FALSE;
+                bMotorDown := FALSE;
+                // 清除该层请求
+                bUpRequests[iTargetFloor] := FALSE;
+                bDnRequests[iTargetFloor] := FALSE;
+                bDirectionDecided := FALSE;
+                eState := 2;  // DOOR_OPEN
+            END_IF;
+
+            // 顺向截梯：经过同向请求层时停车
+            IF bDirectionUp THEN
+                FOR i := iCurrentFloor TO iTargetFloor - 1 DO
+                    IF i > iLastFloor AND bUpRequests[i] THEN
+                        iTargetFloor := i;
+                        EXIT;
+                    END_IF;
+                END_FOR;
+            ELSE
+                FOR i := iCurrentFloor DOWNTO iTargetFloor + 1 DO
+                    IF i < iLastFloor AND bDnRequests[i] THEN
+                        iTargetFloor := i;
+                        EXIT;
+                    END_IF;
+                END_FOR;
+            END_IF;
+
+            iLastFloor := iCurrentFloor;
+
+        // ----- 开门状态 -----
+        2:  // DOOR_OPEN
+            bMotorUp := FALSE;
+            bMotorDown := FALSE;
+            sState := 'DOOR_OPEN';
+
+            // 开门
+            bDoorOpenCmd := TRUE;
+            bDoorCloseCmd := FALSE;
+
+            // 有障碍物或超载则重设定时器
+            IF bDoorObstructed OR bOverload THEN
+                tonDoorOpen(IN := FALSE);
+                tonDoorOpen(IN := TRUE, PT := tiDoorOpenDelay);
+            ELSE
+                tonDoorOpen(IN := TRUE, PT := tiDoorOpenDelay);
+            END_IF;
+
+            // 开门超时后关门
+            IF tonDoorOpen.Q THEN
+                bDoorOpenCmd := FALSE;
+                bDoorCloseCmd := TRUE;
+                eState := 3;  // DOOR_CLOSING
+            END_IF;
+
+        // ----- 关门状态 -----
+        3:  // DOOR_CLOSING
+            sState := 'DOOR_CLOSING';
+
+            // 门障碍物检测
+            IF bDoorObstructed THEN
+                bDoorOpenCmd := TRUE;
+                bDoorCloseCmd := FALSE;
+                tonDoorOpen(IN := FALSE);
+                tonDoorOpen(IN := TRUE, PT := tiDoorOpenDelay);
+                eState := 2;  // 重新开门
+            ELSE
+                bDoorOpenCmd := FALSE;
+                bDoorCloseCmd := TRUE;
+                tonDoorClose(IN := TRUE, PT := tiDoorCloseDelay);
+                IF tonDoorClose.Q OR bDoorClosed THEN
+                    bDoorCloseCmd := FALSE;
+                    eState := 0;  // 回到IDLE
+                END_IF;
+            END_IF;
+
+        // ----- 故障状态 -----
+        4:  // FAULT
+            bMotorUp := FALSE;
+            bMotorDown := FALSE;
+            bDoorOpenCmd := FALSE;
+            bDoorCloseCmd := FALSE;
+            sState := 'FAULT';
+            bAlarm := TRUE;
+
+            IF bReset THEN
+                bAlarm := FALSE;
+                eState := 0;
+            END_IF;
+
+        // ----- 消防模式 -----
+        5:  // FIRE
+            sState := 'FIRE';
+            // 消防由外部逻辑处理
+
+    END_CASE;
+END_FUNCTION_BLOCK

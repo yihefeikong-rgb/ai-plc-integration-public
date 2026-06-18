@@ -1,0 +1,315 @@
+FUNCTION_BLOCK "AHUControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bManualMode : Bool;                  // 手动模式
+    // 风机状态
+    bSupplyFanRun : Bool;                // 送风机运行反馈
+    bReturnFanRun : Bool;                // 回风机运行反馈
+    bFanOverload : Bool;                 // 风机过载
+    // 传感器
+    rReturnAirTemp : Real;               // 回风温度 (°C)
+    rSupplyAirTemp : Real;               // 送风温度 (°C)
+    rOutdoorAirTemp : Real;              // 室外温度 (°C)
+    rCO2Level : Real;                    // CO2浓度 (ppm)
+    rFilterPressure : Real;              // 过滤器压差 (Pa)
+    // 防冻
+    rFreezeProtectTemp : Real;           // 防冻传感器温度 (°C)
+    bFreezeStat : Bool;                  // 防冻开关
+    // 时间表
+    bOccupied : Bool;                    // 占用模式
+    bHoliday : Bool;                     // 节假日模式
+    // 设定值
+    rCoolSetpoint : Real;                // 制冷设定温度
+    rHeatSetpoint : Real;                // 制热设定温度
+    rCO2Setpoint : Real;                 // CO2设定值
+END_VAR
+
+VAR_OUTPUT
+    bSupplyFanCmd : Bool;                // 送风机启动
+    bReturnFanCmd : Bool;                // 回风机启动
+    bChilledWaterValve : Real;           // 冷水阀开度 (0-100%)
+    bHotWaterValve : Real;               // 热水阀开度 (0-100%)
+    rFreshAirDamper : Real;              // 新风阀开度 (0-100%)
+    rReturnAirDamper : Real;             // 回风阀开度 (0-100%)
+    bFilterAlarm : Bool;                 // 过滤器堵塞报警
+    bFreezeAlarm : Bool;                 // 防冻报警
+    bFanAlarm : Bool;                    // 风机故障
+    bCoolMode : Bool;                    // 制冷模式指示
+    bHeatMode : Bool;                    // 制热模式指示
+    sMode : String[20];                  // 当前模式
+END_VAR
+
+VAR
+    // 模式枚举
+    eMode : Int;                         // 0=OFF 1=COOL 2=HEAT 3=VENT 4=FREEZE_PROTECT
+
+    // PID 控制器
+    xPidCoolInit : Bool;                 // 制冷PID初始化标志
+    xPidHeatInit : Bool;                 // 制热PID初始化标志
+
+    // 温度PID参数（制冷）
+    rCoolKp : Real;
+    rCoolKi : Real;
+    rCoolKd : Real;
+    rCoolIntegral : Real;
+    rCoolPrevErr : Real;
+
+    // 温度PID参数（制热）
+    rHeatKp : Real;
+    rHeatKi : Real;
+    rHeatKd : Real;
+    rHeatIntegral : Real;
+    rHeatPrevErr : Real;
+
+    // 防冻保护
+    tonFreezeDelay : TON;                // 防冻确认延时
+
+    // 过滤器报警
+    tonFilterDelay : TON;                // 过滤器确认延时
+    rFilterResetThreshold : Real;        // 过滤器复位阈值
+
+    // 风机启动延时
+    tonFanStartDelay : TON;              // 风机启动延时
+    bFanStarted : Bool;                  // 风机已启动
+
+    // 模式切换防抖
+    tonModeChange : TON;                 // 模式切换延时
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认值初始化
+    // ============================================
+    IF rCoolKp = 0.0 THEN rCoolKp := 2.0; END_IF;
+    IF rCoolKi = 0.0 THEN rCoolKi := 0.1; END_IF;
+    IF rCoolKd = 0.0 THEN rCoolKd := 0.0; END_IF;
+    IF rHeatKp = 0.0 THEN rHeatKp := 2.0; END_IF;
+    IF rHeatKi = 0.0 THEN rHeatKi := 0.1; END_IF;
+    IF rHeatKd = 0.0 THEN rHeatKd := 0.0; END_IF;
+    IF rCoolSetpoint = 0.0 THEN rCoolSetpoint := 24.0; END_IF;
+    IF rHeatSetpoint = 0.0 THEN rHeatSetpoint := 20.0; END_IF;
+    IF rCO2Setpoint = 0.0 THEN rCO2Setpoint := 800.0; END_IF;
+
+    // ============================================
+    // 急停处理
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        bSupplyFanCmd := FALSE;
+        bReturnFanCmd := FALSE;
+        bChilledWaterValve := 0.0;
+        bHotWaterValve := 0.0;
+        rFreshAirDamper := 0.0;
+        rReturnAirDamper := 0.0;
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 防冻保护（最高优先级逻辑）
+    // ============================================
+    tonFreezeDelay(IN := (rFreezeProtectTemp < 5.0) OR bFreezeStat, PT := T#3s);
+    IF tonFreezeDelay.Q THEN
+        eMode := 4;  // FREEZE_PROTECT
+        bFreezeAlarm := TRUE;
+    END_IF;
+
+    // 防冻恢复
+    IF rFreezeProtectTemp > 8.0 AND NOT bFreezeStat THEN
+        bFreezeAlarm := FALSE;
+    END_IF;
+
+    // ============================================
+    // 风机过载保护
+    // ============================================
+    IF bFanOverload THEN
+        bFanAlarm := TRUE;
+        bSupplyFanCmd := FALSE;
+        bReturnFanCmd := FALSE;
+    END_IF;
+
+    // ============================================
+    // 模式选择（非防冻时）
+    // ============================================
+    IF eMode <> 4 THEN
+
+        // 停机模式
+        IF NOT bOccupied OR bHoliday THEN
+            IF eMode <> 0 THEN
+                tonModeChange(IN := TRUE, PT := T#60s);
+                IF tonModeChange.Q THEN
+                    eMode := 0;  // OFF
+                END_IF;
+            END_IF;
+        ELSE
+            // 根据回风温度选择模式（带滞回区）
+            IF rReturnAirTemp > (rCoolSetpoint + 1.0) THEN
+                IF eMode <> 1 THEN
+                    tonModeChange(IN := TRUE, PT := T#30s);
+                    IF tonModeChange.Q THEN eMode := 1; END_IF;
+                END_IF;
+                tonModeChange(IN := FALSE);
+            ELSIF rReturnAirTemp < (rHeatSetpoint - 1.0) THEN
+                IF eMode <> 2 THEN
+                    tonModeChange(IN := TRUE, PT := T#30s);
+                    IF tonModeChange.Q THEN eMode := 2; END_IF;
+                END_IF;
+                tonModeChange(IN := FALSE);
+            ELSE
+                // 滞回区：维持当前模式
+                tonModeChange(IN := FALSE);
+                IF eMode = 0 THEN eMode := 3; END_IF;  // 在舒适区内且停机则转通风
+            END_IF;
+        END_IF;
+    END_IF;
+
+    // ============================================
+    // 风机控制
+    // ============================================
+    IF eMode > 0 AND eMode < 4 THEN
+        // 启动送风机（含延时）
+        IF NOT bFanStarted THEN
+            tonFanStartDelay(IN := TRUE, PT := T#5s);
+            IF tonFanStartDelay.Q THEN
+                bSupplyFanCmd := TRUE;
+                bFanStarted := TRUE;
+            END_IF;
+        END_IF;
+        // 送风机启动后启动回风机
+        IF bSupplyFanRun THEN
+            bReturnFanCmd := TRUE;
+        END_IF;
+    ELSE
+        bSupplyFanCmd := FALSE;
+        bReturnFanCmd := FALSE;
+        bFanStarted := FALSE;
+        tonFanStartDelay(IN := FALSE);
+    END_IF;
+
+    // ============================================
+    // 模式执行逻辑
+    // ============================================
+    CASE eMode OF
+
+        0:  // OFF
+            sMode := 'OFF';
+            bChilledWaterValve := 0.0;
+            bHotWaterValve := 0.0;
+            rFreshAirDamper := 0.0;
+            rReturnAirDamper := 0.0;
+            bCoolMode := FALSE;
+            bHeatMode := FALSE;
+            rCoolIntegral := 0.0;
+            rHeatIntegral := 0.0;
+
+        1:  // COOL
+            sMode := 'COOL';
+            bCoolMode := TRUE;
+            bHeatMode := FALSE;
+
+            // PID 制冷控制：通过冷水阀调节送风温度
+            // 误差 = 回风温度 - 设定值（正偏差要制冷）
+            rCoolIntegral := rCoolIntegral + ((rReturnAirTemp - rCoolSetpoint) * rCoolKi * 1.0);
+            // 积分限幅
+            IF rCoolIntegral > 100.0 THEN rCoolIntegral := 100.0; END_IF;
+            IF rCoolIntegral < -100.0 THEN rCoolIntegral := -100.0; END_IF;
+
+            // PID输出
+            bChilledWaterValve := ((rReturnAirTemp - rCoolSetpoint) * rCoolKp)
+                                 + rCoolIntegral
+                                 + ((rReturnAirTemp - rCoolPrevErr) * rCoolKd);
+            rCoolPrevErr := rReturnAirTemp - rCoolSetpoint;
+
+            // 输出限幅
+            IF bChilledWaterValve > 100.0 THEN bChilledWaterValve := 100.0; END_IF;
+            IF bChilledWaterValve < 0.0 THEN bChilledWaterValve := 0.0; END_IF;
+
+            // 热水阀关闭
+            bHotWaterValve := 0.0;
+            rHeatIntegral := 0.0;
+
+            // 新风阀：根据CO2调节（最小30%保证新风）
+            IF rCO2Level > rCO2Setpoint THEN
+                rFreshAirDamper := 30.0 + (rCO2Level - rCO2Setpoint) * 0.05;
+            ELSE
+                rFreshAirDamper := 30.0;
+            END_IF;
+            IF rFreshAirDamper > 100.0 THEN rFreshAirDamper := 100.0; END_IF;
+            rReturnAirDamper := 100.0 - rFreshAirDamper;
+
+        2:  // HEAT
+            sMode := 'HEAT';
+            bCoolMode := FALSE;
+            bHeatMode := TRUE;
+
+            // PID 制热控制：通过热水阀调节
+            rHeatIntegral := rHeatIntegral + ((rHeatSetpoint - rReturnAirTemp) * rHeatKi * 1.0);
+            IF rHeatIntegral > 100.0 THEN rHeatIntegral := 100.0; END_IF;
+            IF rHeatIntegral < -100.0 THEN rHeatIntegral := -100.0; END_IF;
+
+            bHotWaterValve := ((rHeatSetpoint - rReturnAirTemp) * rHeatKp)
+                             + rHeatIntegral
+                             + ((rHeatPrevErr - (rHeatSetpoint - rReturnAirTemp)) * rHeatKd);
+            rHeatPrevErr := rHeatSetpoint - rReturnAirTemp;
+
+            IF bHotWaterValve > 100.0 THEN bHotWaterValve := 100.0; END_IF;
+            IF bHotWaterValve < 0.0 THEN bHotWaterValve := 0.0; END_IF;
+
+            bChilledWaterValve := 0.0;
+            rCoolIntegral := 0.0;
+
+            // 制热时新风最小化（节能）
+            rFreshAirDamper := 20.0;
+            rReturnAirDamper := 80.0;
+
+        3:  // VENT（仅通风）
+            sMode := 'VENT';
+            bCoolMode := FALSE;
+            bHeatMode := FALSE;
+            bChilledWaterValve := 0.0;
+            bHotWaterValve := 0.0;
+            rFreshAirDamper := 50.0;
+            rReturnAirDamper := 50.0;
+            rCoolIntegral := 0.0;
+            rHeatIntegral := 0.0;
+
+        4:  // FREEZE_PROTECT
+            sMode := 'FREEZE_PROTECT';
+            // 停机并全开热水阀防冻
+            bSupplyFanCmd := FALSE;
+            bReturnFanCmd := FALSE;
+            bHotWaterValve := 100.0;
+            bChilledWaterValve := 0.0;
+            rFreshAirDamper := 0.0;        // 关闭新风
+            rReturnAirDamper := 0.0;
+            bCoolMode := FALSE;
+            bHeatMode := TRUE;
+            rCoolIntegral := 0.0;
+            rHeatIntegral := 0.0;
+
+    END_CASE;
+
+    // ============================================
+    // 过滤器压差监控
+    // ============================================
+    tonFilterDelay(IN := (rFilterPressure > 250.0) AND bSupplyFanRun, PT := T#60s);
+    IF tonFilterDelay.Q THEN
+        bFilterAlarm := TRUE;
+    END_IF;
+    IF rFilterPressure < rFilterResetThreshold AND bReset THEN
+        bFilterAlarm := FALSE;
+    END_IF;
+
+    // ============================================
+    // 故障复位
+    // ============================================
+    IF bReset THEN
+        IF NOT bFanOverload THEN bFanAlarm := FALSE; END_IF;
+        bFreezeAlarm := FALSE;
+    END_IF;
+
+END_FUNCTION_BLOCK

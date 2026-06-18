@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI PLC Assistant API",
-    version="0.1.0",
+    version="1.0.0",
     description="工业自动化 AI 工作台后端服务",
     lifespan=lifespan,
 )
@@ -103,7 +103,7 @@ app.include_router(settings_route.router, prefix="/api/settings", tags=["设置"
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "1.0.0"}
 
 
 if __name__ == "__main__":

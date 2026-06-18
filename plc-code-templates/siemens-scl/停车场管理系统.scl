@@ -1,0 +1,313 @@
+FUNCTION_BLOCK "ParkingManagement"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bManualMode : Bool;                  // 手动模式
+    bEntranceLoop : Bool;                // 入口地感线圈
+    bExitLoop : Bool;                    // 出口地感线圈
+    bEntranceGateUpLimit : Bool;         // 入口道闸上限位
+    bEntranceGateDnLimit : Bool;         // 入口道闸下限位
+    bExitGateUpLimit : Bool;             // 出口道闸上限位
+    bExitGateDnLimit : Bool;             // 出口道闸下限位
+    bEntranceSafetyLight : Bool;         // 入口红外安全光幕
+    bExitSafetyLight : Bool;             // 出口红外安全光幕
+    bCardReaderEntry : Bool;             // 入口读卡器（有效卡脉冲）
+    bCardReaderExit : Bool;              // 出口读卡器（有效卡脉冲）
+    iTotalSpaces : Int;                  // 总车位数
+END_VAR
+
+VAR_OUTPUT
+    bEntranceGateUp : Bool;              // 入口道闸升起
+    bEntranceGateDn : Bool;              // 入口道闸落下
+    bExitGateUp : Bool;                  // 出口道闸升起
+    bExitGateDn : Bool;                  // 出口道闸落下
+    bFullSign : Bool;                    // 满位指示灯
+    iAvailableSpaces : Int;              // 剩余车位
+    bEntryGreenLight : Bool;             // 入口绿灯（可入场）
+    bEntryRedLight : Bool;               // 入口红灯（不可入场）
+    bAlarm : Bool;                       // 故障报警
+    sState : String[20];                 // 系统状态
+END_VAR
+
+VAR
+    // 状态枚举
+    eEntryState : Int;                   // 入口状态机
+    eExitState : Int;                    // 出口状态机
+
+    // 入口状态常量
+    cENTRY_IDLE : Int := 0;
+    cENTRY_CARD : Int := 1;
+    cENTRY_GATE_UP : Int := 2;
+    cENTRY_VEHICLE_IN : Int := 3;
+    cENTRY_GATE_DN : Int := 4;
+
+    // 出口状态常量
+    cEXIT_IDLE : Int := 0;
+    cEXIT_CARD : Int := 1;
+    cEXIT_GATE_UP : Int := 2;
+    cEXIT_VEHICLE_OUT : Int := 3;
+    cEXIT_GATE_DN : Int := 4;
+
+    // 定时器
+    tonEntryGateUp : TON;                // 入口道闸上升定时
+    tonEntryGateDn : TON;                // 入口道闸下降定时
+    tonExitGateUp : TON;                 // 出口道闸上升定时
+    tonExitGateDn : TON;                 // 出口道闸下降定时
+
+    // 道闸动作时间
+    tiGateUpTime : Time;                 // 道闸上升时间
+    tiGateDnTime : Time;                 // 道闸下降时间
+
+    // 防砸保护
+    bEntranceVehicleDetected : Bool;     // 入口车辆正在通过
+    bExitVehicleDetected : Bool;         // 出口车辆正在通过
+
+    // 脉冲检测
+    trgCardEntry : R_TRIG;               // 入口读卡上升沿
+    trgCardExit : R_TRIG;                // 出口读卡上升沿
+    trgEntranceLoop : R_TRIG;            // 入口地感上升沿
+    trgExitLoop : R_TRIG;                // 出口地感上升沿
+    trgEntranceLoopF : F_TRIG;           // 入口地感下降沿
+    trgExitLoopF : F_TRIG;               // 出口地感下降沿
+
+    // 计数
+    iOccupied : Int;                     // 已占用车位
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认值
+    // ============================================
+    IF iTotalSpaces <= 0 THEN iTotalSpaces := 100; END_IF;
+    IF tiGateUpTime = T#0ms THEN tiGateUpTime := T#3s; END_IF;
+    IF tiGateDnTime = T#0ms THEN tiGateDnTime := T#4s; END_IF;
+
+    // ============================================
+    // 急停处理
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        bEntranceGateUp := FALSE;
+        bEntranceGateDn := FALSE;
+        bExitGateUp := FALSE;
+        bExitGateDn := FALSE;
+        bAlarm := TRUE;
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 车位计算
+    // ============================================
+    // 入口车辆进入：地感线圈上升沿->下降沿（一车通过）
+    trgEntranceLoop(CLK := bEntranceLoop);
+    trgEntranceLoopF(CLK := bEntranceLoop);
+
+    IF trgEntranceLoop.Q THEN
+        bEntranceVehicleDetected := TRUE;
+    END_IF;
+
+    IF trgEntranceLoopF.Q AND bEntranceVehicleDetected THEN
+        iOccupied := iOccupied + 1;
+        bEntranceVehicleDetected := FALSE;
+    END_IF;
+
+    // 出口车辆离开
+    trgExitLoop(CLK := bExitLoop);
+    trgExitLoopF(CLK := bExitLoop);
+
+    IF trgExitLoop.Q THEN
+        bExitVehicleDetected := TRUE;
+    END_IF;
+
+    IF trgExitLoopF.Q AND bExitVehicleDetected THEN
+        IF iOccupied > 0 THEN
+            iOccupied := iOccupied - 1;
+        END_IF;
+        bExitVehicleDetected := FALSE;
+    END_IF;
+
+    // 限制范围
+    IF iOccupied < 0 THEN iOccupied := 0; END_IF;
+    IF iOccupied > iTotalSpaces THEN iOccupied := iTotalSpaces; END_IF;
+
+    iAvailableSpaces := iTotalSpaces - iOccupied;
+
+    // 满位指示
+    bFullSign := (iOccupied >= iTotalSpaces);
+    bEntryGreenLight := NOT bFullSign;
+    bEntryRedLight := bFullSign;
+
+    // ============================================
+    // 入口状态机
+    // ============================================
+    trgCardEntry(CLK := bCardReaderEntry);
+
+    CASE eEntryState OF
+
+        cENTRY_IDLE:  // 等待读卡
+            sState := 'ENTRY_IDLE';
+            bEntranceGateUp := FALSE;
+            bEntranceGateDn := FALSE;
+
+            // 有效读卡且非满位
+            IF trgCardEntry.Q AND NOT bFullSign THEN
+                eEntryState := cENTRY_CARD;
+            END_IF;
+
+        cENTRY_CARD:  // 读卡成功，抬杆
+            sState := 'ENTRY_GATE_UP';
+            bEntranceGateUp := TRUE;
+            bEntranceGateDn := FALSE;
+
+            tonEntryGateUp(IN := TRUE, PT := tiGateUpTime);
+            IF tonEntryGateUp.Q OR bEntranceGateUpLimit THEN
+                bEntranceGateUp := FALSE;
+                eEntryState := cENTRY_GATE_UP;
+            END_IF;
+
+        cENTRY_GATE_UP:  // 等待车辆进入
+            sState := 'ENTRY_WAIT_VEHICLE';
+            bEntranceGateUp := FALSE;
+            bEntranceGateDn := FALSE;
+
+            // 车辆压入地感后开始计时
+            IF bEntranceLoop THEN
+                eEntryState := cENTRY_VEHICLE_IN;
+            END_IF;
+
+            // 防砸：车辆未到但超时落杆
+            IF NOT bEntranceLoop THEN
+                tonEntryGateDn(IN := TRUE, PT := T#10s);
+                IF tonEntryGateDn.Q THEN
+                    eEntryState := cENTRY_GATE_DN;
+                END_IF;
+            ELSE
+                tonEntryGateDn(IN := FALSE);
+            END_IF;
+
+        cENTRY_VEHICLE_IN:  // 车辆正在进入
+            sState := 'ENTRY_VEHICLE_IN';
+            bEntranceGateUp := FALSE;
+            bEntranceGateDn := FALSE;
+
+            // 车辆通过后（地感消失），落杆
+            IF NOT bEntranceLoop AND NOT bEntranceSafetyLight THEN
+                eEntryState := cENTRY_GATE_DN;
+            END_IF;
+
+            // 安全光幕触发：停止落杆，重新抬杆
+            IF NOT bEntranceSafetyLight THEN
+                bEntranceGateUp := TRUE;
+                bEntranceGateDn := FALSE;
+                eEntryState := cENTRY_VEHICLE_IN;
+            END_IF;
+
+        cENTRY_GATE_DN:  // 落杆
+            sState := 'ENTRY_GATE_DN';
+            bEntranceGateUp := FALSE;
+            bEntranceGateDn := TRUE;
+
+            // 防砸检测
+            IF NOT bEntranceSafetyLight THEN
+                bEntranceGateUp := TRUE;
+                bEntranceGateDn := FALSE;
+                eEntryState := cENTRY_GATE_UP;  // 重新抬杆
+            END_IF;
+
+            tonEntryGateDn(IN := TRUE, PT := tiGateDnTime);
+            IF tonEntryGateDn.Q OR bEntranceGateDnLimit THEN
+                bEntranceGateDn := FALSE;
+                eEntryState := cENTRY_IDLE;
+            END_IF;
+
+    END_CASE;
+
+    // ============================================
+    // 出口状态机
+    // ============================================
+    trgCardExit(CLK := bCardReaderExit);
+
+    CASE eExitState OF
+
+        cEXIT_IDLE:
+            sState := 'EXIT_IDLE';
+            bExitGateUp := FALSE;
+            bExitGateDn := FALSE;
+
+            IF trgCardExit.Q THEN
+                eExitState := cEXIT_CARD;
+            END_IF;
+
+        cEXIT_CARD:  // 抬杆
+            sState := 'EXIT_GATE_UP';
+            bExitGateUp := TRUE;
+            bExitGateDn := FALSE;
+
+            tonExitGateUp(IN := TRUE, PT := tiGateUpTime);
+            IF tonExitGateUp.Q OR bExitGateUpLimit THEN
+                bExitGateUp := FALSE;
+                eExitState := cEXIT_GATE_UP;
+            END_IF;
+
+        cEXIT_GATE_UP:  // 等待离开
+            sState := 'EXIT_WAIT_VEHICLE';
+            bExitGateUp := FALSE;
+            bExitGateDn := FALSE;
+
+            IF bExitLoop THEN
+                eExitState := cEXIT_VEHICLE_OUT;
+            END_IF;
+
+            tonExitGateDn(IN := TRUE, PT := T#10s);
+            IF tonExitGateDn.Q AND NOT bExitLoop THEN
+                eExitState := cEXIT_GATE_DN;
+            END_IF;
+
+        cEXIT_VEHICLE_OUT:
+            sState := 'EXIT_VEHICLE_OUT';
+            bExitGateUp := FALSE;
+            bExitGateDn := FALSE;
+
+            IF NOT bExitLoop THEN
+                eExitState := cEXIT_GATE_DN;
+            END_IF;
+
+            IF NOT bExitSafetyLight THEN
+                bExitGateUp := TRUE;
+                eExitState := cEXIT_VEHICLE_OUT;
+            END_IF;
+
+        cEXIT_GATE_DN:
+            sState := 'EXIT_GATE_DN';
+            bExitGateUp := FALSE;
+            bExitGateDn := TRUE;
+
+            IF NOT bExitSafetyLight THEN
+                bExitGateUp := TRUE;
+                bExitGateDn := FALSE;
+                eExitState := cEXIT_GATE_UP;
+            END_IF;
+
+            tonExitGateDn(IN := TRUE, PT := tiGateDnTime);
+            IF tonExitGateDn.Q OR bExitGateDnLimit THEN
+                bExitGateDn := FALSE;
+                eExitState := cEXIT_IDLE;
+            END_IF;
+
+    END_CASE;
+
+    // ============================================
+    // 复位
+    // ============================================
+    IF bReset THEN
+                iOccupied := 0;
+        bAlarm := FALSE;
+        eEntryState := cENTRY_IDLE;
+        eExitState := cEXIT_IDLE;
+    END_IF;
+
+END_FUNCTION_BLOCK
