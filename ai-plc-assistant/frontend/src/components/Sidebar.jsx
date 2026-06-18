@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   FolderOpen, ChevronRight, ChevronDown, Plus, Upload,
-  BookOpen, FileText, LayoutTemplate,
+  BookOpen, FileText, LayoutTemplate, Code as CodeIcon,
   Zap, Code2, AlertTriangle, Table2, Variable,
   Settings, Trash2, MessageSquare, PlusCircle,
 } from 'lucide-react'
@@ -42,7 +42,7 @@ function SidebarItem({ icon: Icon, label, count, onClick, active, indent = false
 
 /* 可折叠的知识库文档分组 */
 function DocGroup({ label, icon: Icon, docs, prefixRange, onDelete }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const [min, max] = prefixRange || [0, 99]
   const groupDocs = useMemo(() =>
     docs.filter(d => {
@@ -89,6 +89,7 @@ const aiTools = [
 export default function Sidebar({
   onOpenTab, activeTab, addLog, onCreateProject, currentProject,
   conversations = [], currentConvId, onSwitchConversation, onDeleteConversation, onNewConversation,
+  onOpenCodeTemplates,
 }) {
   const fileRef = useRef(null)
   const [projects, setProjects] = useState([])
@@ -167,7 +168,8 @@ export default function Sidebar({
 
         {/* 知识库 */}
         <Section title="知识库" icon={BookOpen} defaultOpen={false} count={docs.length}>
-          <SidebarItem icon={LayoutTemplate} label="模板库" onClick={() => onOpenTab?.('templates')} indent />
+          <SidebarItem icon={LayoutTemplate} label="Prompt模板" onClick={() => onOpenTab?.('templates')} indent />
+          <SidebarItem icon={CodeIcon} label="代码模板" onClick={() => onOpenCodeTemplates?.()} indent />
           <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" onChange={handleUpload} className="hidden" />
           <button onClick={() => fileRef.current?.click()} disabled={uploading}
             className="w-full flex items-center gap-2 pl-5 px-3 py-1 text-xs text-accent hover:bg-ide-hover disabled:opacity-50">

@@ -142,3 +142,14 @@ async def list_code_templates():
                 "size": f.stat().st_size,
             })
     return {"templates": files}
+
+
+@router.get("/code-templates/{name}")
+async def get_code_template(name: str):
+    """获取单个 SCL 代码模板内容"""
+    templates_dir = Path(__file__).parent.parent.parent.parent / "plc-code-templates" / "siemens-scl"
+    for ext in (".scl", ".md"):
+        f = templates_dir / f"{name}{ext}"
+        if f.exists():
+            return {"name": name, "type": ext[1:], "content": f.read_text(encoding="utf-8")}
+    raise HTTPException(status_code=404, detail=f"模板 {name} 不存在")

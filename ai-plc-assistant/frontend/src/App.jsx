@@ -7,6 +7,7 @@ import ChatArea from './components/ChatArea'
 import ContextPanel from './components/ContextPanel'
 import LogPanel from './components/LogPanel'
 import PromptTemplateModal from './components/PromptTemplateModal'
+import CodeTemplateModal from './components/CodeTemplateModal'
 import SettingsPanel from './components/SettingsPanel'
 import CodeExplainer from './components/CodeExplainer'
 import IoTableGenerator from './components/IoTableGenerator'
@@ -29,6 +30,7 @@ export default function App() {
   const { convId, conversations, messages, sending, pendingInput, setPendingInput, handleNewConversation, handleSwitchConversation, handleDeleteConversation, handleSend } = useConversation({ addLog, openTab, selectedModel, currentProject })
 
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showCodeTemplate, setShowCodeTemplate] = useState(false)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
   const [showContext, setShowContext] = useState(true)
@@ -115,7 +117,8 @@ export default function App() {
             onCreateProject={openCreateDialog} currentProject={currentProject}
             conversations={conversations} currentConvId={convId}
             onSwitchConversation={handleSwitchConversation} onDeleteConversation={handleDeleteConversation}
-            onNewConversation={handleNewConversation} />
+            onNewConversation={handleNewConversation}
+            onOpenCodeTemplates={() => setShowCodeTemplate(true)} />
         )}
         {tabs.map(tab => workspaces[tab.id] && (
           <div key={tab.id} style={{ display: activeTab === tab.id ? 'flex' : 'none' }} className="flex-1 overflow-hidden">
@@ -131,6 +134,10 @@ export default function App() {
 
       {showTemplates && (
         <PromptTemplateModal onClose={() => setShowTemplates(false)} onSelect={handleTemplateSelect} />
+      )}
+
+      {showCodeTemplate && (
+        <CodeTemplateModal onClose={() => setShowCodeTemplate(false)} />
       )}
 
       {showCreateDialog && (
