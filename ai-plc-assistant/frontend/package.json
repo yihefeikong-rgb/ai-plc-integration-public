@@ -1,6 +1,7 @@
 {
   "name": "ai-plc-assistant",
   "version": "1.0.0",
+  "author": "AI PLC Team",
   "description": "AI PLC Assistant - 工业自动化AI工作台",
   "private": true,
   "main": "electron/main.js",

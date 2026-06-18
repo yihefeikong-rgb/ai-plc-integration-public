@@ -83,6 +83,9 @@ coverage.xml
 # 审查报告（本地生成，不提交）
 审查报告_*.md
 
+# Electron 构建产物
+release/
+
 # Deep Research 中间产物
 research_*
 
