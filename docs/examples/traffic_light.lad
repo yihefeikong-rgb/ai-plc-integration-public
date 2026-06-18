@@ -1,0 +1,41 @@
+ASCII-LAD-V2
+
+Variables:
+I0.0    bStart     BOOL    启动按钮
+I0.1    bStop      BOOL    停止按钮
+M0.0    bRun       BOOL    运行状态
+M0.1    bPhaseA    BOOL    A相（东西绿灯）
+M0.2    bPhaseB    BOOL    B相（南北绿灯）
+Q0.0    qGreenEW   BOOL    东西绿灯
+Q0.1    qRedEW     BOOL    东西红灯
+Q0.2    qGreenNS   BOOL    南北绿灯
+Q0.3    qRedNS     BOOL    南北红灯
+T1      tonPhaseA  TON     A相计时
+T2      tonPhaseB  TON     B相计时
+
+Network 1
+Title: 运行控制
+
+|----[ bStart ]----[/ bStop ]----+----( bRun )
+|                                |
+|----[ bRun ]--------------------+
+
+Network 2
+Title: A相定时（东西绿灯30秒）
+
+|----[ bRun ]----[ bPhaseA ]----[TON T1 PT=30s]----(S bPhaseB)
+
+Network 3
+Title: B相定时（南北绿灯30秒）
+
+|----[ bRun ]----[ bPhaseB ]----[TON T2 PT=30s]----(S bPhaseA)
+
+Network 4
+Title: 东西方向输出
+
+|----[ bPhaseA ]----( qGreenEW )
+
+Network 5
+Title: 南北方向输出
+
+|----[ bPhaseB ]----( qGreenNS )

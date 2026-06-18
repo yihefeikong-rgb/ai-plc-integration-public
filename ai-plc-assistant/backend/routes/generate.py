@@ -36,6 +36,8 @@ class GenerateResponse(BaseModel):
     text: str
     structured: dict
     mode: str
+    ast: dict | None = None
+    svg: str | None = None
 
 
 @router.post("/ladder", response_model=GenerateResponse)
@@ -51,6 +53,7 @@ async def generate_ladder_code(req: GenerateRequest):
         context=req.context or None,
         model_id=req.model_id,
     )
+
     return GenerateResponse(**result)
 
 

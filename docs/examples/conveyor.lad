@@ -1,0 +1,26 @@
+ASCII-LAD-V2
+
+Variables:
+I0.0    bStart     BOOL    启动按钮
+I0.1    bStop      BOOL    停止按钮
+I0.2    bEStop     BOOL    急停按钮
+I0.3    bSensor1   BOOL    入料检测
+I0.4    bSensor2   BOOL    出料检测
+Q0.0    qConveyor  BOOL    输送带电机
+Q0.1    qLamp      BOOL    运行指示灯
+
+Network 1
+Title: 输送带启停控制
+
+Comment:
+启动条件：启动按钮 且 非停止 且 非急停
+自锁保持
+
+|----[ bStart ]----[/ bStop ]----[/ bEStop ]----+----( qConveyor )
+|                                               |
+|----[ qConveyor ]------------------------------+
+
+Network 2
+Title: 运行指示灯
+
+|----[ qConveyor ]----( qLamp )

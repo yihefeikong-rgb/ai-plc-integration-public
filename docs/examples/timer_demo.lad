@@ -1,0 +1,39 @@
+ASCII-LAD-V2
+
+Variables:
+I0.0    bInput1    BOOL    输入信号1
+I0.1    bInput2    BOOL    输入信号2
+I0.2    bInput3    BOOL    输入信号3
+Q0.0    qOutput1   BOOL    延时输出
+Q0.1    qOutput2   BOOL    断开延时输出
+Q0.2    qOutput3   BOOL    脉冲输出
+T1      tonDelay   TON     接通延时5秒
+T2      tofDelay   TOF     断开延时3秒
+T3      tpPulse    TP      脉冲1秒
+
+Network 1
+Title: TON 接通延时
+
+Comment:
+输入持续5秒后输出变为TRUE
+输入断开后输出立即FALSE
+
+|----[ bInput1 ]----[TON T1 PT=5s]----( qOutput1 )
+
+Network 2
+Title: TOF 断开延时
+
+Comment:
+输入接通后输出立即TRUE
+输入断开后延时3秒输出变FALSE
+
+|----[ bInput2 ]----[TOF T2 PT=3s]----( qOutput2 )
+
+Network 3
+Title: TP 脉冲定时器
+
+Comment:
+上升沿触发1秒脉冲
+脉冲期间不可重触发
+
+|----[ bInput3 ]----[TP T3 PT=1s]----( qOutput3 )

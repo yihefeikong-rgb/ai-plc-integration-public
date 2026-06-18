@@ -39,26 +39,23 @@ def tmp_data_dir():
 
 
 # ── Mock LLM 服务 ──────────────────────────────────────────
-MOCK_LADDER_RESPONSE = """# 电机启动/停止控制
+MOCK_LADDER_RESPONSE = """ASCII-LAD-V2
 
-> 带自锁的电机启停控制电路
+Variables:
+I0.0    bStart     BOOL    启动按钮
+I0.1    bStop      BOOL    停止按钮
+Q0.0    qMotor     BOOL    电机输出
 
-## 变量表
-| 地址 | 符号 | 类型 | 注释 |
-|------|------|------|------|
-| I0.0 | bStart | Bool | 启动按钮 |
-| I0.1 | bStop | Bool | 停止按钮 |
-| Q0.0 | qMotor | Bool | 电机输出 |
+Network 1
+Title: 启动保持
 
-## Network 1: 启动保持
-// 按下启动按钮后自锁保持
-```
-     bStart         bStop         qMotor
-------| |----+-------|/|----------( )--
-             |
-             | qMotor
-             +---| |
-```"""
+Comment:
+按下启动按钮后自锁保持
+
+|----[ bStart ]----[/ bStop ]----+----( qMotor )
+|                                |
+|----[ qMotor ]------------------+
+"""
 
 MOCK_STREAM_TOKENS = [
     {"token": "模拟", "type": "text"},

@@ -1,0 +1,47 @@
+============================================================
+SVGRendererV2 ACCEPTANCE TEST SUITE
+Output directory: D:\claude code xiangmu\AI 接入PLC\mcp-servers\tia-mcp\acceptance_output
+============================================================
+
+============================================================
+PART 1: UNIT TESTS
+============================================================
+============================= test session starts =============================
+platform win32 -- Python 3.13.2, pytest-9.0.3, pluggy-1.6.0 -- D:\Python3\python.exe
+cachedir: .pytest_cache
+rootdir: D:\claude code xiangmu\AI 接入PLC
+configfile: pytest.ini
+plugins: anyio-4.13.0, asyncio-1.4.0, cov-7.1.0, timeout-2.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 15 items
+
+test_layout_engine.py::TestLayoutEngine::test_series_column_positions PASSED [  6%]
+test_layout_engine.py::TestLayoutEngine::test_motor_control_branch_structure PASSED [ 13%]
+test_layout_engine.py::TestLayoutEngine::test_simple_branch PASSED       [ 20%]
+test_layout_engine.py::TestLayoutEngine::test_pixel_coordinates_monotonic PASSED [ 26%]
+test_layout_engine.py::TestLayoutEngine::test_branch_row_y_greater_than_main PASSED [ 33%]
+test_layout_engine.py::TestLayoutEngine::test_canvas_dimensions PASSED   [ 40%]
+test_layout_engine.py::TestLayoutEngine::test_empty_network PASSED       [ 46%]
+test_layout_engine.py::TestLayoutEngine::test_conveyor_layout PASSED     [ 53%]
+test_layout_engine.py::TestSVGRendererV2::test_full_pipeline_renders_svg PASSED [ 60%]
+test_layout_engine.py::TestSVGRendererV2::test_pipeline_series_svg PASSED [ 66%]
+test_layout_engine.py::TestSVGRendererV2::test_pipeline_conveyor_svg PASSED [ 73%]
+test_layout_engine.py::TestSVGRendererV2::test_svg_elements_present PASSED [ 80%]
+test_layout_engine.py::TestSVGRendererV2::test_svg_data_attributes PASSED [ 86%]
+test_layout_engine.py::TestLayoutEngineErrors::test_nested_branch_not_supported PASSED [ 93%]
+test_layout_engine.py::TestLayoutEngineErrors::test_empty_branch_raises PASSED [100%]
+
+============================= 15 passed in 0.12s ==============================
+
+  Summary: ============================= 15 passed in 0.12s ==============================
+
+============================================================
+PART 2: ROUND TRIP TESTS (JSON to AST to JSON)
+============================================================
+  [OK] lad_ConveyorControl.json round-trip passed
+  [OK] cart_3cycle.json via from_cartgen_spec bridge passed
+  [OK] MotorControl programmatic round-trip passed
+
+============================================================
+PART 3: SVG VISUAL TESTS
+============================================================

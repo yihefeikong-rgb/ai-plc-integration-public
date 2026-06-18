@@ -1,0 +1,17 @@
+ASCII-LAD-V2
+
+Variables:
+I0.0    bStart     BOOL    启动按钮
+I0.1    bStop      BOOL    停止按钮
+Q0.0    qMotor     BOOL    电机输出
+
+Network 1
+Title: 电机启动自锁
+
+Comment:
+按下启动按钮后电机运行并自锁
+按下停止按钮后电机停止
+
+|----[ bStart ]----[/ bStop ]----+----( qMotor )
+|                                |
+|----[ qMotor ]------------------+

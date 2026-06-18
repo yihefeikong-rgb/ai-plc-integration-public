@@ -1,0 +1,38 @@
+ASCII-LAD-V2
+
+Variables:
+I0.0    bStart     BOOL    启动按钮
+I0.1    bStop      BOOL    停止按钮
+I0.2    bOL        BOOL    过载保护
+Q0.0    qMain      BOOL    主接触器
+Q0.1    qStar      BOOL    星形接触器
+Q0.2    qDelta     BOOL    三角形接触器
+M0.0    bRun       BOOL    运行标志
+T1      tonDelay   TON     星三角切换延时
+
+Network 1
+Title: 启动控制
+
+|----[ bStart ]----[/ bStop ]----[/ bOL ]----+----( bRun )
+|                                            |
+|----[ bRun ]--------------------------------+
+
+Network 2
+Title: 主接触器
+
+|----[ bRun ]----( qMain )
+
+Network 3
+Title: 星三角切换延时（5秒）
+
+|----[ bRun ]----[TON T1 PT=5s]
+
+Network 4
+Title: 星形接触器（延时前闭合）
+
+|----[ bRun ]----[/ qDelta ]----(S qStar)
+
+Network 5
+Title: 三角形接触器（延时后闭合）
+
+|----[ bRun ]----[/ qStar ]----(S qDelta)

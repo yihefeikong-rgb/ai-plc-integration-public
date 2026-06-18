@@ -1,0 +1,31 @@
+ASCII-LAD-V2
+
+Variables:
+I0.0    bFwd       BOOL    正转按钮
+I0.1    bRev       BOOL    反转按钮
+I0.2    bStop      BOOL    停止按钮
+I0.3    bOL        BOOL    过载保护
+Q0.0    qFwd       BOOL    正转接触器
+Q0.1    qRev       BOOL    反转接触器
+
+Network 1
+Title: 正转控制（互锁反转）
+
+Comment:
+正转启动条件：正转按钮按下 且 反转未运行 且 未停止 且 无过载
+自锁保持
+
+|----[ bFwd ]----[/ qRev ]----[/ bStop ]----[/ bOL ]----+----( qFwd )
+|                                                        |
+|----[ qFwd ]--------------------------------------------+
+
+Network 2
+Title: 反转控制（互锁正转）
+
+Comment:
+反转启动条件：反转按钮按下 且 正转未运行 且 未停止 且 无过载
+自锁保持
+
+|----[ bRev ]----[/ qFwd ]----[/ bStop ]----[/ bOL ]----+----( qRev )
+|                                                        |
+|----[ qRev ]--------------------------------------------+

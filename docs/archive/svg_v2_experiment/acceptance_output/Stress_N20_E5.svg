@@ -1,0 +1,1055 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 504 1530" width="504" height="1530" style="background:#1a1a2e;font-family:monospace, 'Courier New'">
+<rect x="0" y="0" width="504" height="1530" fill="#1a1a2e"/>
+<text x="252.0" y="18" font-size="14" fill="#80cbc4" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Stress_20_5</text>
+<text x="252.0" y="38" font-size="12" fill="#9e9e9e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">Block #1 · 20 Network(s)</text>
+<rect x="80" y="60.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="50.0" x2="80" y2="130.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="50.0" x2="504" y2="130.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="90.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">1</text>
+<text x="516" y="90.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 1</text>
+<line x1="80" y1="90.0" x2="80.0" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_0_0">
+<line x1="96.0" y1="90.0" x2="109.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="90.0" x2="128.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="83.0" x2="108.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="83.0" x2="116.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="66.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_0_0</text>
+</g>
+<line x1="128.0" y1="90.0" x2="160.0" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_0_1">
+<line x1="160.0" y1="90.0" x2="173.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="90.0" x2="192.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="83.0" x2="172.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="83.0" x2="180.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="66.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_0_1</text>
+</g>
+<line x1="192.0" y1="90.0" x2="224.0" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_0_2">
+<line x1="224.0" y1="90.0" x2="237.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="90.0" x2="256.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="83.0" x2="236.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="83.0" x2="244.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="66.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_0_2</text>
+</g>
+<line x1="256.0" y1="90.0" x2="288.0" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_0_3">
+<line x1="288.0" y1="90.0" x2="301.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="90.0" x2="320.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="83.0" x2="300.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="83.0" x2="308.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="66.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_0_3</text>
+</g>
+<line x1="320.0" y1="90.0" x2="352.0" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_0_4">
+<line x1="352.0" y1="90.0" x2="365.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="90.0" x2="384.0" y2="90.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="83.0" x2="364.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="83.0" x2="372.0" y2="97.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="66.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_0_4</text>
+</g>
+<line x1="384.0" y1="90.0" x2="416.0" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_0">
+<line x1="416.0" y1="90.0" x2="419.0" y2="90.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="90.0" x2="448.0" y2="90.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="90.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="90.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_0</text>
+</g>
+<line x1="448.0" y1="90.0" x2="504" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="122.0" x2="80" y2="202.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="122.0" x2="504" y2="202.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="162.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">2</text>
+<text x="516" y="162.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 2</text>
+<line x1="80" y1="162.0" x2="80.0" y2="162.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_1_0">
+<line x1="96.0" y1="162.0" x2="109.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="162.0" x2="128.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="155.0" x2="108.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="155.0" x2="116.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="138.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_1_0</text>
+</g>
+<line x1="128.0" y1="162.0" x2="160.0" y2="162.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_1_1">
+<line x1="160.0" y1="162.0" x2="173.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="162.0" x2="192.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="155.0" x2="172.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="155.0" x2="180.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="138.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_1_1</text>
+</g>
+<line x1="192.0" y1="162.0" x2="224.0" y2="162.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_1_2">
+<line x1="224.0" y1="162.0" x2="237.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="162.0" x2="256.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="155.0" x2="236.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="155.0" x2="244.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="138.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_1_2</text>
+</g>
+<line x1="256.0" y1="162.0" x2="288.0" y2="162.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_1_3">
+<line x1="288.0" y1="162.0" x2="301.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="162.0" x2="320.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="155.0" x2="300.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="155.0" x2="308.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="138.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_1_3</text>
+</g>
+<line x1="320.0" y1="162.0" x2="352.0" y2="162.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_1_4">
+<line x1="352.0" y1="162.0" x2="365.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="162.0" x2="384.0" y2="162.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="155.0" x2="364.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="155.0" x2="372.0" y2="169.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="138.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_1_4</text>
+</g>
+<line x1="384.0" y1="162.0" x2="416.0" y2="162.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_1">
+<line x1="416.0" y1="162.0" x2="419.0" y2="162.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="162.0" x2="448.0" y2="162.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="162.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="162.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_1</text>
+</g>
+<line x1="448.0" y1="162.0" x2="504" y2="162.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="204.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="194.0" x2="80" y2="274.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="194.0" x2="504" y2="274.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="234.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">3</text>
+<text x="516" y="234.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 3</text>
+<line x1="80" y1="234.0" x2="80.0" y2="234.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_2_0">
+<line x1="96.0" y1="234.0" x2="109.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="234.0" x2="128.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="227.0" x2="108.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="227.0" x2="116.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="210.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_2_0</text>
+</g>
+<line x1="128.0" y1="234.0" x2="160.0" y2="234.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_2_1">
+<line x1="160.0" y1="234.0" x2="173.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="234.0" x2="192.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="227.0" x2="172.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="227.0" x2="180.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="210.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_2_1</text>
+</g>
+<line x1="192.0" y1="234.0" x2="224.0" y2="234.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_2_2">
+<line x1="224.0" y1="234.0" x2="237.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="234.0" x2="256.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="227.0" x2="236.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="227.0" x2="244.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="210.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_2_2</text>
+</g>
+<line x1="256.0" y1="234.0" x2="288.0" y2="234.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_2_3">
+<line x1="288.0" y1="234.0" x2="301.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="234.0" x2="320.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="227.0" x2="300.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="227.0" x2="308.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="210.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_2_3</text>
+</g>
+<line x1="320.0" y1="234.0" x2="352.0" y2="234.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_2_4">
+<line x1="352.0" y1="234.0" x2="365.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="234.0" x2="384.0" y2="234.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="227.0" x2="364.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="227.0" x2="372.0" y2="241.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="210.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_2_4</text>
+</g>
+<line x1="384.0" y1="234.0" x2="416.0" y2="234.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_2">
+<line x1="416.0" y1="234.0" x2="419.0" y2="234.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="234.0" x2="448.0" y2="234.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="234.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="234.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_2</text>
+</g>
+<line x1="448.0" y1="234.0" x2="504" y2="234.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="266.0" x2="80" y2="346.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="266.0" x2="504" y2="346.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="306.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">4</text>
+<text x="516" y="306.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 4</text>
+<line x1="80" y1="306.0" x2="80.0" y2="306.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_3_0">
+<line x1="96.0" y1="306.0" x2="109.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="306.0" x2="128.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="299.0" x2="108.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="299.0" x2="116.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="282.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_3_0</text>
+</g>
+<line x1="128.0" y1="306.0" x2="160.0" y2="306.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_3_1">
+<line x1="160.0" y1="306.0" x2="173.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="306.0" x2="192.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="299.0" x2="172.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="299.0" x2="180.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="282.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_3_1</text>
+</g>
+<line x1="192.0" y1="306.0" x2="224.0" y2="306.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_3_2">
+<line x1="224.0" y1="306.0" x2="237.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="306.0" x2="256.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="299.0" x2="236.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="299.0" x2="244.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="282.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_3_2</text>
+</g>
+<line x1="256.0" y1="306.0" x2="288.0" y2="306.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_3_3">
+<line x1="288.0" y1="306.0" x2="301.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="306.0" x2="320.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="299.0" x2="300.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="299.0" x2="308.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="282.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_3_3</text>
+</g>
+<line x1="320.0" y1="306.0" x2="352.0" y2="306.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_3_4">
+<line x1="352.0" y1="306.0" x2="365.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="306.0" x2="384.0" y2="306.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="299.0" x2="364.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="299.0" x2="372.0" y2="313.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="282.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_3_4</text>
+</g>
+<line x1="384.0" y1="306.0" x2="416.0" y2="306.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_3">
+<line x1="416.0" y1="306.0" x2="419.0" y2="306.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="306.0" x2="448.0" y2="306.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="306.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="306.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_3</text>
+</g>
+<line x1="448.0" y1="306.0" x2="504" y2="306.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="348.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="338.0" x2="80" y2="418.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="338.0" x2="504" y2="418.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="378.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">5</text>
+<text x="516" y="378.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 5</text>
+<line x1="80" y1="378.0" x2="80.0" y2="378.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_4_0">
+<line x1="96.0" y1="378.0" x2="109.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="378.0" x2="128.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="371.0" x2="108.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="371.0" x2="116.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="354.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_4_0</text>
+</g>
+<line x1="128.0" y1="378.0" x2="160.0" y2="378.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_4_1">
+<line x1="160.0" y1="378.0" x2="173.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="378.0" x2="192.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="371.0" x2="172.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="371.0" x2="180.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="354.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_4_1</text>
+</g>
+<line x1="192.0" y1="378.0" x2="224.0" y2="378.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_4_2">
+<line x1="224.0" y1="378.0" x2="237.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="378.0" x2="256.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="371.0" x2="236.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="371.0" x2="244.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="354.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_4_2</text>
+</g>
+<line x1="256.0" y1="378.0" x2="288.0" y2="378.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_4_3">
+<line x1="288.0" y1="378.0" x2="301.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="378.0" x2="320.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="371.0" x2="300.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="371.0" x2="308.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="354.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_4_3</text>
+</g>
+<line x1="320.0" y1="378.0" x2="352.0" y2="378.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_4_4">
+<line x1="352.0" y1="378.0" x2="365.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="378.0" x2="384.0" y2="378.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="371.0" x2="364.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="371.0" x2="372.0" y2="385.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="354.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_4_4</text>
+</g>
+<line x1="384.0" y1="378.0" x2="416.0" y2="378.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_4">
+<line x1="416.0" y1="378.0" x2="419.0" y2="378.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="378.0" x2="448.0" y2="378.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="378.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="378.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_4</text>
+</g>
+<line x1="448.0" y1="378.0" x2="504" y2="378.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="410.0" x2="80" y2="490.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="410.0" x2="504" y2="490.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="450.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">6</text>
+<text x="516" y="450.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 6</text>
+<line x1="80" y1="450.0" x2="80.0" y2="450.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_5_0">
+<line x1="96.0" y1="450.0" x2="109.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="450.0" x2="128.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="443.0" x2="108.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="443.0" x2="116.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="426.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_5_0</text>
+</g>
+<line x1="128.0" y1="450.0" x2="160.0" y2="450.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_5_1">
+<line x1="160.0" y1="450.0" x2="173.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="450.0" x2="192.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="443.0" x2="172.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="443.0" x2="180.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="426.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_5_1</text>
+</g>
+<line x1="192.0" y1="450.0" x2="224.0" y2="450.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_5_2">
+<line x1="224.0" y1="450.0" x2="237.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="450.0" x2="256.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="443.0" x2="236.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="443.0" x2="244.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="426.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_5_2</text>
+</g>
+<line x1="256.0" y1="450.0" x2="288.0" y2="450.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_5_3">
+<line x1="288.0" y1="450.0" x2="301.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="450.0" x2="320.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="443.0" x2="300.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="443.0" x2="308.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="426.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_5_3</text>
+</g>
+<line x1="320.0" y1="450.0" x2="352.0" y2="450.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_5_4">
+<line x1="352.0" y1="450.0" x2="365.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="450.0" x2="384.0" y2="450.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="443.0" x2="364.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="443.0" x2="372.0" y2="457.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="426.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_5_4</text>
+</g>
+<line x1="384.0" y1="450.0" x2="416.0" y2="450.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_5">
+<line x1="416.0" y1="450.0" x2="419.0" y2="450.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="450.0" x2="448.0" y2="450.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="450.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="450.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_5</text>
+</g>
+<line x1="448.0" y1="450.0" x2="504" y2="450.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="492.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="482.0" x2="80" y2="562.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="482.0" x2="504" y2="562.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="522.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">7</text>
+<text x="516" y="522.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 7</text>
+<line x1="80" y1="522.0" x2="80.0" y2="522.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_6_0">
+<line x1="96.0" y1="522.0" x2="109.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="522.0" x2="128.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="515.0" x2="108.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="515.0" x2="116.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="498.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_6_0</text>
+</g>
+<line x1="128.0" y1="522.0" x2="160.0" y2="522.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_6_1">
+<line x1="160.0" y1="522.0" x2="173.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="522.0" x2="192.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="515.0" x2="172.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="515.0" x2="180.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="498.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_6_1</text>
+</g>
+<line x1="192.0" y1="522.0" x2="224.0" y2="522.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_6_2">
+<line x1="224.0" y1="522.0" x2="237.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="522.0" x2="256.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="515.0" x2="236.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="515.0" x2="244.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="498.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_6_2</text>
+</g>
+<line x1="256.0" y1="522.0" x2="288.0" y2="522.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_6_3">
+<line x1="288.0" y1="522.0" x2="301.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="522.0" x2="320.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="515.0" x2="300.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="515.0" x2="308.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="498.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_6_3</text>
+</g>
+<line x1="320.0" y1="522.0" x2="352.0" y2="522.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_6_4">
+<line x1="352.0" y1="522.0" x2="365.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="522.0" x2="384.0" y2="522.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="515.0" x2="364.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="515.0" x2="372.0" y2="529.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="498.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_6_4</text>
+</g>
+<line x1="384.0" y1="522.0" x2="416.0" y2="522.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_6">
+<line x1="416.0" y1="522.0" x2="419.0" y2="522.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="522.0" x2="448.0" y2="522.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="522.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="522.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_6</text>
+</g>
+<line x1="448.0" y1="522.0" x2="504" y2="522.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="554.0" x2="80" y2="634.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="554.0" x2="504" y2="634.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="594.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">8</text>
+<text x="516" y="594.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 8</text>
+<line x1="80" y1="594.0" x2="80.0" y2="594.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_7_0">
+<line x1="96.0" y1="594.0" x2="109.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="594.0" x2="128.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="587.0" x2="108.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="587.0" x2="116.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="570.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_7_0</text>
+</g>
+<line x1="128.0" y1="594.0" x2="160.0" y2="594.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_7_1">
+<line x1="160.0" y1="594.0" x2="173.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="594.0" x2="192.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="587.0" x2="172.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="587.0" x2="180.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="570.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_7_1</text>
+</g>
+<line x1="192.0" y1="594.0" x2="224.0" y2="594.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_7_2">
+<line x1="224.0" y1="594.0" x2="237.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="594.0" x2="256.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="587.0" x2="236.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="587.0" x2="244.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="570.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_7_2</text>
+</g>
+<line x1="256.0" y1="594.0" x2="288.0" y2="594.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_7_3">
+<line x1="288.0" y1="594.0" x2="301.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="594.0" x2="320.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="587.0" x2="300.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="587.0" x2="308.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="570.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_7_3</text>
+</g>
+<line x1="320.0" y1="594.0" x2="352.0" y2="594.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_7_4">
+<line x1="352.0" y1="594.0" x2="365.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="594.0" x2="384.0" y2="594.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="587.0" x2="364.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="587.0" x2="372.0" y2="601.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="570.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_7_4</text>
+</g>
+<line x1="384.0" y1="594.0" x2="416.0" y2="594.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_7">
+<line x1="416.0" y1="594.0" x2="419.0" y2="594.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="594.0" x2="448.0" y2="594.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="594.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="594.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_7</text>
+</g>
+<line x1="448.0" y1="594.0" x2="504" y2="594.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="636.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="626.0" x2="80" y2="706.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="626.0" x2="504" y2="706.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="666.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">9</text>
+<text x="516" y="666.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 9</text>
+<line x1="80" y1="666.0" x2="80.0" y2="666.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_8_0">
+<line x1="96.0" y1="666.0" x2="109.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="666.0" x2="128.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="659.0" x2="108.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="659.0" x2="116.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="642.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_8_0</text>
+</g>
+<line x1="128.0" y1="666.0" x2="160.0" y2="666.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_8_1">
+<line x1="160.0" y1="666.0" x2="173.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="666.0" x2="192.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="659.0" x2="172.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="659.0" x2="180.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="642.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_8_1</text>
+</g>
+<line x1="192.0" y1="666.0" x2="224.0" y2="666.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_8_2">
+<line x1="224.0" y1="666.0" x2="237.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="666.0" x2="256.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="659.0" x2="236.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="659.0" x2="244.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="642.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_8_2</text>
+</g>
+<line x1="256.0" y1="666.0" x2="288.0" y2="666.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_8_3">
+<line x1="288.0" y1="666.0" x2="301.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="666.0" x2="320.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="659.0" x2="300.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="659.0" x2="308.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="642.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_8_3</text>
+</g>
+<line x1="320.0" y1="666.0" x2="352.0" y2="666.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_8_4">
+<line x1="352.0" y1="666.0" x2="365.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="666.0" x2="384.0" y2="666.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="659.0" x2="364.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="659.0" x2="372.0" y2="673.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="642.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_8_4</text>
+</g>
+<line x1="384.0" y1="666.0" x2="416.0" y2="666.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_8">
+<line x1="416.0" y1="666.0" x2="419.0" y2="666.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="666.0" x2="448.0" y2="666.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="666.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="666.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_8</text>
+</g>
+<line x1="448.0" y1="666.0" x2="504" y2="666.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="698.0" x2="80" y2="778.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="698.0" x2="504" y2="778.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="738.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">10</text>
+<text x="516" y="738.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 10</text>
+<line x1="80" y1="738.0" x2="80.0" y2="738.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_9_0">
+<line x1="96.0" y1="738.0" x2="109.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="738.0" x2="128.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="731.0" x2="108.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="731.0" x2="116.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="714.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_9_0</text>
+</g>
+<line x1="128.0" y1="738.0" x2="160.0" y2="738.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_9_1">
+<line x1="160.0" y1="738.0" x2="173.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="738.0" x2="192.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="731.0" x2="172.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="731.0" x2="180.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="714.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_9_1</text>
+</g>
+<line x1="192.0" y1="738.0" x2="224.0" y2="738.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_9_2">
+<line x1="224.0" y1="738.0" x2="237.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="738.0" x2="256.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="731.0" x2="236.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="731.0" x2="244.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="714.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_9_2</text>
+</g>
+<line x1="256.0" y1="738.0" x2="288.0" y2="738.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_9_3">
+<line x1="288.0" y1="738.0" x2="301.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="738.0" x2="320.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="731.0" x2="300.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="731.0" x2="308.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="714.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_9_3</text>
+</g>
+<line x1="320.0" y1="738.0" x2="352.0" y2="738.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_9_4">
+<line x1="352.0" y1="738.0" x2="365.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="738.0" x2="384.0" y2="738.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="731.0" x2="364.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="731.0" x2="372.0" y2="745.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="714.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_9_4</text>
+</g>
+<line x1="384.0" y1="738.0" x2="416.0" y2="738.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_9">
+<line x1="416.0" y1="738.0" x2="419.0" y2="738.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="738.0" x2="448.0" y2="738.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="738.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="738.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_9</text>
+</g>
+<line x1="448.0" y1="738.0" x2="504" y2="738.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="780.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="770.0" x2="80" y2="850.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="770.0" x2="504" y2="850.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="810.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">11</text>
+<text x="516" y="810.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 11</text>
+<line x1="80" y1="810.0" x2="80.0" y2="810.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_10_0">
+<line x1="96.0" y1="810.0" x2="109.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="810.0" x2="128.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="803.0" x2="108.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="803.0" x2="116.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="786.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_10_0</text>
+</g>
+<line x1="128.0" y1="810.0" x2="160.0" y2="810.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_10_1">
+<line x1="160.0" y1="810.0" x2="173.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="810.0" x2="192.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="803.0" x2="172.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="803.0" x2="180.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="786.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_10_1</text>
+</g>
+<line x1="192.0" y1="810.0" x2="224.0" y2="810.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_10_2">
+<line x1="224.0" y1="810.0" x2="237.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="810.0" x2="256.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="803.0" x2="236.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="803.0" x2="244.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="786.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_10_2</text>
+</g>
+<line x1="256.0" y1="810.0" x2="288.0" y2="810.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_10_3">
+<line x1="288.0" y1="810.0" x2="301.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="810.0" x2="320.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="803.0" x2="300.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="803.0" x2="308.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="786.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_10_3</text>
+</g>
+<line x1="320.0" y1="810.0" x2="352.0" y2="810.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_10_4">
+<line x1="352.0" y1="810.0" x2="365.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="810.0" x2="384.0" y2="810.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="803.0" x2="364.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="803.0" x2="372.0" y2="817.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="786.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_10_4</text>
+</g>
+<line x1="384.0" y1="810.0" x2="416.0" y2="810.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_10">
+<line x1="416.0" y1="810.0" x2="419.0" y2="810.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="810.0" x2="448.0" y2="810.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="810.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="810.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_10</text>
+</g>
+<line x1="448.0" y1="810.0" x2="504" y2="810.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="842.0" x2="80" y2="922.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="842.0" x2="504" y2="922.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="882.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">12</text>
+<text x="516" y="882.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 12</text>
+<line x1="80" y1="882.0" x2="80.0" y2="882.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_11_0">
+<line x1="96.0" y1="882.0" x2="109.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="882.0" x2="128.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="875.0" x2="108.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="875.0" x2="116.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="858.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_11_0</text>
+</g>
+<line x1="128.0" y1="882.0" x2="160.0" y2="882.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_11_1">
+<line x1="160.0" y1="882.0" x2="173.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="882.0" x2="192.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="875.0" x2="172.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="875.0" x2="180.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="858.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_11_1</text>
+</g>
+<line x1="192.0" y1="882.0" x2="224.0" y2="882.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_11_2">
+<line x1="224.0" y1="882.0" x2="237.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="882.0" x2="256.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="875.0" x2="236.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="875.0" x2="244.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="858.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_11_2</text>
+</g>
+<line x1="256.0" y1="882.0" x2="288.0" y2="882.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_11_3">
+<line x1="288.0" y1="882.0" x2="301.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="882.0" x2="320.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="875.0" x2="300.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="875.0" x2="308.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="858.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_11_3</text>
+</g>
+<line x1="320.0" y1="882.0" x2="352.0" y2="882.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_11_4">
+<line x1="352.0" y1="882.0" x2="365.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="882.0" x2="384.0" y2="882.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="875.0" x2="364.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="875.0" x2="372.0" y2="889.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="858.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_11_4</text>
+</g>
+<line x1="384.0" y1="882.0" x2="416.0" y2="882.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_11">
+<line x1="416.0" y1="882.0" x2="419.0" y2="882.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="882.0" x2="448.0" y2="882.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="882.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="882.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_11</text>
+</g>
+<line x1="448.0" y1="882.0" x2="504" y2="882.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="924.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="914.0" x2="80" y2="994.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="914.0" x2="504" y2="994.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="954.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">13</text>
+<text x="516" y="954.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 13</text>
+<line x1="80" y1="954.0" x2="80.0" y2="954.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_12_0">
+<line x1="96.0" y1="954.0" x2="109.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="954.0" x2="128.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="947.0" x2="108.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="947.0" x2="116.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="930.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_12_0</text>
+</g>
+<line x1="128.0" y1="954.0" x2="160.0" y2="954.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_12_1">
+<line x1="160.0" y1="954.0" x2="173.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="954.0" x2="192.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="947.0" x2="172.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="947.0" x2="180.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="930.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_12_1</text>
+</g>
+<line x1="192.0" y1="954.0" x2="224.0" y2="954.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_12_2">
+<line x1="224.0" y1="954.0" x2="237.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="954.0" x2="256.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="947.0" x2="236.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="947.0" x2="244.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="930.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_12_2</text>
+</g>
+<line x1="256.0" y1="954.0" x2="288.0" y2="954.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_12_3">
+<line x1="288.0" y1="954.0" x2="301.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="954.0" x2="320.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="947.0" x2="300.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="947.0" x2="308.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="930.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_12_3</text>
+</g>
+<line x1="320.0" y1="954.0" x2="352.0" y2="954.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_12_4">
+<line x1="352.0" y1="954.0" x2="365.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="954.0" x2="384.0" y2="954.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="947.0" x2="364.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="947.0" x2="372.0" y2="961.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="930.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_12_4</text>
+</g>
+<line x1="384.0" y1="954.0" x2="416.0" y2="954.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_12">
+<line x1="416.0" y1="954.0" x2="419.0" y2="954.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="954.0" x2="448.0" y2="954.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="954.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="954.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_12</text>
+</g>
+<line x1="448.0" y1="954.0" x2="504" y2="954.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="986.0" x2="80" y2="1066.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="986.0" x2="504" y2="1066.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="1026.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">14</text>
+<text x="516" y="1026.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 14</text>
+<line x1="80" y1="1026.0" x2="80.0" y2="1026.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_13_0">
+<line x1="96.0" y1="1026.0" x2="109.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="1026.0" x2="128.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="1019.0" x2="108.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="1019.0" x2="116.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="1002.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_13_0</text>
+</g>
+<line x1="128.0" y1="1026.0" x2="160.0" y2="1026.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_13_1">
+<line x1="160.0" y1="1026.0" x2="173.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="1026.0" x2="192.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="1019.0" x2="172.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="1019.0" x2="180.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="1002.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_13_1</text>
+</g>
+<line x1="192.0" y1="1026.0" x2="224.0" y2="1026.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_13_2">
+<line x1="224.0" y1="1026.0" x2="237.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="1026.0" x2="256.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="1019.0" x2="236.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="1019.0" x2="244.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="1002.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_13_2</text>
+</g>
+<line x1="256.0" y1="1026.0" x2="288.0" y2="1026.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_13_3">
+<line x1="288.0" y1="1026.0" x2="301.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="1026.0" x2="320.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="1019.0" x2="300.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="1019.0" x2="308.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="1002.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_13_3</text>
+</g>
+<line x1="320.0" y1="1026.0" x2="352.0" y2="1026.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_13_4">
+<line x1="352.0" y1="1026.0" x2="365.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="1026.0" x2="384.0" y2="1026.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="1019.0" x2="364.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="1019.0" x2="372.0" y2="1033.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="1002.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_13_4</text>
+</g>
+<line x1="384.0" y1="1026.0" x2="416.0" y2="1026.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_13">
+<line x1="416.0" y1="1026.0" x2="419.0" y2="1026.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="1026.0" x2="448.0" y2="1026.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="1026.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="1026.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_13</text>
+</g>
+<line x1="448.0" y1="1026.0" x2="504" y2="1026.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="1068.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="1058.0" x2="80" y2="1138.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="1058.0" x2="504" y2="1138.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="1098.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">15</text>
+<text x="516" y="1098.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 15</text>
+<line x1="80" y1="1098.0" x2="80.0" y2="1098.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_14_0">
+<line x1="96.0" y1="1098.0" x2="109.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="1098.0" x2="128.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="1091.0" x2="108.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="1091.0" x2="116.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="1074.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_14_0</text>
+</g>
+<line x1="128.0" y1="1098.0" x2="160.0" y2="1098.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_14_1">
+<line x1="160.0" y1="1098.0" x2="173.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="1098.0" x2="192.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="1091.0" x2="172.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="1091.0" x2="180.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="1074.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_14_1</text>
+</g>
+<line x1="192.0" y1="1098.0" x2="224.0" y2="1098.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_14_2">
+<line x1="224.0" y1="1098.0" x2="237.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="1098.0" x2="256.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="1091.0" x2="236.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="1091.0" x2="244.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="1074.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_14_2</text>
+</g>
+<line x1="256.0" y1="1098.0" x2="288.0" y2="1098.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_14_3">
+<line x1="288.0" y1="1098.0" x2="301.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="1098.0" x2="320.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="1091.0" x2="300.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="1091.0" x2="308.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="1074.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_14_3</text>
+</g>
+<line x1="320.0" y1="1098.0" x2="352.0" y2="1098.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_14_4">
+<line x1="352.0" y1="1098.0" x2="365.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="1098.0" x2="384.0" y2="1098.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="1091.0" x2="364.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="1091.0" x2="372.0" y2="1105.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="1074.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_14_4</text>
+</g>
+<line x1="384.0" y1="1098.0" x2="416.0" y2="1098.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_14">
+<line x1="416.0" y1="1098.0" x2="419.0" y2="1098.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="1098.0" x2="448.0" y2="1098.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="1098.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="1098.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_14</text>
+</g>
+<line x1="448.0" y1="1098.0" x2="504" y2="1098.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="1130.0" x2="80" y2="1210.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="1130.0" x2="504" y2="1210.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="1170.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">16</text>
+<text x="516" y="1170.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 16</text>
+<line x1="80" y1="1170.0" x2="80.0" y2="1170.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_15_0">
+<line x1="96.0" y1="1170.0" x2="109.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="1170.0" x2="128.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="1163.0" x2="108.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="1163.0" x2="116.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="1146.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_15_0</text>
+</g>
+<line x1="128.0" y1="1170.0" x2="160.0" y2="1170.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_15_1">
+<line x1="160.0" y1="1170.0" x2="173.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="1170.0" x2="192.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="1163.0" x2="172.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="1163.0" x2="180.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="1146.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_15_1</text>
+</g>
+<line x1="192.0" y1="1170.0" x2="224.0" y2="1170.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_15_2">
+<line x1="224.0" y1="1170.0" x2="237.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="1170.0" x2="256.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="1163.0" x2="236.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="1163.0" x2="244.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="1146.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_15_2</text>
+</g>
+<line x1="256.0" y1="1170.0" x2="288.0" y2="1170.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_15_3">
+<line x1="288.0" y1="1170.0" x2="301.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="1170.0" x2="320.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="1163.0" x2="300.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="1163.0" x2="308.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="1146.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_15_3</text>
+</g>
+<line x1="320.0" y1="1170.0" x2="352.0" y2="1170.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_15_4">
+<line x1="352.0" y1="1170.0" x2="365.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="1170.0" x2="384.0" y2="1170.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="1163.0" x2="364.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="1163.0" x2="372.0" y2="1177.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="1146.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_15_4</text>
+</g>
+<line x1="384.0" y1="1170.0" x2="416.0" y2="1170.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_15">
+<line x1="416.0" y1="1170.0" x2="419.0" y2="1170.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="1170.0" x2="448.0" y2="1170.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="1170.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="1170.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_15</text>
+</g>
+<line x1="448.0" y1="1170.0" x2="504" y2="1170.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="1212.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="1202.0" x2="80" y2="1282.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="1202.0" x2="504" y2="1282.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="1242.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">17</text>
+<text x="516" y="1242.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 17</text>
+<line x1="80" y1="1242.0" x2="80.0" y2="1242.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_16_0">
+<line x1="96.0" y1="1242.0" x2="109.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="1242.0" x2="128.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="1235.0" x2="108.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="1235.0" x2="116.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="1218.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_16_0</text>
+</g>
+<line x1="128.0" y1="1242.0" x2="160.0" y2="1242.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_16_1">
+<line x1="160.0" y1="1242.0" x2="173.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="1242.0" x2="192.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="1235.0" x2="172.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="1235.0" x2="180.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="1218.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_16_1</text>
+</g>
+<line x1="192.0" y1="1242.0" x2="224.0" y2="1242.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_16_2">
+<line x1="224.0" y1="1242.0" x2="237.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="1242.0" x2="256.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="1235.0" x2="236.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="1235.0" x2="244.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="1218.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_16_2</text>
+</g>
+<line x1="256.0" y1="1242.0" x2="288.0" y2="1242.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_16_3">
+<line x1="288.0" y1="1242.0" x2="301.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="1242.0" x2="320.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="1235.0" x2="300.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="1235.0" x2="308.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="1218.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_16_3</text>
+</g>
+<line x1="320.0" y1="1242.0" x2="352.0" y2="1242.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_16_4">
+<line x1="352.0" y1="1242.0" x2="365.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="1242.0" x2="384.0" y2="1242.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="1235.0" x2="364.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="1235.0" x2="372.0" y2="1249.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="1218.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_16_4</text>
+</g>
+<line x1="384.0" y1="1242.0" x2="416.0" y2="1242.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_16">
+<line x1="416.0" y1="1242.0" x2="419.0" y2="1242.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="1242.0" x2="448.0" y2="1242.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="1242.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="1242.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_16</text>
+</g>
+<line x1="448.0" y1="1242.0" x2="504" y2="1242.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="1274.0" x2="80" y2="1354.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="1274.0" x2="504" y2="1354.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="1314.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">18</text>
+<text x="516" y="1314.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 18</text>
+<line x1="80" y1="1314.0" x2="80.0" y2="1314.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_17_0">
+<line x1="96.0" y1="1314.0" x2="109.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="1314.0" x2="128.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="1307.0" x2="108.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="1307.0" x2="116.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="1290.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_17_0</text>
+</g>
+<line x1="128.0" y1="1314.0" x2="160.0" y2="1314.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_17_1">
+<line x1="160.0" y1="1314.0" x2="173.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="1314.0" x2="192.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="1307.0" x2="172.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="1307.0" x2="180.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="1290.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_17_1</text>
+</g>
+<line x1="192.0" y1="1314.0" x2="224.0" y2="1314.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_17_2">
+<line x1="224.0" y1="1314.0" x2="237.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="1314.0" x2="256.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="1307.0" x2="236.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="1307.0" x2="244.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="1290.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_17_2</text>
+</g>
+<line x1="256.0" y1="1314.0" x2="288.0" y2="1314.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_17_3">
+<line x1="288.0" y1="1314.0" x2="301.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="1314.0" x2="320.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="1307.0" x2="300.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="1307.0" x2="308.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="1290.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_17_3</text>
+</g>
+<line x1="320.0" y1="1314.0" x2="352.0" y2="1314.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_17_4">
+<line x1="352.0" y1="1314.0" x2="365.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="1314.0" x2="384.0" y2="1314.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="1307.0" x2="364.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="1307.0" x2="372.0" y2="1321.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="1290.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_17_4</text>
+</g>
+<line x1="384.0" y1="1314.0" x2="416.0" y2="1314.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_17">
+<line x1="416.0" y1="1314.0" x2="419.0" y2="1314.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="1314.0" x2="448.0" y2="1314.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="1314.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="1314.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_17</text>
+</g>
+<line x1="448.0" y1="1314.0" x2="504" y2="1314.0" stroke="#616161" stroke-width="1.2"/>
+<rect x="80" y="1356.0" width="424" height="60" fill="#222244"/>
+<line x1="80" y1="1346.0" x2="80" y2="1426.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="1346.0" x2="504" y2="1426.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="1386.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">19</text>
+<text x="516" y="1386.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 19</text>
+<line x1="80" y1="1386.0" x2="80.0" y2="1386.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_18_0">
+<line x1="96.0" y1="1386.0" x2="109.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="1386.0" x2="128.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="1379.0" x2="108.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="1379.0" x2="116.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="1362.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_18_0</text>
+</g>
+<line x1="128.0" y1="1386.0" x2="160.0" y2="1386.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_18_1">
+<line x1="160.0" y1="1386.0" x2="173.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="1386.0" x2="192.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="1379.0" x2="172.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="1379.0" x2="180.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="1362.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_18_1</text>
+</g>
+<line x1="192.0" y1="1386.0" x2="224.0" y2="1386.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_18_2">
+<line x1="224.0" y1="1386.0" x2="237.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="1386.0" x2="256.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="1379.0" x2="236.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="1379.0" x2="244.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="1362.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_18_2</text>
+</g>
+<line x1="256.0" y1="1386.0" x2="288.0" y2="1386.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_18_3">
+<line x1="288.0" y1="1386.0" x2="301.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="1386.0" x2="320.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="1379.0" x2="300.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="1379.0" x2="308.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="1362.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_18_3</text>
+</g>
+<line x1="320.0" y1="1386.0" x2="352.0" y2="1386.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_18_4">
+<line x1="352.0" y1="1386.0" x2="365.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="1386.0" x2="384.0" y2="1386.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="1379.0" x2="364.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="1379.0" x2="372.0" y2="1393.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="1362.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_18_4</text>
+</g>
+<line x1="384.0" y1="1386.0" x2="416.0" y2="1386.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_18">
+<line x1="416.0" y1="1386.0" x2="419.0" y2="1386.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="1386.0" x2="448.0" y2="1386.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="1386.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="1386.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_18</text>
+</g>
+<line x1="448.0" y1="1386.0" x2="504" y2="1386.0" stroke="#616161" stroke-width="1.2"/>
+<line x1="80" y1="1418.0" x2="80" y2="1498.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="504" y1="1418.0" x2="504" y2="1498.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="1458.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">20</text>
+<text x="516" y="1458.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Network 20</text>
+<line x1="80" y1="1458.0" x2="80.0" y2="1458.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_19_0">
+<line x1="96.0" y1="1458.0" x2="109.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="115.0" y1="1458.0" x2="128.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="108.0" y1="1451.0" x2="108.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="116.0" y1="1451.0" x2="116.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="112.0" y="1434.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_19_0</text>
+</g>
+<line x1="128.0" y1="1458.0" x2="160.0" y2="1458.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_19_1">
+<line x1="160.0" y1="1458.0" x2="173.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="179.0" y1="1458.0" x2="192.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="172.0" y1="1451.0" x2="172.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="180.0" y1="1451.0" x2="180.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="176.0" y="1434.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_19_1</text>
+</g>
+<line x1="192.0" y1="1458.0" x2="224.0" y2="1458.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_19_2">
+<line x1="224.0" y1="1458.0" x2="237.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="243.0" y1="1458.0" x2="256.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="236.0" y1="1451.0" x2="236.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="244.0" y1="1451.0" x2="244.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="240.0" y="1434.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_19_2</text>
+</g>
+<line x1="256.0" y1="1458.0" x2="288.0" y2="1458.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_19_3">
+<line x1="288.0" y1="1458.0" x2="301.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="307.0" y1="1458.0" x2="320.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="300.0" y1="1451.0" x2="300.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="308.0" y1="1451.0" x2="308.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="304.0" y="1434.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_19_3</text>
+</g>
+<line x1="320.0" y1="1458.0" x2="352.0" y2="1458.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="contact_no" data-operand="var_19_4">
+<line x1="352.0" y1="1458.0" x2="365.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="371.0" y1="1458.0" x2="384.0" y2="1458.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="364.0" y1="1451.0" x2="364.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<line x1="372.0" y1="1451.0" x2="372.0" y2="1465.0" stroke="#29b6f6" stroke-width="2"/>
+<text x="368.0" y="1434.0" font-size="10" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">var_19_4</text>
+</g>
+<line x1="384.0" y1="1458.0" x2="416.0" y2="1458.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="out_19">
+<line x1="416.0" y1="1458.0" x2="419.0" y2="1458.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="445.0" y1="1458.0" x2="448.0" y2="1458.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="432.0" cy="1458.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="432.0" y="1458.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">out_19</text>
+</g>
+<line x1="448.0" y1="1458.0" x2="504" y2="1458.0" stroke="#616161" stroke-width="1.2"/>
+</svg>

@@ -40,7 +40,7 @@ class TestGenerateLadder:
             n = s["networks"][0]
             assert "number" in n
             assert "title" in n
-            assert "code" in n
+            assert "rungs" in n or "code" in n
 
     def test_with_template_id(self, client):
         """支持 template_id 参数"""

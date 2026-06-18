@@ -696,3 +696,45 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ═══════════════════════════════════════════════════════════
+# V2 集成适配 — AST → LayoutEngine → SVGRendererV2
+# ═══════════════════════════════════════════════════════════
+
+def render_v2_from_ast(block):
+    """
+    完整 V2 管线：LadderBlock (AST) → LayoutEngine → RenderTree → SVG
+
+    Args:
+        block: lad_ast.LadderBlock 实例
+
+    Returns:
+        SVG 字符串
+    """
+    from layout_engine import LayoutEngine
+    from svg_renderer_v2 import SVGRendererV2
+
+    engine = LayoutEngine()
+    render_block = engine.layout(block)
+    renderer = SVGRendererV2(render_block)
+    return renderer.render()
+
+
+def render_v2_from_json(json_path: str) -> str:
+    """
+    完整 V2 管线：JSON 文件 → AST → LayoutEngine → RenderTree → SVG
+
+    Args:
+        json_path: LadderSpec JSON 文件路径
+
+    Returns:
+        SVG 字符串
+    """
+    import json
+    from lad_ast import LadderBlock
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        spec = json.load(f)
+    block = LadderBlock.from_dict(spec)
+    return render_v2_from_ast(block)

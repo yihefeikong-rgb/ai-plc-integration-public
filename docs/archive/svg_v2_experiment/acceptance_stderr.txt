@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "D:\claude code xiangmu\AI 接入PLC\mcp-servers\tia-mcp\run_acceptance.py", line 717, in <module>
+    part3_svg_visual()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\claude code xiangmu\AI 接入PLC\mcp-servers\tia-mcp\run_acceptance.py", line 282, in part3_svg_visual
+    svg_path, svg, render_block = render_and_save(block, fname)
+                                  ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "D:\claude code xiangmu\AI 接入PLC\mcp-servers\tia-mcp\run_acceptance.py", line 254, in render_and_save
+    render_block = engine.layout(block)
+  File "D:\claude code xiangmu\AI 接入PLC\mcp-servers\tia-mcp\layout_engine.py", line 47, in layout
+    for nw in block.networks:
+              ^^^^^^^^^^^^^^
+AttributeError: 'tuple' object has no attribute 'networks'

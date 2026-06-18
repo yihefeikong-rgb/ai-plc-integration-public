@@ -1,0 +1,24 @@
+ASCII-LAD-V2
+
+Variables:
+I0.0    bSensor    BOOL    产品检测传感器
+I0.1    bReset     BOOL    计数器复位
+Q0.0    qBoxReady  BOOL    装箱完成信号
+Q0.1    qBuzzer    BOOL    蜂鸣器
+C1      ctuProd    CTU     产品计数器
+M0.0    bBatchDone BOOL    批次完成标志
+
+Network 1
+Title: 产品计数（每满12个触发）
+
+|----[ bSensor ]----[CTU C1 PV=12]----( bBatchDone )
+
+Network 2
+Title: 装箱完成输出
+
+|----[ bBatchDone ]----( qBoxReady )
+
+Network 3
+Title: 蜂鸣器提示（批次完成时响）
+
+|----[ bBatchDone ]----( qBuzzer )

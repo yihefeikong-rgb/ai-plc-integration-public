@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 184 162" width="184" height="162" style="background:#1a1a2e;font-family:monospace, 'Courier New'">
+<rect x="0" y="0" width="184" height="162" fill="#1a1a2e"/>
+<text x="92.0" y="18" font-size="14" fill="#80cbc4" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Edge_SingleCoil</text>
+<text x="92.0" y="38" font-size="12" fill="#9e9e9e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">Block #0 · 1 Network(s)</text>
+<rect x="80" y="60.0" width="104" height="60" fill="#222244"/>
+<line x1="80" y1="50.0" x2="80" y2="130.0" stroke="#4a4a6a" stroke-width="4"/>
+<line x1="184" y1="50.0" x2="184" y2="130.0" stroke="#4a4a6a" stroke-width="4"/>
+<text x="44" y="90.0" font-size="11" fill="#e0e0e0" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="normal">1</text>
+<text x="196" y="90.0" font-size="12" fill="#80cbc4" text-anchor="start" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">Single Coil</text>
+<line x1="80" y1="90.0" x2="80.0" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+<g data-type="coil" data-operand="y">
+<line x1="96.0" y1="90.0" x2="99.0" y2="90.0" stroke="#66bb6a" stroke-width="2"/>
+<line x1="125.0" y1="90.0" x2="128.0" y2="90.0" stroke="#66bb6a" stroke-width="2"/>
+<ellipse cx="112.0" cy="90.0" rx="16" ry="13" fill="none" stroke="#66bb6a" stroke-width="1.8"/>
+<text x="112.0" y="90.0" font-size="10" fill="#1a1a2e" text-anchor="center" dominant-baseline="central" font-family="monospace, 'Courier New'" font-weight="bold">y</text>
+</g>
+<line x1="128.0" y1="90.0" x2="184" y2="90.0" stroke="#616161" stroke-width="1.2"/>
+</svg>

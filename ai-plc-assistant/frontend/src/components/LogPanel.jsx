@@ -3,9 +3,7 @@ import { ChevronUp, ChevronDown, X } from 'lucide-react'
 
 const tabs = [
   { id: 'log', label: '日志' },
-  { id: 'output', label: '输出' },
   { id: 'ai', label: 'AI 调用' },
-  { id: 'debug', label: '调试' },
 ]
 
 const levelStyles = {
@@ -75,16 +73,8 @@ export default function LogPanel({ logs }) {
             </div>
           )}
 
-          {activeTab === 'output' && (
-            <div className="text-text-dim py-2">输出面板 — 程序生成结果将在此显示</div>
-          )}
-
           {activeTab === 'ai' && (
-            <div className="text-text-dim py-2">AI 调用记录 — API 请求和响应将在此显示</div>
-          )}
-
-          {activeTab === 'debug' && (
-            <div className="text-text-dim py-2">调试信息 — 运行时调试数据将在此显示</div>
+            <div className="text-text-dim py-2">AI 调用记录 — 待接入（将显示模型/Token/延迟/回退信息）</div>
           )}
         </div>
       )}

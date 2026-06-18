@@ -34,6 +34,7 @@ export default function App() {
   const [showCodeTemplate, setShowCodeTemplate] = useState(false)
   const [showLadderTemplate, setShowLadderTemplate] = useState(false)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
   const [showContext, setShowContext] = useState(true)
   const [showBottom, setShowBottom] = useState(true)
@@ -70,11 +71,11 @@ export default function App() {
       case 'tool:index': addLog('info', '[工具] 请在右侧面板使用工程搜索'); break
       case 'ai:new-chat': handleNewConversation(); break
       case 'ai:templates': setShowTemplates(true); break
-      case 'ai:knowledge': openTab('chat'); break
+      case 'ai:knowledge': setShowSidebar(true); break
       case 'view:sidebar': setShowSidebar(v => !v); break
       case 'view:context': setShowContext(v => !v); break
       case 'view:bottom': setShowBottom(v => !v); break
-      case 'help:about': addLog('info', 'AI PLC Assistant v1.0 — 工业自动化编程工作台'); break
+      case 'help:about': setShowAbout(true); break
       case 'help:api-docs': window.open('http://127.0.0.1:8005/docs', '_blank'); break
     }
   }
@@ -155,6 +156,24 @@ export default function App() {
           onSubmit={(data) => { handleCreateProject(data); setShowCreateDialog(false) }}
           onCancel={() => setShowCreateDialog(false)}
         />
+      )}
+
+      {showAbout && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowAbout(false)}>
+          <div className="bg-ide-panel border border-ide-border rounded-lg p-6 w-80 text-center" onClick={e => e.stopPropagation()}>
+            <div className="text-lg font-bold text-accent mb-1">AI PLC Assistant</div>
+            <div className="text-xs text-text-dim mb-3">v1.0.0</div>
+            <div className="text-xs text-text-secondary space-y-1 mb-4">
+              <div>工业自动化 AI 编程工作台</div>
+              <div className="text-text-dim">Electron + React + FastAPI</div>
+              <div className="text-text-dim">ASCII-LAD-V2 梯形图标准</div>
+            </div>
+            <button onClick={() => setShowAbout(false)}
+              className="px-4 py-1.5 bg-accent text-white rounded text-xs hover:bg-accent-hover transition-colors">
+              关闭
+            </button>
+          </div>
+        </div>
       )}
     </div>
     </ErrorBoundary>
