@@ -1,0 +1,274 @@
+# CIP 清洗系统 — SCL 生成模板
+
+## 功能描述
+Clean-in-Place 就地清洗系统，五阶段自动清洗循环：清水冲洗 → 碱洗 → 清水冲洗 → 酸洗 → 最终冲洗。
+
+## 核心特性
+- **五阶段清洗**：RINSE1 → CAUSTIC → RINSE2 → ACID → FINAL_RINSE
+- **温度控制**：碱洗和酸洗阶段各自独立设定温度
+- **电导率监控**：检测化学清洗液浓度是否达标，确保清洗效果
+- **Recipe 参数化**：所有阶段时长、温度、电导率阈值可通过 DB 配置
+- **流量联锁**：各阶段依赖流量正常信号才能推进
+
+## UDT 定义（推荐抽离为独立类型）
+
+```scl
+TYPE "CIPRecipe"
+VERSION : 0.1
+   STRUCT
+      tRinse1Time : Time;          // 第一次清水冲洗时间
+      tCausticTime : Time;         // 碱洗时间
+      tRinse2Time : Time;          // 第二次清水冲洗时间
+      tAcidTime : Time;            // 酸洗时间
+      tFinalRinseTime : Time;      // 最终清水冲洗时间
+      rCausticTempSetpoint : Real; // 碱洗温度设定值 (degC)
+      rAcidTempSetpoint : Real;    // 酸洗温度设定值 (degC)
+      rRinseTempSetpoint : Real;   // 冲洗温度设定值 (degC)
+      rCausticConcMin : Real;      // 碱液最小浓度 (%)
+      rAcidConcMin : Real;         // 酸液最小浓度 (%)
+      rRinseCondMax : Real;        // 冲洗后电导率上限 (uS/cm)
+   END_STRUCT;
+END_TYPE
+```
+
+## 清洗流程
+
+```
+    RINSE1      CAUSTIC       RINSE2        ACID      FINAL_RINSE
+  清水冲洗  →  碱洗(加热)  →  清水冲洗  →  酸洗(加热) →  最终冲洗
+  去除大颗粒    去除油脂      去除残留碱    中和/去除    去除残留酸
+  常温     40-60°C          常温     50-70°C          常温
+```
+
+## SCL 代码模板
+
+```scl
+FUNCTION_BLOCK "CIPSystem"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bStart : Bool;                     // 启动清洗循环
+    bStop : Bool;                      // 停止
+    bReset : Bool;                     // 故障复位
+    bEmergencyStop : Bool;             // 急停（常闭）
+    bTankFull : Bool;                  // 清洗罐满
+    bTankEmpty : Bool;                 // 清洗罐空
+    bFlowOK : Bool;                    // 流量正常
+    rTemperature : Real;               // 温度传感器 (degC)
+    rConductivity : Real;              // 电导率 (uS/cm)
+    bReturnFlowOK : Bool;              // 回流流量正常
+END_VAR
+
+VAR_OUTPUT
+    bSupplyPump : Bool;                // 供液泵
+    bReturnPump : Bool;                // 回流泵
+    bHeater : Bool;                    // 加热器
+    bRinseValve : Bool;                // 清水阀
+    bCausticValve : Bool;              // 碱液阀
+    bAcidValve : Bool;                 // 酸液阀
+    bDrainValve : Bool;                // 排空阀
+    bPhaseActive : Bool;               // 阶段运行中
+    bCycleComplete : Bool;             // 循环完成
+    bFault : Bool;                     // 故障
+    iCurrentPhase : Int;               // 当前阶段
+    iFaultCode : Int;                  // 故障代码
+END_VAR
+
+VAR_IN_OUT
+    // 清洗参数（可从 DB 配置）
+    tRinse1Time : Time;                // 第一次清水冲洗时间
+    tCausticTime : Time;               // 碱洗时间
+    tRinse2Time : Time;                // 第二次清水冲洗时间
+    tAcidTime : Time;                  // 酸洗时间
+    tFinalRinseTime : Time;            // 最终清水冲洗时间
+    rCausticTempSetpoint : Real;       // 碱洗温度设定值 (degC)
+    rAcidTempSetpoint : Real;          // 酸洗温度设定值 (degC)
+    rRinseTempSetpoint : Real;         // 冲洗温度设定值 (degC)
+    rCausticCondMin : Real;            // 碱液最小电导率 (uS/cm)
+    rAcidCondMin : Real;               // 酸液最小电导率 (uS/cm)
+    rRinseCondMax : Real;              // 冲洗最大电导率 (uS/cm)
+END_VAR
+
+VAR
+    // 阶段常量
+    c_IDLE : Int := 0;
+    c_RINSE1 : Int := 1;
+    c_CAUSTIC : Int := 2;
+    c_RINSE2 : Int := 3;
+    c_ACID : Int := 4;
+    c_FINAL_RINSE : Int := 5;
+
+    // 阶段计时器
+    tPhaseTimer : TON;                 // 阶段计时
+    tTempReach : TON;                  // 升温等待
+
+    // 边沿检测
+    bStartOld : Bool;
+    bStartRising : Bool;
+
+    // 阶段内状态
+    bHeatingActive : Bool;             // 加热中
+    bCondCheckPassed : Bool;           // 浓度检测通过
+    bTempReached : Bool;               // 温度达到
+    bRinseCondOK : Bool;               // 冲洗电导率达标
+END_VAR
+
+BEGIN
+    // ── 急停 ──
+    IF NOT bEmergencyStop THEN
+        bSupplyPump := FALSE; bReturnPump := FALSE; bHeater := FALSE;
+        bRinseValve := FALSE; bCausticValve := FALSE;
+        bAcidValve := FALSE; bDrainValve := FALSE;
+        bPhaseActive := FALSE; bFault := TRUE; iFaultCode := 1;
+        iCurrentPhase := c_IDLE;
+        RETURN;
+    END_IF;
+
+    // ── 故障复位 ──
+    IF bFault AND bReset THEN
+        bFault := FALSE; iFaultCode := 0;
+    END_IF;
+
+    IF bFault THEN RETURN; END_IF;
+
+    // ── 上升沿检测 ──
+    bStartRising := bStart AND NOT bStartOld;
+    bStartOld := bStart;
+
+    // ── 停止 ──
+    IF bStop AND iCurrentPhase <> c_IDLE THEN
+        bSupplyPump := FALSE; bReturnPump := FALSE; bHeater := FALSE;
+        bRinseValve := FALSE; bCausticValve := FALSE;
+        bAcidValve := FALSE; bDrainValve := FALSE;
+        bPhaseActive := FALSE; iCurrentPhase := c_IDLE;
+        tPhaseTimer(IN := FALSE);
+    END_IF;
+
+    // ── 启动 ──
+    IF bStartRising AND iCurrentPhase = c_IDLE THEN
+        iCurrentPhase := c_RINSE1;
+        bCycleComplete := FALSE;
+    END_IF;
+
+    // ── 清洗阶段执行 ──
+    CASE iCurrentPhase OF
+
+        1:  // RINSE1 — 第一次清水冲洗
+            bSupplyPump := TRUE; bReturnPump := TRUE;
+            bRinseValve := TRUE; bPhaseActive := TRUE;
+            tPhaseTimer(IN := TRUE, PT := tRinse1Time);
+
+            IF (tPhaseTimer.Q AND bFlowOK) THEN
+                bRinseValve := FALSE;
+                bDrainValve := TRUE;
+                tPhaseTimer(IN := FALSE);
+                iCurrentPhase := c_CAUSTIC;
+            END_IF;
+
+        2:  // CAUSTIC — 碱洗循环
+            bSupplyPump := TRUE; bReturnPump := TRUE;
+            bCausticValve := TRUE; bPhaseActive := TRUE;
+
+            // 升温控制
+            IF rTemperature < rCausticTempSetpoint THEN
+                bHeater := TRUE; bHeatingActive := TRUE;
+            ELSE
+                bHeater := FALSE; bHeatingActive := FALSE;
+            END_IF;
+
+            // 电导率检测：确认碱液浓度足够
+            bCondCheckPassed := rConductivity >= rCausticCondMin;
+
+            tPhaseTimer(IN := TRUE, PT := tCausticTime);
+            IF tPhaseTimer.Q AND bCondCheckPassed AND bFlowOK THEN
+                bCausticValve := FALSE; bHeater := FALSE;
+                bDrainValve := TRUE;
+                tPhaseTimer(IN := FALSE);
+                iCurrentPhase := c_RINSE2;
+            END_IF;
+
+        3:  // RINSE2 — 第二次清水冲洗
+            bSupplyPump := TRUE; bReturnPump := TRUE;
+            bRinseValve := TRUE; bPhaseActive := TRUE;
+            tPhaseTimer(IN := TRUE, PT := tRinse2Time);
+
+            IF (tPhaseTimer.Q AND bFlowOK) THEN
+                // 检查冲洗水电导率是否达标
+                bRinseCondOK := rConductivity <= rRinseCondMax;
+                IF bRinseCondOK THEN
+                    bRinseValve := FALSE;
+                    bDrainValve := TRUE;
+                    tPhaseTimer(IN := FALSE);
+                    iCurrentPhase := c_ACID;
+                END_IF;
+            END_IF;
+
+        4:  // ACID — 酸洗循环
+            bSupplyPump := TRUE; bReturnPump := TRUE;
+            bAcidValve := TRUE; bPhaseActive := TRUE;
+
+            // 升温控制
+            IF rTemperature < rAcidTempSetpoint THEN
+                bHeater := TRUE; bHeatingActive := TRUE;
+            ELSE
+                bHeater := FALSE; bHeatingActive := FALSE;
+            END_IF;
+
+            // 电导率检测：确认酸液浓度足够
+            bCondCheckPassed := rConductivity >= rAcidCondMin;
+
+            tPhaseTimer(IN := TRUE, PT := tAcidTime);
+            IF tPhaseTimer.Q AND bCondCheckPassed AND bFlowOK THEN
+                bAcidValve := FALSE; bHeater := FALSE;
+                bDrainValve := TRUE;
+                tPhaseTimer(IN := FALSE);
+                iCurrentPhase := c_FINAL_RINSE;
+            END_IF;
+
+        5:  // FINAL_RINSE — 最终清水冲洗
+            bSupplyPump := TRUE; bReturnPump := TRUE;
+            bRinseValve := TRUE; bPhaseActive := TRUE;
+            tPhaseTimer(IN := TRUE, PT := tFinalRinseTime);
+
+            bRinseCondOK := rConductivity <= rRinseCondMax;
+            IF tPhaseTimer.Q AND bRinseCondOK AND bFlowOK THEN
+                bRinseValve := FALSE;
+                bSupplyPump := FALSE; bReturnPump := FALSE;
+                tPhaseTimer(IN := FALSE);
+                bCycleComplete := TRUE;
+                iCurrentPhase := c_IDLE;
+            END_IF;
+
+        0:  // IDLE
+            bSupplyPump := FALSE; bReturnPump := FALSE; bHeater := FALSE;
+            bRinseValve := FALSE; bCausticValve := FALSE;
+            bAcidValve := FALSE; bDrainValve := FALSE;
+            bPhaseActive := FALSE;
+
+    END_CASE;
+
+END_FUNCTION_BLOCK
+```
+
+## Recipe 参数说明
+
+| 参数 | 典型值 | 说明 |
+|------|--------|------|
+| tRinse1Time | T#5M | 首次冲洗，去除大颗粒残留物 |
+| tCausticTime | T#15M | NaOH 1-3% 溶液循环清洗 |
+| tRinse2Time | T#5M | 中间冲洗至中性 |
+| tAcidTime | T#10M | HNO3 0.5-1% 溶液循环清洗 |
+| tFinalRinseTime | T#5M | 最终冲洗至电导率达标 |
+| rCausticTempSetpoint | 60.0 °C | 碱洗温度 |
+| rAcidTempSetpoint | 50.0 °C | 酸洗温度 |
+| rCausticCondMin | 20000 uS/cm | 碱液浓度合格阈值 |
+| rAcidCondMin | 10000 uS/cm | 酸液浓度合格阈值 |
+| rRinseCondMax | 50 uS/cm | 冲洗后电导率上限 |
+
+## 调试建议
+- **温度控制**：确认加热器功率足够，升温时间不应超过阶段时间
+- **电导率阈值**：参考实际化学清洗液浓度标定，过低可能导致清洗不彻底
+- **排空时序**：阶段切换时确保排空阀打开足够时间，避免化学液混合
+- **流量联锁**：流量低于正常值时自动保持当前阶段，避免空泵运行
