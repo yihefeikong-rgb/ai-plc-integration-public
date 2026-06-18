@@ -33,6 +33,7 @@ venv/
 **/data/
 !**/data/*.md
 !**/data/*.yml
+!**/data/*.json
 
 # 操作系统
 Thumbs.db
