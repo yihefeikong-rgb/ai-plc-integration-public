@@ -1,0 +1,211 @@
+FUNCTION_BLOCK "LightingControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bManualMode : Bool;                  // 手动模式
+    // 传感器
+    rLuxLevel : Real;                    // 照度传感器 (Lux)
+    bMotionDetect1 : Bool;               // 人体感应器1
+    bMotionDetect2 : Bool;               // 人体感应器2
+    bMotionDetect3 : Bool;               // 人体感应器3
+    bDoorContact : Bool;                 // 门磁开关（开门=TRUE）
+    // 时间
+    iHour : Int;                         // 当前小时 (0-23)
+    iMinute : Int;                       // 当前分钟 (0-59)
+    iDayOfWeek : Int;                    // 星期 (1=周一...7=周日)
+    bHoliday : Bool;                     // 节假日
+    // 设定值
+    rLuxSetpoint : Real;                 // 照度设定值 (Lux)
+    rLuxHysteresis : Real;               // 照度滞回 (Lux)
+    iOnHour : Int;                       // 开灯时间（时）
+    iOffHour : Int;                      // 关灯时间（时）
+    iDelayOff : Int;                     // 无人延迟关灯 (秒)
+    // 场景
+    iSceneCmd : Int;                     // 场景命令 (0=无 1=全亮 2=办公 3=会议 4=投影 5=清洁 6=全关)
+END_VAR
+
+VAR_OUTPUT
+    rZone1Dim : Real;                    // 区域1调光输出 (0-100%)
+    rZone2Dim : Real;                    // 区域2调光输出 (0-100%)
+    rZone3Dim : Real;                    // 区域3调光输出 (0-100%)
+    bEmergencyLight : Bool;              // 应急照明状态
+    bOccupied : Bool;                    // 区域有人
+    iActiveScene : Int;                  // 当前激活场景
+    sMode : String[20];                  // 当前模式
+END_VAR
+
+VAR
+    // 人感延时
+    tonOccupancy : TON;                  // 有人确认延时
+    tofVacancy : TOF;                    // 无人延迟关闭
+
+    // 照度PID
+    rDimKp : Real;                       // 调光比例系数
+    rDimKi : Real;                       // 调光积分系数
+    rDimIntegral : Real;                 // 调光积分
+
+    // 时间表
+    bInSchedule : Bool;                  // 在时间表范围内
+    bWeekday : Bool;                     // 工作日
+
+    // 场景预设值
+    rScene1Dim : Real;                   // 全亮
+    rScene2Dim : Real;                   // 办公
+    rScene3Dim : Real;                   // 会议
+    rScene4Dim : Real;                   // 投影
+    rScene5Dim : Real;                   // 清洁
+
+    // 渐变
+    rTargetDim : Real;                   // 目标调光值
+    rCurrentDim : Real;                  // 当前调光值（渐变）
+    rFadeRate : Real;                    // 渐变速率 (%/cycle)
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认参数
+    // ============================================
+    IF rLuxSetpoint = 0.0 THEN rLuxSetpoint := 500.0; END_IF;
+    IF rLuxHysteresis = 0.0 THEN rLuxHysteresis := 50.0; END_IF;
+    IF iOnHour = 0 AND iOffHour = 0 THEN iOnHour := 7; iOffHour := 22; END_IF;
+    IF iDelayOff = 0 THEN iDelayOff := 300; END_IF;
+    IF rDimKp = 0.0 THEN rDimKp := 0.2; END_IF;
+    IF rDimKi = 0.0 THEN rDimKi := 0.01; END_IF;
+    IF rFadeRate = 0.0 THEN rFadeRate := 5.0; END_IF;
+    // 场景预设
+    IF rScene1Dim = 0.0 THEN rScene1Dim := 100.0; END_IF;
+    IF rScene2Dim = 0.0 THEN rScene2Dim := 70.0; END_IF;
+    IF rScene3Dim = 0.0 THEN rScene3Dim := 80.0; END_IF;
+    IF rScene4Dim = 0.0 THEN rScene4Dim := 20.0; END_IF;
+    IF rScene5Dim = 0.0 THEN rScene5Dim := 100.0; END_IF;
+
+    // ============================================
+    // 急停 → 应急照明
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        rZone1Dim := 0.0;
+        rZone2Dim := 0.0;
+        rZone3Dim := 0.0;
+        bEmergencyLight := TRUE;
+        sMode := 'EMERGENCY';
+        RETURN;
+    END_IF;
+    bEmergencyLight := FALSE;
+
+    // ============================================
+    // 系统关闭
+    // ============================================
+    IF NOT bEnable THEN
+        rZone1Dim := 0.0;
+        rZone2Dim := 0.0;
+        rZone3Dim := 0.0;
+        rDimIntegral := 0.0;
+        sMode := 'OFF';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 时间表判断
+    // ============================================
+    bWeekday := (iDayOfWeek >= 1) AND (iDayOfWeek <= 5) AND NOT bHoliday;
+    IF iOnHour < iOffHour THEN
+        bInSchedule := (iHour >= iOnHour) AND (iHour < iOffHour);
+    ELSE
+        bInSchedule := (iHour >= iOnHour) OR (iHour < iOffHour);
+    END_IF;
+
+    // ============================================
+    // 人体感应（任一传感器触发）
+    // ============================================
+    tonOccupancy(IN := bMotionDetect1 OR bMotionDetect2 OR bMotionDetect3 OR bDoorContact,
+                 PT := T#2s);
+    tofVacancy(IN := bMotionDetect1 OR bMotionDetect2 OR bMotionDetect3,
+               PT := INT_TO_TIME(iDelayOff * 1000));
+
+    bOccupied := tofVacancy.Q;
+
+    // ============================================
+    // 场景处理
+    // ============================================
+    IF iSceneCmd > 0 THEN
+        iActiveScene := iSceneCmd;
+    END_IF;
+
+    CASE iActiveScene OF
+        1:  // 全亮
+            rTargetDim := rScene1Dim;
+            sMode := 'FULL';
+        2:  // 办公
+            rTargetDim := rScene2Dim;
+            sMode := 'OFFICE';
+        3:  // 会议
+            rTargetDim := rScene3Dim;
+            sMode := 'MEETING';
+        4:  // 投影（暗室）
+            rTargetDim := rScene4Dim;
+            sMode := 'PROJECTOR';
+        5:  // 清洁
+            rTargetDim := rScene5Dim;
+            sMode := 'CLEANING';
+        6:  // 全关
+            rTargetDim := 0.0;
+            sMode := 'OFF';
+    ELSE
+        // 无场景命令：自动模式
+        iActiveScene := 0;
+
+        // ============================================
+        // 自动模式：时间表 + 人感 + 照度
+        // ============================================
+        IF NOT bInSchedule AND NOT bOccupied THEN
+            // 非工作时间且无人
+            rTargetDim := 0.0;
+            sMode := 'AUTO_OFF';
+        ELSIF bOccupied THEN
+            // 有人：恒照度调光
+            sMode := 'AUTO_DIM';
+
+            // 照度PID：自然光充足时降低人工照明
+            rDimIntegral := rDimIntegral + ((rLuxSetpoint - rLuxLevel) * rDimKi);
+            IF rDimIntegral > 100.0 THEN rDimIntegral := 100.0; END_IF;
+            IF rDimIntegral < 0.0 THEN rDimIntegral := 0.0; END_IF;
+
+            rTargetDim := ((rLuxSetpoint - rLuxLevel) * rDimKp) + rDimIntegral;
+            IF rTargetDim > 100.0 THEN rTargetDim := 100.0; END_IF;
+            IF rTargetDim < 10.0 THEN rTargetDim := 10.0; END_IF;  // 最低10%防全黑
+        ELSE
+            // 在时间表内但无人感应：低亮待机
+            rTargetDim := 20.0;
+            sMode := 'STANDBY';
+        END_IF;
+    END_CASE;
+
+    // ============================================
+    // 渐变输出（平滑过渡）
+    // ============================================
+    IF rCurrentDim < rTargetDim THEN
+        rCurrentDim := rCurrentDim + rFadeRate;
+        IF rCurrentDim > rTargetDim THEN rCurrentDim := rTargetDim; END_IF;
+    ELSIF rCurrentDim > rTargetDim THEN
+        rCurrentDim := rCurrentDim - rFadeRate;
+        IF rCurrentDim < rTargetDim THEN rCurrentDim := rTargetDim; END_IF;
+    END_IF;
+
+    // ============================================
+    // 分区输出
+    // ============================================
+    rZone1Dim := rCurrentDim;
+    rZone2Dim := rCurrentDim;
+    rZone3Dim := rCurrentDim;
+
+    // 手动模式覆盖
+    IF bManualMode THEN
+        sMode := 'MANUAL';
+    END_IF;
+
+END_FUNCTION_BLOCK

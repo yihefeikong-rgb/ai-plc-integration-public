@@ -447,5 +447,97 @@
     "variables": [],
     "created_at": 1781780783.0237982,
     "updated_at": 1781780783.0237982
+  },
+  {
+    "id": "constant-pressure-water",
+    "name": "恒压供水群控系统",
+    "category": "过程控制",
+    "description": "生成变频恒压供水群控程序（SCL）",
+    "content": "你是一名西门子PLC工程师。\n请生成一个恒压供水群控系统程序。\n\n要求：\n- 使用SCL语言\n- PID恒压控制（管网压力→VFD频率）\n- 多泵加减泵：{pump_count}台泵，阶梯启停\n- 均衡轮换（按累计运行时间）\n- 小流量休眠/自动唤醒\n- 缺水保护（水箱液位低→停泵）\n- 超压保护（强制降频）\n- 故障泵自动退出\n- 设定压力：{pressure_setpoint} bar\n\n请生成完整的FB块，包含PID调参、加减泵逻辑和保护策略。",
+    "variables": [
+      {
+        "name": "pump_count",
+        "label": "水泵台数",
+        "default": "3",
+        "type": "int"
+      },
+      {
+        "name": "pressure_setpoint",
+        "label": "设定压力(bar)",
+        "default": "3.5",
+        "type": "float"
+      }
+    ],
+    "created_at": 1750377600.0,
+    "updated_at": 1750377600.0
+  },
+  {
+    "id": "boiler-heating-station",
+    "name": "锅炉房/热力站控制",
+    "category": "过程控制",
+    "description": "生成锅炉房或热力站群控程序（SCL）",
+    "content": "你是一名西门子PLC工程师。\n请生成一个锅炉房/热力站群控程序。\n\n要求：\n- 使用SCL语言\n- 锅炉台数：{boiler_count}台\n- 气候补偿曲线（室外温度→供水温度目标）\n- 加减炉逻辑（负荷跟踪+均衡轮换）\n- 一次泵/二次泵联动（一主一备+自动切换）\n- 混水阀PID调节（控制二次供水温度）\n- 回水温度保护（防热冲击）\n- 烟气温度连锁监测\n- 设计室外温度：{outdoor_design}°C\n\n请生成完整的FB块，含气候补偿、加减炉和安全保护逻辑。",
+    "variables": [
+      {
+        "name": "boiler_count",
+        "label": "锅炉台数",
+        "default": "2",
+        "type": "int"
+      },
+      {
+        "name": "outdoor_design",
+        "label": "设计室外温度(°C)",
+        "default": "-15",
+        "type": "int"
+      }
+    ],
+    "created_at": 1750377600.0,
+    "updated_at": 1750377600.0
+  },
+  {
+    "id": "lighting-control",
+    "name": "智能照明控制系统",
+    "category": "顺序控制",
+    "description": "生成智能照明控制程序（SCL）",
+    "content": "你是一名西门子PLC工程师。\n请生成一个智能照明控制程序。\n\n要求：\n- 使用SCL语言\n- 时间表控制（工作时间自动开灯）\n- 人体感应联动：{sensor_count}个感应器\n- 恒照度PID调光（照度设定：{lux_setpoint} Lux）\n- 场景模式切换（全亮/办公/会议/投影/清洁/全关）\n- 渐变输出（平滑过渡，避免闪烁）\n- 无人延迟关灯：{delay_off}秒\n- 应急照明状态监控\n- 分区独立控制\n\n请生成完整的FB块，含时间表、人感联动、恒照度和场景逻辑。",
+    "variables": [
+      {
+        "name": "sensor_count",
+        "label": "感应器数量",
+        "default": "3",
+        "type": "int"
+      },
+      {
+        "name": "lux_setpoint",
+        "label": "照度设定(Lux)",
+        "default": "500",
+        "type": "int"
+      },
+      {
+        "name": "delay_off",
+        "label": "无人延迟关灯(秒)",
+        "default": "300",
+        "type": "int"
+      }
+    ],
+    "created_at": 1750377600.0,
+    "updated_at": 1750377600.0
+  },
+  {
+    "id": "heat-recovery-vent",
+    "name": "新风热回收控制",
+    "category": "过程控制",
+    "description": "生成新风热回收系统控制程序（SCL）",
+    "content": "你是一名西门子PLC工程师。\n请生成一个新风热回收控制程序。\n\n要求：\n- 使用SCL语言\n- 热回收器类型：{recovery_type}\n- 转轮/板换效率随温差自动调节\n- 焓值经济器旁通判断（室外温度适宜时直接引入新风）\n- 预热盘管PID控制（冬季辅助加热）\n- CO2需求控制（浓度超标加大新风量）\n- 防冻保护（<3°C停送风+全开预热）\n- 过滤器压差监控报警\n- 实时热回收效率计算\n\n请生成完整的FB块，含模式切换、焓值经济器和防冻保护逻辑。",
+    "variables": [
+      {
+        "name": "recovery_type",
+        "label": "热回收器类型",
+        "default": "转轮式",
+        "type": "string"
+      }
+    ],
+    "created_at": 1750377600.0,
+    "updated_at": 1750377600.0
   }
 ]

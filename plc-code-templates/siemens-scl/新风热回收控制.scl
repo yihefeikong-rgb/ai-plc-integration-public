@@ -1,0 +1,281 @@
+FUNCTION_BLOCK "HeatRecoveryVent"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bManualMode : Bool;                  // 手动模式
+    // 风机反馈
+    bSupplyFanRun : Bool;                // 送风机运行反馈
+    bExhaustFanRun : Bool;               // 排风机运行反馈
+    bFanOverload : Bool;                 // 风机过载
+    // 温湿度传感器
+    rOutdoorTemp : Real;                 // 室外温度 (degC)
+    rOutdoorHumidity : Real;             // 室外湿度 (%RH)
+    rIndoorTemp : Real;                  // 室内温度 (degC)
+    rIndoorHumidity : Real;              // 室内湿度 (%RH)
+    rSupplyTemp : Real;                  // 送风温度 (degC)
+    rExhaustTemp : Real;                 // 排风温度 (degC)
+    // CO2
+    rCO2Level : Real;                    // 室内CO2浓度 (ppm)
+    rCO2Setpoint : Real;                 // CO2设定值 (ppm)
+    // 过滤器
+    rFilterDP : Real;                    // 过滤器压差 (Pa)
+    // 防冻
+    rFreezeTemp : Real;                  // 防冻传感器 (degC)
+    bFreezeStat : Bool;                  // 防冻开关
+    // 设定
+    rIndoorTempSetpoint : Real;          // 室内温度设定 (degC)
+    bOccupied : Bool;                    // 区域占用
+    // 热回收器类型 1=转轮 2=板换 3=热管
+    iRecoveryType : Int;
+END_VAR
+
+VAR_OUTPUT
+    bSupplyFanCmd : Bool;                // 送风机启动
+    bExhaustFanCmd : Bool;               // 排风机启动
+    rRecoverySpeed : Real;               // 转轮转速/热回收效率 (0-100%)
+    rBypassDamper : Real;                // 旁通风阀开度 (0-100%)
+    rSupplyDamper : Real;                // 新风阀开度 (0-100%)
+    rExhaustDamper : Real;               // 排风阀开度 (0-100%)
+    rPreheaterValve : Real;              // 预热盘管阀开度 (0-100%)
+    rRecoveryEfficiency : Real;          // 实际热回收效率 (%)
+    bFreezeAlarm : Bool;                 // 防冻报警
+    bFilterAlarm : Bool;                 // 过滤器堵塞报警
+    bFanAlarm : Bool;                    // 风机故障
+    bBypassActive : Bool;                // 旁通激活（经济器模式）
+    sMode : String[20];                  // 当前模式
+END_VAR
+
+VAR
+    // 模式 0=OFF 1=RECOVERY 2=BYPASS 3=FREEZE_PROTECT
+    eMode : Int;
+
+    // PID (CO2→风量)
+    rCO2Kp : Real;
+    rCO2Ki : Real;
+    rCO2Integral : Real;
+
+    // 预热PID
+    rPreheatKp : Real;
+    rPreheatKi : Real;
+    rPreheatIntegral : Real;
+
+    // 焓值计算
+    rOutdoorEnthalpy : Real;
+    rIndoorEnthalpy : Real;
+
+    // 定时器
+    tonFreezeDelay : TON;
+    tonFilterDelay : TON;
+    tonFanStartDelay : TON;
+    bFanStarted : Bool;
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认参数
+    // ============================================
+    IF rCO2Setpoint = 0.0 THEN rCO2Setpoint := 800.0; END_IF;
+    IF rIndoorTempSetpoint = 0.0 THEN rIndoorTempSetpoint := 22.0; END_IF;
+    IF rCO2Kp = 0.0 THEN rCO2Kp := 0.1; END_IF;
+    IF rCO2Ki = 0.0 THEN rCO2Ki := 0.005; END_IF;
+    IF rPreheatKp = 0.0 THEN rPreheatKp := 5.0; END_IF;
+    IF rPreheatKi = 0.0 THEN rPreheatKi := 0.1; END_IF;
+    IF iRecoveryType = 0 THEN iRecoveryType := 1; END_IF;
+
+    // ============================================
+    // 急停
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        bSupplyFanCmd := FALSE;
+        bExhaustFanCmd := FALSE;
+        rRecoverySpeed := 0.0;
+        rBypassDamper := 0.0;
+        rSupplyDamper := 0.0;
+        rExhaustDamper := 0.0;
+        rPreheaterValve := 0.0;
+        sMode := 'E-STOP';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 系统关闭
+    // ============================================
+    IF NOT bEnable OR NOT bOccupied THEN
+        bSupplyFanCmd := FALSE;
+        bExhaustFanCmd := FALSE;
+        rRecoverySpeed := 0.0;
+        rBypassDamper := 0.0;
+        rSupplyDamper := 0.0;
+        rExhaustDamper := 0.0;
+        rPreheaterValve := 0.0;
+        rCO2Integral := 0.0;
+        rPreheatIntegral := 0.0;
+        bFanStarted := FALSE;
+        eMode := 0;
+        sMode := 'OFF';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 防冻保护（最高优先级）
+    // ============================================
+    tonFreezeDelay(IN := (rFreezeTemp < 3.0) OR bFreezeStat, PT := T#5s);
+    IF tonFreezeDelay.Q THEN
+        eMode := 3;  // FREEZE_PROTECT
+        bFreezeAlarm := TRUE;
+    END_IF;
+
+    IF eMode = 3 THEN
+        sMode := 'FREEZE';
+        // 停送风，关新风阀，全开预热
+        bSupplyFanCmd := FALSE;
+        rSupplyDamper := 0.0;
+        rPreheaterValve := 100.0;
+        rRecoverySpeed := 0.0;
+        rBypassDamper := 0.0;
+        // 排风保持（帮助室内余热回流）
+        bExhaustFanCmd := TRUE;
+        rExhaustDamper := 50.0;
+        // 防冻解除条件
+        IF rFreezeTemp > 8.0 AND NOT bFreezeStat THEN
+            eMode := 1;
+            bFreezeAlarm := FALSE;
+        END_IF;
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 风机过载
+    // ============================================
+    IF bFanOverload THEN
+        bFanAlarm := TRUE;
+        bSupplyFanCmd := FALSE;
+        bExhaustFanCmd := FALSE;
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 风机启动
+    // ============================================
+    IF NOT bFanStarted THEN
+        tonFanStartDelay(IN := TRUE, PT := T#5s);
+        IF tonFanStartDelay.Q THEN
+            bSupplyFanCmd := TRUE;
+            bExhaustFanCmd := TRUE;
+            bFanStarted := TRUE;
+        END_IF;
+    ELSE
+        bSupplyFanCmd := TRUE;
+        bExhaustFanCmd := TRUE;
+    END_IF;
+
+    rSupplyDamper := 100.0;
+    rExhaustDamper := 100.0;
+
+    // ============================================
+    // 焓值经济器判断（决定旁通/热回收）
+    // ============================================
+    // 简化焓值估算 h ≈ 1.006*T + W*(2501 + 1.86*T)
+    // 近似: 当室外温度适宜时直接用新风（旁通），否则热回收
+    rOutdoorEnthalpy := rOutdoorTemp + 0.01 * rOutdoorHumidity;  // 简化估算
+    rIndoorEnthalpy := rIndoorTemp + 0.01 * rIndoorHumidity;
+
+    // 旁通条件：室外温度在舒适区且低于室内（免费冷却/新风）
+    IF (rOutdoorTemp > 15.0) AND (rOutdoorTemp < rIndoorTempSetpoint)
+       AND (rOutdoorEnthalpy < rIndoorEnthalpy) THEN
+        eMode := 2;  // BYPASS
+    ELSE
+        eMode := 1;  // RECOVERY
+    END_IF;
+
+    // ============================================
+    // 模式执行
+    // ============================================
+    CASE eMode OF
+        1:  // 热回收模式
+            sMode := 'RECOVERY';
+            bBypassActive := FALSE;
+            rBypassDamper := 0.0;
+
+            // 转轮/板换效率控制：温差越大速度越高
+            IF ABS(rOutdoorTemp - rIndoorTemp) > 2.0 THEN
+                rRecoverySpeed := ABS(rOutdoorTemp - rIndoorTemp) * 5.0;
+                IF rRecoverySpeed > 100.0 THEN rRecoverySpeed := 100.0; END_IF;
+                IF rRecoverySpeed < 30.0 THEN rRecoverySpeed := 30.0; END_IF;
+            ELSE
+                rRecoverySpeed := 30.0;  // 最低转速
+            END_IF;
+
+            // 预热：冬季新风过冷时辅助加热
+            IF rSupplyTemp < (rIndoorTempSetpoint - 5.0) THEN
+                rPreheatIntegral := rPreheatIntegral
+                    + ((rIndoorTempSetpoint - 3.0 - rSupplyTemp) * rPreheatKi);
+                IF rPreheatIntegral > 100.0 THEN rPreheatIntegral := 100.0; END_IF;
+                IF rPreheatIntegral < 0.0 THEN rPreheatIntegral := 0.0; END_IF;
+
+                rPreheaterValve := ((rIndoorTempSetpoint - 3.0 - rSupplyTemp) * rPreheatKp)
+                                   + rPreheatIntegral;
+                IF rPreheaterValve > 100.0 THEN rPreheaterValve := 100.0; END_IF;
+                IF rPreheaterValve < 0.0 THEN rPreheaterValve := 0.0; END_IF;
+            ELSE
+                rPreheaterValve := 0.0;
+                rPreheatIntegral := 0.0;
+            END_IF;
+
+        2:  // 旁通模式（经济器）
+            sMode := 'BYPASS';
+            bBypassActive := TRUE;
+            rBypassDamper := 100.0;
+            rRecoverySpeed := 0.0;  // 停转轮
+            rPreheaterValve := 0.0;
+            rPreheatIntegral := 0.0;
+
+    END_CASE;
+
+    // ============================================
+    // CO2需求控制（调节新风量）
+    // ============================================
+    IF rCO2Level > rCO2Setpoint THEN
+        rCO2Integral := rCO2Integral + ((rCO2Level - rCO2Setpoint) * rCO2Ki);
+        IF rCO2Integral > 50.0 THEN rCO2Integral := 50.0; END_IF;
+        // CO2高时增大新风：提高风机转速或开大风阀（此处简化为风阀开度微调）
+        rSupplyDamper := 100.0;  // 已全开，实际可联动VFD
+    ELSE
+        rCO2Integral := 0.0;
+    END_IF;
+
+    // ============================================
+    // 热回收效率计算
+    // ============================================
+    IF ABS(rOutdoorTemp - rIndoorTemp) > 1.0 THEN
+        rRecoveryEfficiency := ABS(rSupplyTemp - rOutdoorTemp)
+                              / ABS(rIndoorTemp - rOutdoorTemp) * 100.0;
+        IF rRecoveryEfficiency > 100.0 THEN rRecoveryEfficiency := 100.0; END_IF;
+        IF rRecoveryEfficiency < 0.0 THEN rRecoveryEfficiency := 0.0; END_IF;
+    ELSE
+        rRecoveryEfficiency := 0.0;
+    END_IF;
+
+    // ============================================
+    // 过滤器压差监控
+    // ============================================
+    tonFilterDelay(IN := rFilterDP > 200.0, PT := T#60s);
+    IF tonFilterDelay.Q THEN
+        bFilterAlarm := TRUE;
+    END_IF;
+
+    // ============================================
+    // 故障复位
+    // ============================================
+    IF bReset THEN
+        bFanAlarm := FALSE;
+        bFilterAlarm := FALSE;
+        bFreezeAlarm := FALSE;
+    END_IF;
+
+END_FUNCTION_BLOCK

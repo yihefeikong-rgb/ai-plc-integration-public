@@ -1,0 +1,132 @@
+PLC 数据记录与 MES/SCADA 集成手册
+
+========================================
+第一部分：S7 数据记录方式
+========================================
+
+DataLog（S7-1500 内置）：
+  - CSV 格式写入存储卡
+  - 指令: DataLogCreate / DataLogWrite / DataLogClose
+  - 适用: 本地离线记录，定期导出
+  - 限制: 存储卡容量，无实时推送
+
+循环缓冲区（DB 数组）：
+  - 在DB中创建 ARRAY[0..N] 数据结构
+  - 定时写入（如每15min一条）
+  - 循环覆盖或定期上传清空
+  - 适用: 需要PLC侧短期缓存
+
+S7 通信上传（推荐）：
+  - 上位机定时读取 PLC 数据（GET/PUT 或 OPC UA）
+  - PLC 不存储历史，由上位机负责存储
+  - 适用: 实时性要求高，数据量大
+
+WebServer（S7-1500）：
+  - 内置 Web 页面显示数据
+  - 支持自定义 HTML 页面
+  - API: AWP 标签语言访问 PLC 变量
+  - 适用: 简易远程监控（无需额外软件）
+
+========================================
+第二部分：时序数据库
+========================================
+
+InfluxDB：
+  - 时序数据专用，高写入性能
+  - 数据模型: measurement + tag + field + timestamp
+  - 查询: Flux / InfluxQL
+  - 保留策略: 自动清理过期数据
+  - 适用: 工业数据采集(1s~1min粒度)
+
+采集架构：
+  PLC → EdgeGateway(Python) → InfluxDB → Grafana
+
+  EdgeGateway 职责:
+    1. S7/OPC UA 轮询 PLC 数据
+    2. 格式转换(PLC类型→InfluxDB Point)
+    3. 批量写入(减少网络开销)
+    4. 断线缓存(本地队列)
+
+数据建模建议：
+  measurement: 按系统(hvac/water/elec)
+  tags: device, location, unit
+  fields: value(数值), status(状态)
+
+  示例:
+    hvac,device=AHU1,location=B1F2 supply_temp=22.5,return_temp=24.1
+
+========================================
+第三部分：Grafana 可视化
+========================================
+
+仪表板设计原则：
+  1. 每个仪表板聚焦一个系统
+  2. 顶部: 关键 KPI（大号 Stat 面板）
+  3. 中部: 趋势曲线（Graph）
+  4. 底部: 状态表格（Table）
+  5. 告警规则关联通知渠道
+
+常用面板类型：
+  Time Series: 历史趋势线
+  Stat: 当前值（大号数字）
+  Gauge: 仪表盘（带量程刻度）
+  Table: 数据表格
+  State Timeline: 状态时间轴（运行/停止/故障）
+  Alert List: 当前报警列表
+
+告警配置：
+  条件: value > threshold for 5m
+  通知: 邮件 / 企业微信 / 钉钉 Webhook
+  静默: 维护时段不发告警
+
+========================================
+第四部分：MES 集成
+========================================
+
+MES (Manufacturing Execution System) 接口：
+  标准: ISA-95 (IEC 62264) 定义信息交换模型
+
+  PLC → MES 数据:
+    产量计数（完成数/废品数）
+    设备状态（运行/停机/故障）
+    工艺参数（温度/压力/速度）
+    质量数据（检测结果）
+    能耗数据（电/水/气）
+
+  MES → PLC 数据:
+    工单信息（产品型号/批量/优先级）
+    配方参数（工艺设定值）
+    排程指令（启动/暂停/切换）
+
+集成方式：
+  1. OPC UA（推荐）: 语义化节点，MES直接读写
+  2. 中间数据库: PLC写→中间DB→MES读
+  3. 文件交换: CSV/XML（适合离线批量）
+  4. REST API: PLC WebServer / 中间件转发
+
+========================================
+第五部分：边缘计算架构
+========================================
+
+边缘网关角色：
+  协议转换: S7/Modbus/BACnet → MQTT/HTTP/OPC UA
+  数据预处理: 滤波/采样/聚合/异常检测
+  本地缓存: 断网时暂存数据
+  安全隔离: OT网络与IT网络的DMZ
+
+MQTT 数据上云：
+  PLC → EdgeGW → MQTT Broker → 云平台
+
+  主题规范: {site}/{system}/{device}/{metric}
+  示例: factory01/hvac/ahu1/supply_temp
+
+  QoS选择:
+    QoS 0: 最多一次（非关键数据）
+    QoS 1: 至少一次（推荐一般场景）
+    QoS 2: 恰好一次（计费/计量数据）
+
+安全要求：
+  - TLS 加密传输
+  - 客户端证书认证
+  - 最小权限（PLC只publish，不subscribe控制指令）
+  - 网络分段（OT/DMZ/IT 三层）

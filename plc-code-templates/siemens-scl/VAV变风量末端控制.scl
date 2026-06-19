@@ -1,0 +1,274 @@
+FUNCTION_BLOCK "VAVBoxControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bManualMode : Bool;                  // 手动模式
+    // 传感器
+    rAirflowActual : Real;               // 实际风量 (m3/h)
+    rAirflowRaw : Real;                  // 风量传感器原始值 (Pa 或 4-20mA)
+    rRoomTemp : Real;                    // 区域回风温度 (degC)
+    rRoomHumidity : Real;                // 区域湿度 (%RH)
+    rDuctPressure : Real;                // 风管静压 (Pa)
+    // 反馈
+    rDamperFeedback : Real;              // 风阀实际开度反馈 (0-100%)
+    bDamperFault : Bool;                 // 风阀执行器故障
+    bOccupied : Bool;                    // 区域占用
+    // 设定值
+    rCoolSetpoint : Real;                // 制冷温度设定 (degC)
+    rHeatSetpoint : Real;                // 制热温度设定 (degC)
+    rAirflowMin : Real;                  // 最小风量 (m3/h)
+    rAirflowMax : Real;                  // 最大风量 (m3/h)
+    rHumiditySetpoint : Real;            // 湿度设定值 (%RH)
+    rNightSetbackOffset : Real;          // 夜间回退偏移 (degC)
+END_VAR
+
+VAR_OUTPUT
+    rDamperCmd : Real;                   // 风阀开度命令 (0-100%)
+    rReheatValve : Real;                 // 再热阀开度 (0-100%)
+    rAirflowSetpoint : Real;             // 当前风量设定值 (m3/h)
+    bCoolMode : Bool;                    // 制冷模式
+    bHeatMode : Bool;                    // 制热模式
+    bDeadband : Bool;                    // 死区模式
+    bNightMode : Bool;                   // 夜间回退模式
+    bDamperAlarm : Bool;                 // 风阀故障报警
+    bTempAlarm : Bool;                   // 温度越限报警
+    sMode : String[20];                  // 当前模式
+END_VAR
+
+VAR
+    // 模式
+    eMode : Int;                         // 0=OFF 1=COOL 2=HEAT 3=DEADBAND 4=NIGHT
+
+    // 风量PID
+    rFlowKp : Real;                      // 风量PID比例
+    rFlowKi : Real;                      // 风量PID积分
+    rFlowIntegral : Real;                // 风量积分累计
+    rFlowPrevErr : Real;                 // 风量前次误差
+
+    // 温度PID（级联外环 → 风量设定）
+    rTempKp : Real;                      // 温度PID比例
+    rTempKi : Real;                      // 温度PID积分
+    rTempIntegral : Real;                // 温度积分累计
+    rTempPrevErr : Real;                 // 温度前次误差
+
+    // 再热PID
+    rReheatKp : Real;                    // 再热PID比例
+    rReheatKi : Real;                    // 再热PID积分
+    rReheatIntegral : Real;              // 再热积分累计
+
+    // 风量传感器标定
+    rSensorK : Real;                     // 标定系数K
+    rSensorOffset : Real;                // 标定偏移
+
+    // 压力无关控制
+    rPressureCompFactor : Real;          // 压力补偿系数
+
+    // 温度报警延时
+    tonTempAlarm : TON;                  // 温度越限延时
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认参数初始化
+    // ============================================
+    IF rFlowKp = 0.0 THEN rFlowKp := 2.0; END_IF;
+    IF rFlowKi = 0.0 THEN rFlowKi := 0.3; END_IF;
+    IF rTempKp = 0.0 THEN rTempKp := 5.0; END_IF;
+    IF rTempKi = 0.0 THEN rTempKi := 0.02; END_IF;
+    IF rReheatKp = 0.0 THEN rReheatKp := 3.0; END_IF;
+    IF rReheatKi = 0.0 THEN rReheatKi := 0.1; END_IF;
+    IF rCoolSetpoint = 0.0 THEN rCoolSetpoint := 24.0; END_IF;
+    IF rHeatSetpoint = 0.0 THEN rHeatSetpoint := 21.0; END_IF;
+    IF rAirflowMin = 0.0 THEN rAirflowMin := 200.0; END_IF;
+    IF rAirflowMax = 0.0 THEN rAirflowMax := 1200.0; END_IF;
+    IF rHumiditySetpoint = 0.0 THEN rHumiditySetpoint := 55.0; END_IF;
+    IF rNightSetbackOffset = 0.0 THEN rNightSetbackOffset := 3.0; END_IF;
+    IF rSensorK = 0.0 THEN rSensorK := 1.0; END_IF;
+    IF rPressureCompFactor = 0.0 THEN rPressureCompFactor := 1.0; END_IF;
+
+    // ============================================
+    // 急停处理
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        rDamperCmd := 0.0;
+        rReheatValve := 0.0;
+        sMode := 'E-STOP';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 系统关闭
+    // ============================================
+    IF NOT bEnable THEN
+        rDamperCmd := 0.0;
+        rReheatValve := 0.0;
+        rFlowIntegral := 0.0;
+        rTempIntegral := 0.0;
+        rReheatIntegral := 0.0;
+        eMode := 0;
+        sMode := 'OFF';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 风量传感器标定（原始值→工程量）
+    // ============================================
+    // rAirflowActual 如已是工程量可直接用
+    // 否则: rAirflowActual := rAirflowRaw * rSensorK + rSensorOffset;
+
+    // ============================================
+    // 压力无关控制补偿
+    // ============================================
+    // 当风管静压变化时补偿风阀开度
+    IF rDuctPressure > 0.0 THEN
+        // 标准工况250Pa下系数为1.0
+        rPressureCompFactor := 250.0 / rDuctPressure;
+        IF rPressureCompFactor > 2.0 THEN rPressureCompFactor := 2.0; END_IF;
+        IF rPressureCompFactor < 0.5 THEN rPressureCompFactor := 0.5; END_IF;
+    END_IF;
+
+    // ============================================
+    // 模式判断
+    // ============================================
+    // 夜间回退模式
+    IF NOT bOccupied THEN
+        eMode := 4;  // NIGHT
+        bNightMode := TRUE;
+    ELSE
+        bNightMode := FALSE;
+
+        // 制冷/制热/死区判断
+        IF rRoomTemp > rCoolSetpoint + 0.5 THEN
+            eMode := 1;  // COOL
+        ELSIF rRoomTemp < rHeatSetpoint - 0.5 THEN
+            eMode := 2;  // HEAT
+        ELSE
+            eMode := 3;  // DEADBAND
+        END_IF;
+    END_IF;
+
+    // ============================================
+    // 温度PID → 风量设定值（级联外环）
+    // ============================================
+    CASE eMode OF
+
+        1:  // COOL — 温度越高，风量越大
+            sMode := 'COOL';
+            bCoolMode := TRUE;
+            bHeatMode := FALSE;
+            bDeadband := FALSE;
+
+            rTempIntegral := rTempIntegral + ((rRoomTemp - rCoolSetpoint) * rTempKi);
+            IF rTempIntegral > 100.0 THEN rTempIntegral := 100.0; END_IF;
+            IF rTempIntegral < 0.0 THEN rTempIntegral := 0.0; END_IF;
+
+            // 温度偏差映射到风量设定（最小~最大）
+            rAirflowSetpoint := rAirflowMin
+                + (((rRoomTemp - rCoolSetpoint) * rTempKp) + rTempIntegral)
+                  / 100.0 * (rAirflowMax - rAirflowMin);
+
+            // 再热阀关闭
+            rReheatValve := 0.0;
+            rReheatIntegral := 0.0;
+
+        2:  // HEAT — 温度越低，再热越大；风量保持最小
+            sMode := 'HEAT';
+            bCoolMode := FALSE;
+            bHeatMode := TRUE;
+            bDeadband := FALSE;
+
+            // 风量维持最小
+            rAirflowSetpoint := rAirflowMin;
+            rTempIntegral := 0.0;
+
+            // 再热PID
+            rReheatIntegral := rReheatIntegral + ((rHeatSetpoint - rRoomTemp) * rReheatKi);
+            IF rReheatIntegral > 100.0 THEN rReheatIntegral := 100.0; END_IF;
+            IF rReheatIntegral < 0.0 THEN rReheatIntegral := 0.0; END_IF;
+
+            rReheatValve := ((rHeatSetpoint - rRoomTemp) * rReheatKp) + rReheatIntegral;
+            IF rReheatValve > 100.0 THEN rReheatValve := 100.0; END_IF;
+            IF rReheatValve < 0.0 THEN rReheatValve := 0.0; END_IF;
+
+        3:  // DEADBAND — 维持最小风量
+            sMode := 'DEADBAND';
+            bCoolMode := FALSE;
+            bHeatMode := FALSE;
+            bDeadband := TRUE;
+
+            rAirflowSetpoint := rAirflowMin;
+            rReheatValve := 0.0;
+            rTempIntegral := 0.0;
+            rReheatIntegral := 0.0;
+
+        4:  // NIGHT SETBACK
+            sMode := 'NIGHT';
+            bCoolMode := FALSE;
+            bHeatMode := FALSE;
+            bDeadband := FALSE;
+
+            // 夜间：放宽设定值，最小风量
+            rAirflowSetpoint := rAirflowMin * 0.5;  // 夜间再降低
+
+            // 防冻/过热保护
+            IF rRoomTemp < (rHeatSetpoint - rNightSetbackOffset) THEN
+                // 夜间防冻再热
+                rReheatValve := 50.0;
+            ELSIF rRoomTemp > (rCoolSetpoint + rNightSetbackOffset) THEN
+                // 夜间过热加风
+                rAirflowSetpoint := rAirflowMin;
+            ELSE
+                rReheatValve := 0.0;
+            END_IF;
+            rTempIntegral := 0.0;
+            rReheatIntegral := 0.0;
+
+    END_CASE;
+
+    // ============================================
+    // 风量限幅
+    // ============================================
+    IF rAirflowSetpoint > rAirflowMax THEN rAirflowSetpoint := rAirflowMax; END_IF;
+    IF rAirflowSetpoint < rAirflowMin * 0.3 THEN rAirflowSetpoint := rAirflowMin * 0.3; END_IF;
+
+    // ============================================
+    // 风量PID → 风阀开度（级联内环）
+    // ============================================
+    rFlowIntegral := rFlowIntegral + ((rAirflowSetpoint - rAirflowActual) * rFlowKi);
+    IF rFlowIntegral > 100.0 THEN rFlowIntegral := 100.0; END_IF;
+    IF rFlowIntegral < 0.0 THEN rFlowIntegral := 0.0; END_IF;
+
+    rDamperCmd := ((rAirflowSetpoint - rAirflowActual) * rFlowKp) + rFlowIntegral;
+
+    // 压力无关补偿
+    rDamperCmd := rDamperCmd * rPressureCompFactor;
+
+    // 输出限幅
+    IF rDamperCmd > 100.0 THEN rDamperCmd := 100.0; END_IF;
+    IF rDamperCmd < 0.0 THEN rDamperCmd := 0.0; END_IF;
+
+    // ============================================
+    // 报警处理
+    // ============================================
+    // 风阀执行器故障
+    bDamperAlarm := bDamperFault;
+
+    // 温度越限报警：持续超限15min
+    tonTempAlarm(IN := (rRoomTemp > rCoolSetpoint + 5.0) OR (rRoomTemp < rHeatSetpoint - 5.0),
+                 PT := T#900s);
+    bTempAlarm := tonTempAlarm.Q;
+
+    // ============================================
+    // 故障复位
+    // ============================================
+    IF bReset THEN
+        bDamperAlarm := FALSE;
+        bTempAlarm := FALSE;
+    END_IF;
+
+END_FUNCTION_BLOCK

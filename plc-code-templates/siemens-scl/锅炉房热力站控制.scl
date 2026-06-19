@@ -1,0 +1,305 @@
+FUNCTION_BLOCK "BoilerHeatingStation"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bManualMode : Bool;                  // 手动模式
+    // 锅炉反馈
+    bBoiler1Run : Bool;                  // 1号锅炉运行反馈
+    bBoiler2Run : Bool;                  // 2号锅炉运行反馈
+    bBoiler1Fault : Bool;                // 1号锅炉故障
+    bBoiler2Fault : Bool;                // 2号锅炉故障
+    // 温度传感器
+    rSupplyTemp : Real;                  // 一次供水温度 (degC)
+    rReturnTemp : Real;                  // 一次回水温度 (degC)
+    rSecSupplyTemp : Real;               // 二次供水温度 (degC)
+    rSecReturnTemp : Real;               // 二次回水温度 (degC)
+    rOutdoorTemp : Real;                 // 室外温度 (degC)
+    rFlueGasTemp : Real;                 // 烟气温度 (degC)
+    // 压力
+    rSystemPressure : Real;              // 系统压力 (bar)
+    rExpansionTankLevel : Real;          // 膨胀罐液位 (%)
+    // 泵反馈
+    bPrimaryPump1Run : Bool;             // 一次泵1运行
+    bPrimaryPump2Run : Bool;             // 一次泵2运行
+    bSecPump1Run : Bool;                 // 二次泵1运行
+    bSecPump2Run : Bool;                 // 二次泵2运行
+    // 参数
+    rSupplyTempSetpoint : Real;          // 供水温度设定 (degC)
+    rOutdoorTempDesign : Real;           // 设计室外温度 (degC)
+    rFlueGasTempLimit : Real;            // 烟气温度上限 (degC)
+    bHeatingSeasonEnable : Bool;         // 采暖季使能
+END_VAR
+
+VAR_OUTPUT
+    bBoiler1Cmd : Bool;                  // 1号锅炉启动
+    bBoiler2Cmd : Bool;                  // 2号锅炉启动
+    bPrimaryPump1Cmd : Bool;             // 一次泵1启动
+    bPrimaryPump2Cmd : Bool;             // 一次泵2启动
+    bSecPump1Cmd : Bool;                 // 二次泵1启动
+    bSecPump2Cmd : Bool;                 // 二次泵2启动
+    rMixingValve : Real;                 // 混水阀开度 (0-100%)
+    rSupplyTempTarget : Real;            // 当前目标供水温度 (degC)
+    iRunningBoilers : Int;               // 运行锅炉数
+    rLoadPercent : Real;                 // 系统负荷率 (%)
+    bBoilerAlarm : Bool;                 // 锅炉故障报警
+    bFlueGasAlarm : Bool;                // 烟气超温报警
+    bPressureAlarm : Bool;               // 压力异常报警
+    bLowReturnTempAlarm : Bool;          // 回水温度过低报警
+    sMode : String[20];                  // 当前模式
+END_VAR
+
+VAR
+    // 气候补偿
+    rCompKp : Real;                      // 补偿曲线斜率
+    rCompOffset : Real;                  // 补偿曲线偏移
+    rIndoorSetpoint : Real;              // 室内设定温度
+
+    // PID
+    rPidKp : Real;
+    rPidKi : Real;
+    rPidIntegral : Real;
+    rPidPrevErr : Real;
+
+    // 加减炉
+    tonAddBoiler : TON;
+    tonRemoveBoiler : TON;
+
+    // 运行时间
+    diBoiler1Hours : DInt;
+    diBoiler2Hours : DInt;
+    diPump1Hours : DInt;
+    diPump2Hours : DInt;
+    tonMinute : TON;
+
+    // 泵主备
+    iPrimaryPumpActive : Int;            // 当前主泵 (1/2)
+
+    // 烟气报警
+    tonFlueGas : TON;
+
+    // 回水保护
+    tonReturnProtect : TON;
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认参数
+    // ============================================
+    IF rPidKp = 0.0 THEN rPidKp := 3.0; END_IF;
+    IF rPidKi = 0.0 THEN rPidKi := 0.05; END_IF;
+    IF rIndoorSetpoint = 0.0 THEN rIndoorSetpoint := 20.0; END_IF;
+    IF rOutdoorTempDesign = 0.0 THEN rOutdoorTempDesign := -15.0; END_IF;
+    IF rFlueGasTempLimit = 0.0 THEN rFlueGasTempLimit := 180.0; END_IF;
+    IF rCompKp = 0.0 THEN rCompKp := 1.5; END_IF;
+    IF rCompOffset = 0.0 THEN rCompOffset := 30.0; END_IF;
+    IF iPrimaryPumpActive = 0 THEN iPrimaryPumpActive := 1; END_IF;
+
+    // ============================================
+    // 急停
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        bBoiler1Cmd := FALSE;
+        bBoiler2Cmd := FALSE;
+        bPrimaryPump1Cmd := FALSE;
+        bPrimaryPump2Cmd := FALSE;
+        bSecPump1Cmd := FALSE;
+        bSecPump2Cmd := FALSE;
+        rMixingValve := 0.0;
+        sMode := 'E-STOP';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 非采暖季 / 未使能
+    // ============================================
+    IF NOT bEnable OR NOT bHeatingSeasonEnable THEN
+        bBoiler1Cmd := FALSE;
+        bBoiler2Cmd := FALSE;
+        bPrimaryPump1Cmd := FALSE;
+        bPrimaryPump2Cmd := FALSE;
+        bSecPump1Cmd := FALSE;
+        bSecPump2Cmd := FALSE;
+        rMixingValve := 0.0;
+        rPidIntegral := 0.0;
+        sMode := 'OFF';
+        RETURN;
+    END_IF;
+
+    sMode := 'HEATING';
+
+    // ============================================
+    // 运行时间计数
+    // ============================================
+    tonMinute(IN := TRUE, PT := T#60s);
+    IF tonMinute.Q THEN
+        tonMinute(IN := FALSE);
+        IF bBoiler1Run THEN diBoiler1Hours := diBoiler1Hours + 1; END_IF;
+        IF bBoiler2Run THEN diBoiler2Hours := diBoiler2Hours + 1; END_IF;
+        IF bPrimaryPump1Run THEN diPump1Hours := diPump1Hours + 1; END_IF;
+        IF bPrimaryPump2Run THEN diPump2Hours := diPump2Hours + 1; END_IF;
+    END_IF;
+
+    // ============================================
+    // 气候补偿曲线：室外温度 → 供水温度目标
+    // ============================================
+    // 线性补偿：outdoor越冷，供水越热
+    // supply_target = offset + slope * (indoor_sp - outdoor) / (indoor_sp - outdoor_design) * (max_supply - offset)
+    IF rOutdoorTemp < rIndoorSetpoint THEN
+        rSupplyTempTarget := rCompOffset
+            + rCompKp * (rIndoorSetpoint - rOutdoorTemp) / (rIndoorSetpoint - rOutdoorTempDesign)
+              * (80.0 - rCompOffset);
+    ELSE
+        rSupplyTempTarget := rCompOffset;  // 室外温度高于室内设定则最低供水
+    END_IF;
+
+    // 限幅
+    IF rSupplyTempTarget > 85.0 THEN rSupplyTempTarget := 85.0; END_IF;
+    IF rSupplyTempTarget < 35.0 THEN rSupplyTempTarget := 35.0; END_IF;
+
+    // 如果有手动设定则覆盖
+    IF rSupplyTempSetpoint > 0.0 AND bManualMode THEN
+        rSupplyTempTarget := rSupplyTempSetpoint;
+    END_IF;
+
+    // ============================================
+    // 负荷计算
+    // ============================================
+    IF rSupplyTempTarget > rReturnTemp THEN
+        rLoadPercent := ((rSecSupplyTemp - rSecReturnTemp) / (rSupplyTempTarget - rReturnTemp)) * 100.0;
+    ELSE
+        rLoadPercent := 0.0;
+    END_IF;
+    IF rLoadPercent > 100.0 THEN rLoadPercent := 100.0; END_IF;
+    IF rLoadPercent < 0.0 THEN rLoadPercent := 0.0; END_IF;
+
+    // ============================================
+    // 加减炉逻辑
+    // ============================================
+    iRunningBoilers := 0;
+    IF bBoiler1Run THEN iRunningBoilers := iRunningBoilers + 1; END_IF;
+    IF bBoiler2Run THEN iRunningBoilers := iRunningBoilers + 1; END_IF;
+
+    // 加炉：负荷>80%且单炉运行
+    tonAddBoiler(IN := (rLoadPercent > 80.0) AND (iRunningBoilers < 2)
+                       AND NOT bBoiler1Fault AND NOT bBoiler2Fault, PT := T#600s);
+    IF tonAddBoiler.Q THEN
+        // 启动运行时间短的炉
+        IF diBoiler1Hours <= diBoiler2Hours AND NOT bBoiler1Fault THEN
+            bBoiler1Cmd := TRUE;
+        ELSIF NOT bBoiler2Fault THEN
+            bBoiler2Cmd := TRUE;
+        END_IF;
+        tonAddBoiler(IN := FALSE);
+    END_IF;
+
+    // 减炉：负荷<30%且双炉运行
+    tonRemoveBoiler(IN := (rLoadPercent < 30.0) AND (iRunningBoilers > 1), PT := T#900s);
+    IF tonRemoveBoiler.Q THEN
+        // 停运行时间长的炉
+        IF diBoiler1Hours >= diBoiler2Hours THEN
+            bBoiler1Cmd := FALSE;
+        ELSE
+            bBoiler2Cmd := FALSE;
+        END_IF;
+        tonRemoveBoiler(IN := FALSE);
+    END_IF;
+
+    // 至少运行1台
+    IF iRunningBoilers = 0 AND rLoadPercent > 5.0 THEN
+        IF diBoiler1Hours <= diBoiler2Hours AND NOT bBoiler1Fault THEN
+            bBoiler1Cmd := TRUE;
+        ELSIF NOT bBoiler2Fault THEN
+            bBoiler2Cmd := TRUE;
+        END_IF;
+    END_IF;
+
+    // 故障炉停止
+    IF bBoiler1Fault THEN bBoiler1Cmd := FALSE; END_IF;
+    IF bBoiler2Fault THEN bBoiler2Cmd := FALSE; END_IF;
+
+    // ============================================
+    // PID混水阀控制：调节二次供水温度
+    // ============================================
+    rPidIntegral := rPidIntegral + ((rSupplyTempTarget - rSecSupplyTemp) * rPidKi);
+    IF rPidIntegral > 100.0 THEN rPidIntegral := 100.0; END_IF;
+    IF rPidIntegral < 0.0 THEN rPidIntegral := 0.0; END_IF;
+
+    rMixingValve := ((rSupplyTempTarget - rSecSupplyTemp) * rPidKp) + rPidIntegral;
+    IF rMixingValve > 100.0 THEN rMixingValve := 100.0; END_IF;
+    IF rMixingValve < 0.0 THEN rMixingValve := 0.0; END_IF;
+
+    // ============================================
+    // 水泵控制（一主一备）
+    // ============================================
+    // 一次泵：跟随锅炉
+    IF iRunningBoilers > 0 THEN
+        IF iPrimaryPumpActive = 1 THEN
+            bPrimaryPump1Cmd := TRUE;
+            bPrimaryPump2Cmd := FALSE;
+            // 主泵故障切备泵
+            IF NOT bPrimaryPump1Run THEN bPrimaryPump2Cmd := TRUE; END_IF;
+        ELSE
+            bPrimaryPump2Cmd := TRUE;
+            bPrimaryPump1Cmd := FALSE;
+            IF NOT bPrimaryPump2Run THEN bPrimaryPump1Cmd := TRUE; END_IF;
+        END_IF;
+    ELSE
+        bPrimaryPump1Cmd := FALSE;
+        bPrimaryPump2Cmd := FALSE;
+    END_IF;
+
+    // 二次泵：始终运行（循环用户侧）
+    bSecPump1Cmd := TRUE;
+    bSecPump2Cmd := FALSE;  // 备用
+
+    // 泵轮换（每720h）
+    IF diPump1Hours > 43200 AND iPrimaryPumpActive = 1 THEN
+        iPrimaryPumpActive := 2;
+        diPump1Hours := 0;
+    END_IF;
+    IF diPump2Hours > 43200 AND iPrimaryPumpActive = 2 THEN
+        iPrimaryPumpActive := 1;
+        diPump2Hours := 0;
+    END_IF;
+
+    // ============================================
+    // 烟气超温保护
+    // ============================================
+    tonFlueGas(IN := rFlueGasTemp > rFlueGasTempLimit, PT := T#10s);
+    IF tonFlueGas.Q THEN
+        bFlueGasAlarm := TRUE;
+    END_IF;
+
+    // ============================================
+    // 回水温度保护（防止热冲击）
+    // ============================================
+    tonReturnProtect(IN := rReturnTemp < 30.0, PT := T#60s);
+    IF tonReturnProtect.Q THEN
+        bLowReturnTempAlarm := TRUE;
+        // 限制混水阀开度防止更多冷水回流
+        IF rMixingValve > 50.0 THEN rMixingValve := 50.0; END_IF;
+    END_IF;
+    IF rReturnTemp > 40.0 THEN bLowReturnTempAlarm := FALSE; END_IF;
+
+    // ============================================
+    // 报警汇总
+    // ============================================
+    bBoilerAlarm := bBoiler1Fault OR bBoiler2Fault;
+    bPressureAlarm := (rSystemPressure < 1.0) OR (rSystemPressure > 6.0);
+
+    // ============================================
+    // 故障复位
+    // ============================================
+    IF bReset THEN
+        bBoilerAlarm := FALSE;
+        bFlueGasAlarm := FALSE;
+        bPressureAlarm := FALSE;
+        bLowReturnTempAlarm := FALSE;
+    END_IF;
+
+END_FUNCTION_BLOCK

@@ -1,0 +1,278 @@
+FUNCTION_BLOCK "ConstPressureWater"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bManualMode : Bool;                  // 手动模式
+    // 压力传感器
+    rPressureActual : Real;              // 管网实际压力 (bar)
+    rPressureSetpoint : Real;            // 压力设定值 (bar)
+    // 水泵反馈
+    bPump1Run : Bool;                    // 1号泵运行反馈
+    bPump2Run : Bool;                    // 2号泵运行反馈
+    bPump3Run : Bool;                    // 3号泵运行反馈
+    bPump1Fault : Bool;                  // 1号泵故障
+    bPump2Fault : Bool;                  // 2号泵故障
+    bPump3Fault : Bool;                  // 3号泵故障
+    // 水位/流量
+    rTankLevel : Real;                   // 水箱液位 (%)
+    rFlowRate : Real;                    // 管网流量 (m3/h)
+    bLowLevelSwitch : Bool;              // 低液位开关
+    // 变频器
+    rVFDFreqActual : Real;               // VFD实际频率 (Hz)
+    // 参数
+    rPressureHigh : Real;                // 超压报警阈值 (bar)
+    rPressureLow : Real;                 // 欠压报警阈值 (bar)
+    rSleepFlow : Real;                   // 休眠流量阈值 (m3/h)
+    rWakeFlow : Real;                    // 唤醒流量阈值 (m3/h)
+END_VAR
+
+VAR_OUTPUT
+    bPump1Cmd : Bool;                    // 1号泵启动命令
+    bPump2Cmd : Bool;                    // 2号泵启动命令
+    bPump3Cmd : Bool;                    // 3号泵启动命令
+    rVFDFreqCmd : Real;                  // VFD频率设定 (0-50Hz)
+    iPumpVFD : Int;                      // 当前变频泵编号 (1/2/3)
+    iRunningPumps : Int;                 // 当前运行泵数
+    bSleepMode : Bool;                   // 休眠模式
+    bPressureAlarm : Bool;               // 压力报警
+    bLevelAlarm : Bool;                  // 液位报警
+    bPumpAlarm : Bool;                   // 水泵故障报警
+    sMode : String[20];                  // 当前模式
+END_VAR
+
+VAR
+    // PID
+    rPidKp : Real;
+    rPidKi : Real;
+    rPidKd : Real;
+    rPidIntegral : Real;
+    rPidPrevErr : Real;
+    rPidOutput : Real;
+
+    // 加减泵
+    tonAddPump : TON;                    // 加泵延时
+    tonRemovePump : TON;                 // 减泵延时
+    tonSleep : TON;                      // 休眠延时
+
+    // 轮换
+    diPump1Hours : DInt;                 // 1号泵运行时间(min)
+    diPump2Hours : DInt;                 // 2号泵运行时间(min)
+    diPump3Hours : DInt;                 // 3号泵运行时间(min)
+    tonMinute : TON;                     // 分钟计时器
+
+    // 加泵频率阈值
+    rAddPumpFreq : Real;                 // 加泵频率阈值 (Hz)
+    rRemovePumpFreq : Real;              // 减泵频率阈值 (Hz)
+
+    // 状态
+    iTargetPumps : Int;
+    iNextPump : Int;
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认参数
+    // ============================================
+    IF rPidKp = 0.0 THEN rPidKp := 4.0; END_IF;
+    IF rPidKi = 0.0 THEN rPidKi := 0.2; END_IF;
+    IF rPidKd = 0.0 THEN rPidKd := 0.5; END_IF;
+    IF rPressureSetpoint = 0.0 THEN rPressureSetpoint := 3.5; END_IF;
+    IF rPressureHigh = 0.0 THEN rPressureHigh := 6.0; END_IF;
+    IF rPressureLow = 0.0 THEN rPressureLow := 1.5; END_IF;
+    IF rSleepFlow = 0.0 THEN rSleepFlow := 0.5; END_IF;
+    IF rWakeFlow = 0.0 THEN rWakeFlow := 1.0; END_IF;
+    IF rAddPumpFreq = 0.0 THEN rAddPumpFreq := 48.0; END_IF;
+    IF rRemovePumpFreq = 0.0 THEN rRemovePumpFreq := 25.0; END_IF;
+
+    // ============================================
+    // 急停
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        bPump1Cmd := FALSE;
+        bPump2Cmd := FALSE;
+        bPump3Cmd := FALSE;
+        rVFDFreqCmd := 0.0;
+        sMode := 'E-STOP';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 缺水保护
+    // ============================================
+    IF bLowLevelSwitch OR rTankLevel < 10.0 THEN
+        bPump1Cmd := FALSE;
+        bPump2Cmd := FALSE;
+        bPump3Cmd := FALSE;
+        rVFDFreqCmd := 0.0;
+        bLevelAlarm := TRUE;
+        sMode := 'LOW_LEVEL';
+        RETURN;
+    END_IF;
+    IF rTankLevel > 30.0 THEN bLevelAlarm := FALSE; END_IF;
+
+    // ============================================
+    // 系统关闭
+    // ============================================
+    IF NOT bEnable THEN
+        bPump1Cmd := FALSE;
+        bPump2Cmd := FALSE;
+        bPump3Cmd := FALSE;
+        rVFDFreqCmd := 0.0;
+        rPidIntegral := 0.0;
+        sMode := 'OFF';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 运行时间计数
+    // ============================================
+    tonMinute(IN := TRUE, PT := T#60s);
+    IF tonMinute.Q THEN
+        tonMinute(IN := FALSE);
+        IF bPump1Run THEN diPump1Hours := diPump1Hours + 1; END_IF;
+        IF bPump2Run THEN diPump2Hours := diPump2Hours + 1; END_IF;
+        IF bPump3Run THEN diPump3Hours := diPump3Hours + 1; END_IF;
+    END_IF;
+
+    // ============================================
+    // 休眠/唤醒逻辑
+    // ============================================
+    tonSleep(IN := (rFlowRate < rSleepFlow) AND (rPressureActual >= rPressureSetpoint), PT := T#120s);
+    IF tonSleep.Q AND NOT bSleepMode THEN
+        bSleepMode := TRUE;
+        sMode := 'SLEEP';
+    END_IF;
+
+    // 唤醒
+    IF rFlowRate > rWakeFlow OR rPressureActual < (rPressureSetpoint - 0.3) THEN
+        bSleepMode := FALSE;
+        tonSleep(IN := FALSE);
+    END_IF;
+
+    // 休眠时关泵保压
+    IF bSleepMode THEN
+        bPump1Cmd := FALSE;
+        bPump2Cmd := FALSE;
+        bPump3Cmd := FALSE;
+        rVFDFreqCmd := 0.0;
+        rPidIntegral := 0.0;
+        RETURN;
+    END_IF;
+
+    sMode := 'RUN';
+
+    // ============================================
+    // PID 恒压控制
+    // ============================================
+    rPidIntegral := rPidIntegral + ((rPressureSetpoint - rPressureActual) * rPidKi);
+    IF rPidIntegral > 50.0 THEN rPidIntegral := 50.0; END_IF;
+    IF rPidIntegral < -10.0 THEN rPidIntegral := -10.0; END_IF;
+
+    rPidOutput := ((rPressureSetpoint - rPressureActual) * rPidKp)
+                  + rPidIntegral
+                  + ((rPidPrevErr - (rPressureSetpoint - rPressureActual)) * rPidKd);
+    rPidPrevErr := rPressureSetpoint - rPressureActual;
+
+    // 频率输出 (0-50Hz)
+    rVFDFreqCmd := rPidOutput;
+    IF rVFDFreqCmd > 50.0 THEN rVFDFreqCmd := 50.0; END_IF;
+    IF rVFDFreqCmd < 0.0 THEN rVFDFreqCmd := 0.0; END_IF;
+
+    // ============================================
+    // 加减泵逻辑
+    // ============================================
+    iRunningPumps := 0;
+    IF bPump1Run THEN iRunningPumps := iRunningPumps + 1; END_IF;
+    IF bPump2Run THEN iRunningPumps := iRunningPumps + 1; END_IF;
+    IF bPump3Run THEN iRunningPumps := iRunningPumps + 1; END_IF;
+
+    // 加泵：频率接近满速且压力不足
+    tonAddPump(IN := (rVFDFreqCmd >= rAddPumpFreq) AND (iRunningPumps < 3)
+                     AND (rPressureActual < rPressureSetpoint - 0.2), PT := T#30s);
+    IF tonAddPump.Q THEN
+        iTargetPumps := iRunningPumps + 1;
+        tonAddPump(IN := FALSE);
+    END_IF;
+
+    // 减泵：频率很低且多泵运行
+    tonRemovePump(IN := (rVFDFreqCmd <= rRemovePumpFreq) AND (iRunningPumps > 1), PT := T#60s);
+    IF tonRemovePump.Q THEN
+        iTargetPumps := iRunningPumps - 1;
+        tonRemovePump(IN := FALSE);
+    END_IF;
+
+    // 至少一泵运行
+    IF iTargetPumps < 1 THEN iTargetPumps := 1; END_IF;
+
+    // ============================================
+    // 泵选择（运行时间最短优先）
+    // ============================================
+    iNextPump := 1;
+    IF NOT bPump1Fault AND (diPump1Hours <= diPump2Hours) AND (diPump1Hours <= diPump3Hours) THEN
+        iNextPump := 1;
+    ELSIF NOT bPump2Fault AND (diPump2Hours <= diPump1Hours) AND (diPump2Hours <= diPump3Hours) THEN
+        iNextPump := 2;
+    ELSIF NOT bPump3Fault THEN
+        iNextPump := 3;
+    END_IF;
+
+    // 加泵
+    IF iTargetPumps > iRunningPumps THEN
+        CASE iNextPump OF
+            1: bPump1Cmd := TRUE;
+            2: bPump2Cmd := TRUE;
+            3: bPump3Cmd := TRUE;
+        END_CASE;
+    END_IF;
+
+    // 减泵（停运行时间最长的）
+    IF iTargetPumps < iRunningPumps THEN
+        IF bPump1Run AND (diPump1Hours >= diPump2Hours) AND (diPump1Hours >= diPump3Hours) THEN
+            bPump1Cmd := FALSE;
+        ELSIF bPump2Run AND (diPump2Hours >= diPump1Hours) AND (diPump2Hours >= diPump3Hours) THEN
+            bPump2Cmd := FALSE;
+        ELSIF bPump3Run THEN
+            bPump3Cmd := FALSE;
+        END_IF;
+    END_IF;
+
+    // 故障泵自动退出
+    IF bPump1Fault THEN bPump1Cmd := FALSE; END_IF;
+    IF bPump2Fault THEN bPump2Cmd := FALSE; END_IF;
+    IF bPump3Fault THEN bPump3Cmd := FALSE; END_IF;
+
+    // 变频泵编号（第一台启动的为变频泵）
+    IF bPump1Cmd AND NOT bPump2Cmd AND NOT bPump3Cmd THEN iPumpVFD := 1;
+    ELSIF bPump2Cmd AND NOT bPump1Cmd AND NOT bPump3Cmd THEN iPumpVFD := 2;
+    ELSIF bPump3Cmd AND NOT bPump1Cmd AND NOT bPump2Cmd THEN iPumpVFD := 3;
+    END_IF;
+
+    // ============================================
+    // 报警
+    // ============================================
+    bPressureAlarm := (rPressureActual > rPressureHigh) OR (rPressureActual < rPressureLow);
+    bPumpAlarm := bPump1Fault OR bPump2Fault OR bPump3Fault;
+
+    // ============================================
+    // 超压保护：强制降频
+    // ============================================
+    IF rPressureActual > rPressureHigh THEN
+        rVFDFreqCmd := rVFDFreqCmd - 10.0;
+        IF rVFDFreqCmd < 0.0 THEN rVFDFreqCmd := 0.0; END_IF;
+    END_IF;
+
+    // ============================================
+    // 故障复位
+    // ============================================
+    IF bReset THEN
+        bPressureAlarm := FALSE;
+        bPumpAlarm := FALSE;
+        bLevelAlarm := FALSE;
+    END_IF;
+
+END_FUNCTION_BLOCK

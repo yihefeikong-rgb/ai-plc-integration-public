@@ -1,0 +1,330 @@
+FUNCTION_BLOCK "ChillerPlant"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+AUTHOR : 'AI_Generated'
+
+VAR_INPUT
+    bEnable : Bool;                      // 系统使能
+    bReset : Bool;                       // 故障复位
+    bEmergencyStop : Bool;               // 急停（常闭）
+    bManualMode : Bool;                  // 手动模式
+    // 冷水机组反馈
+    bChiller1Run : Bool;                 // 1号冷机运行反馈
+    bChiller2Run : Bool;                 // 2号冷机运行反馈
+    bChiller3Run : Bool;                 // 3号冷机运行反馈
+    bChiller1Fault : Bool;               // 1号冷机故障
+    bChiller2Fault : Bool;               // 2号冷机故障
+    bChiller3Fault : Bool;               // 3号冷机故障
+    // 水泵反馈
+    bChPump1Run : Bool;                  // 冷冻水泵1运行反馈
+    bChPump2Run : Bool;                  // 冷冻水泵2运行反馈
+    bCwPump1Run : Bool;                  // 冷却水泵1运行反馈
+    bCwPump2Run : Bool;                  // 冷却水泵2运行反馈
+    // 温度传感器
+    rChwSupplyTemp : Real;               // 冷冻水供水温度 (degC)
+    rChwReturnTemp : Real;               // 冷冻水回水温度 (degC)
+    rCwSupplyTemp : Real;                // 冷却水供水温度 (degC)
+    rCwReturnTemp : Real;                // 冷却水回水温度 (degC)
+    rOutdoorTemp : Real;                 // 室外温度 (degC)
+    // 压力传感器
+    rChwPressure : Real;                 // 冷冻水管网压力 (bar)
+    rCwPressure : Real;                  // 冷却水管网压力 (bar)
+    // 设定值
+    rChwSetpoint : Real;                 // 冷冻水供水设定温度
+    rLoadThresholdUp : Real;             // 加机负荷阈值 (%)
+    rLoadThresholdDown : Real;           // 减机负荷阈值 (%)
+    rFreeCoolTemp : Real;                // 自由冷却切换室外温度 (degC)
+END_VAR
+
+VAR_OUTPUT
+    bChiller1Cmd : Bool;                 // 1号冷机启动
+    bChiller2Cmd : Bool;                 // 2号冷机启动
+    bChiller3Cmd : Bool;                 // 3号冷机启动
+    bChPump1Cmd : Bool;                  // 冷冻水泵1启动
+    bChPump2Cmd : Bool;                  // 冷冻水泵2启动
+    bCwPump1Cmd : Bool;                  // 冷却水泵1启动
+    bCwPump2Cmd : Bool;                  // 冷却水泵2启动
+    bCoolingTowerCmd : Bool;             // 冷却塔组启动
+    rBypassValve : Real;                 // 旁通阀开度 (0-100%)
+    iRunningChillers : Int;              // 当前运行冷机数
+    rLoadPercent : Real;                 // 系统负荷率 (%)
+    bFreeCoolMode : Bool;                // 自由冷却模式
+    bChillerAlarm : Bool;                // 冷机故障报警
+    bPumpAlarm : Bool;                   // 水泵故障报警
+    bPressureAlarm : Bool;               // 压力异常报警
+    sMode : String[20];                  // 当前模式
+END_VAR
+
+VAR
+    // 运行时间累计（用于轮换）
+    diChiller1Hours : DInt;              // 1号冷机累计运行时间(min)
+    diChiller2Hours : DInt;              // 2号冷机累计运行时间(min)
+    diChiller3Hours : DInt;              // 3号冷机累计运行时间(min)
+    diChPump1Hours : DInt;               // 冷冻水泵1累计运行时间(min)
+    diChPump2Hours : DInt;               // 冷冻水泵2累计运行时间(min)
+
+    // 运行计时
+    tonMinuteTimer : TON;                // 分钟计时器
+    bMinutePulse : Bool;                 // 分钟脉冲
+
+    // PID 控制
+    rPidKp : Real;                       // 比例系数
+    rPidKi : Real;                       // 积分系数
+    rPidIntegral : Real;                 // 积分累计
+    rPidPrevErr : Real;                  // 前次误差
+    rPidOutput : Real;                   // PID输出
+
+    // 加减机延时
+    tonAddChiller : TON;                 // 加机延时
+    tonRemoveChiller : TON;              // 减机延时
+
+    // 启动延时
+    tonStartDelay : TON;                 // 冷机启动间隔延时
+    bStarting : Bool;                    // 正在启动过程中
+
+    // 轮换选择
+    iNextChiller : Int;                  // 下一个启动的冷机号
+    iPrimaryPump : Int;                  // 当前主泵编号 (1/2)
+
+    // 状态
+    eMode : Int;                         // 0=OFF 1=NORMAL 2=FREE_COOL 3=TRANSITION
+    iTargetChillers : Int;               // 目标运行冷机数
+END_VAR
+
+BEGIN
+    // ============================================
+    // 默认参数初始化
+    // ============================================
+    IF rPidKp = 0.0 THEN rPidKp := 3.0; END_IF;
+    IF rPidKi = 0.0 THEN rPidKi := 0.05; END_IF;
+    IF rChwSetpoint = 0.0 THEN rChwSetpoint := 7.0; END_IF;
+    IF rLoadThresholdUp = 0.0 THEN rLoadThresholdUp := 85.0; END_IF;
+    IF rLoadThresholdDown = 0.0 THEN rLoadThresholdDown := 30.0; END_IF;
+    IF rFreeCoolTemp = 0.0 THEN rFreeCoolTemp := 10.0; END_IF;
+    IF iPrimaryPump = 0 THEN iPrimaryPump := 1; END_IF;
+
+    // ============================================
+    // 急停处理
+    // ============================================
+    IF NOT bEmergencyStop THEN
+        bChiller1Cmd := FALSE;
+        bChiller2Cmd := FALSE;
+        bChiller3Cmd := FALSE;
+        bChPump1Cmd := FALSE;
+        bChPump2Cmd := FALSE;
+        bCwPump1Cmd := FALSE;
+        bCwPump2Cmd := FALSE;
+        bCoolingTowerCmd := FALSE;
+        rBypassValve := 0.0;
+        sMode := 'E-STOP';
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 系统使能检查
+    // ============================================
+    IF NOT bEnable THEN
+        bChiller1Cmd := FALSE;
+        bChiller2Cmd := FALSE;
+        bChiller3Cmd := FALSE;
+        bChPump1Cmd := FALSE;
+        bChPump2Cmd := FALSE;
+        bCwPump1Cmd := FALSE;
+        bCwPump2Cmd := FALSE;
+        bCoolingTowerCmd := FALSE;
+        rBypassValve := 0.0;
+        eMode := 0;
+        sMode := 'OFF';
+        rPidIntegral := 0.0;
+        RETURN;
+    END_IF;
+
+    // ============================================
+    // 运行时间累计（每分钟记一次）
+    // ============================================
+    tonMinuteTimer(IN := TRUE, PT := T#60s);
+    bMinutePulse := tonMinuteTimer.Q;
+    IF bMinutePulse THEN
+        tonMinuteTimer(IN := FALSE);
+        IF bChiller1Run THEN diChiller1Hours := diChiller1Hours + 1; END_IF;
+        IF bChiller2Run THEN diChiller2Hours := diChiller2Hours + 1; END_IF;
+        IF bChiller3Run THEN diChiller3Hours := diChiller3Hours + 1; END_IF;
+        IF bChPump1Run THEN diChPump1Hours := diChPump1Hours + 1; END_IF;
+        IF bChPump2Run THEN diChPump2Hours := diChPump2Hours + 1; END_IF;
+    END_IF;
+
+    // ============================================
+    // 负荷计算（基于温差比）
+    // ============================================
+    IF rChwReturnTemp > rChwSetpoint THEN
+        rLoadPercent := ((rChwReturnTemp - rChwSupplyTemp) / (rChwReturnTemp - rChwSetpoint)) * 100.0;
+    ELSE
+        rLoadPercent := 0.0;
+    END_IF;
+    IF rLoadPercent > 100.0 THEN rLoadPercent := 100.0; END_IF;
+    IF rLoadPercent < 0.0 THEN rLoadPercent := 0.0; END_IF;
+
+    // ============================================
+    // 模式选择：自由冷却 vs 正常制冷
+    // ============================================
+    IF rOutdoorTemp < rFreeCoolTemp AND rLoadPercent < 50.0 THEN
+        eMode := 2;  // FREE_COOL
+        bFreeCoolMode := TRUE;
+        sMode := 'FREE_COOL';
+    ELSE
+        eMode := 1;  // NORMAL
+        bFreeCoolMode := FALSE;
+        sMode := 'NORMAL';
+    END_IF;
+
+    // ============================================
+    // 加减机逻辑
+    // ============================================
+    // 统计当前运行冷机数
+    iRunningChillers := 0;
+    IF bChiller1Run THEN iRunningChillers := iRunningChillers + 1; END_IF;
+    IF bChiller2Run THEN iRunningChillers := iRunningChillers + 1; END_IF;
+    IF bChiller3Run THEN iRunningChillers := iRunningChillers + 1; END_IF;
+
+    IF eMode = 2 THEN
+        // 自由冷却模式：关闭所有冷机，仅开冷却塔和水泵
+        iTargetChillers := 0;
+    ELSE
+        // 加机判断：负荷>阈值，持续5min
+        tonAddChiller(IN := (rLoadPercent > rLoadThresholdUp) AND (iRunningChillers < 3), PT := T#300s);
+        IF tonAddChiller.Q THEN
+            iTargetChillers := iRunningChillers + 1;
+            IF iTargetChillers > 3 THEN iTargetChillers := 3; END_IF;
+            tonAddChiller(IN := FALSE);
+        END_IF;
+
+        // 减机判断：负荷<阈值，持续10min
+        tonRemoveChiller(IN := (rLoadPercent < rLoadThresholdDown) AND (iRunningChillers > 1), PT := T#600s);
+        IF tonRemoveChiller.Q THEN
+            iTargetChillers := iRunningChillers - 1;
+            IF iTargetChillers < 0 THEN iTargetChillers := 0; END_IF;
+            tonRemoveChiller(IN := FALSE);
+        END_IF;
+
+        // 至少运行1台（有负荷时）
+        IF rLoadPercent > 10.0 AND iTargetChillers < 1 THEN
+            iTargetChillers := 1;
+        END_IF;
+    END_IF;
+
+    // ============================================
+    // 冷机轮换选择（累计运行时间最短优先）
+    // ============================================
+    // 选择下一个启动的冷机（排除故障机）
+    iNextChiller := 1;
+    IF NOT bChiller1Fault AND (diChiller1Hours <= diChiller2Hours) AND (diChiller1Hours <= diChiller3Hours) THEN
+        iNextChiller := 1;
+    ELSIF NOT bChiller2Fault AND (diChiller2Hours <= diChiller1Hours) AND (diChiller2Hours <= diChiller3Hours) THEN
+        iNextChiller := 2;
+    ELSIF NOT bChiller3Fault THEN
+        iNextChiller := 3;
+    END_IF;
+
+    // ============================================
+    // 冷机启停执行
+    // ============================================
+    // 需要加机
+    IF iTargetChillers > iRunningChillers THEN
+        CASE iNextChiller OF
+            1: bChiller1Cmd := TRUE;
+            2: bChiller2Cmd := TRUE;
+            3: bChiller3Cmd := TRUE;
+        END_CASE;
+    END_IF;
+
+    // 需要减机（停运行时间最长的）
+    IF iTargetChillers < iRunningChillers THEN
+        IF bChiller1Run AND (diChiller1Hours >= diChiller2Hours) AND (diChiller1Hours >= diChiller3Hours) THEN
+            bChiller1Cmd := FALSE;
+        ELSIF bChiller2Run AND (diChiller2Hours >= diChiller1Hours) AND (diChiller2Hours >= diChiller3Hours) THEN
+            bChiller2Cmd := FALSE;
+        ELSIF bChiller3Run THEN
+            bChiller3Cmd := FALSE;
+        END_IF;
+    END_IF;
+
+    // 故障冷机强制关闭
+    IF bChiller1Fault THEN bChiller1Cmd := FALSE; END_IF;
+    IF bChiller2Fault THEN bChiller2Cmd := FALSE; END_IF;
+    IF bChiller3Fault THEN bChiller3Cmd := FALSE; END_IF;
+
+    // ============================================
+    // 水泵控制（一主一备+轮换）
+    // ============================================
+    // 冷冻水泵：主泵运行，备泵待命
+    IF iRunningChillers > 0 OR bFreeCoolMode THEN
+        IF iPrimaryPump = 1 THEN
+            bChPump1Cmd := TRUE;
+            bChPump2Cmd := FALSE;
+            // 主泵故障切备泵
+            IF NOT bChPump1Run AND bChPump1Cmd THEN
+                bChPump2Cmd := TRUE;
+            END_IF;
+        ELSE
+            bChPump2Cmd := TRUE;
+            bChPump1Cmd := FALSE;
+            IF NOT bChPump2Run AND bChPump2Cmd THEN
+                bChPump1Cmd := TRUE;
+            END_IF;
+        END_IF;
+    ELSE
+        bChPump1Cmd := FALSE;
+        bChPump2Cmd := FALSE;
+    END_IF;
+
+    // 泵轮换：每720小时（30天）切换主泵
+    IF diChPump1Hours > 43200 AND iPrimaryPump = 1 THEN
+        iPrimaryPump := 2;
+        diChPump1Hours := 0;
+    END_IF;
+    IF diChPump2Hours > 43200 AND iPrimaryPump = 2 THEN
+        iPrimaryPump := 1;
+        diChPump2Hours := 0;
+    END_IF;
+
+    // 冷却水泵：跟随冷机/冷却塔
+    bCwPump1Cmd := (iRunningChillers > 0) OR bFreeCoolMode;
+    bCwPump2Cmd := (iRunningChillers > 1);
+
+    // ============================================
+    // 冷却塔控制
+    // ============================================
+    bCoolingTowerCmd := (iRunningChillers > 0) OR bFreeCoolMode;
+
+    // ============================================
+    // PID供水温度控制（旁通阀）
+    // ============================================
+    rPidIntegral := rPidIntegral + ((rChwSupplyTemp - rChwSetpoint) * rPidKi);
+    IF rPidIntegral > 100.0 THEN rPidIntegral := 100.0; END_IF;
+    IF rPidIntegral < 0.0 THEN rPidIntegral := 0.0; END_IF;
+
+    rPidOutput := ((rChwSupplyTemp - rChwSetpoint) * rPidKp) + rPidIntegral;
+    IF rPidOutput > 100.0 THEN rPidOutput := 100.0; END_IF;
+    IF rPidOutput < 0.0 THEN rPidOutput := 0.0; END_IF;
+
+    // 旁通阀：供水温度偏低时开旁通混合回水
+    rBypassValve := 100.0 - rPidOutput;
+
+    // ============================================
+    // 报警处理
+    // ============================================
+    bChillerAlarm := bChiller1Fault OR bChiller2Fault OR bChiller3Fault;
+    bPumpAlarm := (bChPump1Cmd AND NOT bChPump1Run AND NOT bChPump2Run);
+    bPressureAlarm := (rChwPressure < 1.0) OR (rChwPressure > 8.0)
+                      OR (rCwPressure < 0.5) OR (rCwPressure > 6.0);
+
+    // ============================================
+    // 故障复位
+    // ============================================
+    IF bReset THEN
+        bChillerAlarm := FALSE;
+        bPumpAlarm := FALSE;
+        bPressureAlarm := FALSE;
+    END_IF;
+
+END_FUNCTION_BLOCK

@@ -1,0 +1,119 @@
+OPC UA 通信配置与应用手册
+
+========================================
+第一部分：OPC UA 基础
+========================================
+
+OPC UA (Unified Architecture) 特性：
+  - 平台无关（Windows/Linux/嵌入式）
+  - 内置安全（证书认证+加密传输）
+  - 信息模型（面向对象的数据组织）
+  - 发布/订阅模式（高效数据推送）
+  - 历史数据访问
+  - 方法调用（远程执行设备功能）
+
+传输协议：
+  opc.tcp://: 二进制传输（高性能，默认端口4840）
+  https://: Web服务传输（防火墙友好）
+  opc.wss://: WebSocket传输（浏览器客户端）
+
+S7-1500 OPC UA Server：
+  - V2.0+ 固件内置 OPC UA Server
+  - 无需额外软件或授权
+  - TIA Portal V15+ 配置
+  - 默认端口: 4840
+  - 最大连接数: 取决于CPU型号(5~50)
+
+========================================
+第二部分：S7-1500 OPC UA 配置
+========================================
+
+TIA Portal 配置步骤：
+  1. CPU 属性 → OPC UA → 启用 OPC UA Server
+  2. 设置端口号（默认4840）
+  3. 安全策略: None / Basic256Sha256 / Aes128Sha256RsaOaep
+  4. 用户认证: Anonymous / UserName+Password / Certificate
+  5. 选择暴露的 DB: DB属性 → 勾选"允许OPC UA访问"
+  6. 编译下载
+
+节点地址格式：
+  标准地址: ns=3;s="DB_Name"."Variable"
+  示例:
+    ns=3;s="HMI_Data"."Temperature"
+    ns=3;s="Motor_DB"."Speed_Setpoint"
+    ns=3;s="Process_Data".Data[0]
+
+OPC UA Server 接口配置（DB暴露规则）：
+  - DB 必须为"非优化"访问才能按名称访问
+  - 优化DB: 仅能通过偏移地址访问
+  - 推荐: 创建专用"OPC_UA_Interface" DB 暴露所有需要的数据
+  - 安全: 不暴露内部计算DB，仅暴露接口DB
+
+========================================
+第三部分：Python OPC UA 客户端
+========================================
+
+asyncua 库（推荐）：
+  pip install asyncua
+
+连接示例结构：
+  1. 创建 Client 对象
+  2. 设置安全策略和证书（如需）
+  3. connect()
+  4. 获取节点: client.get_node("ns=3;s=...")
+  5. 读取: await node.read_value()
+  6. 写入: await node.set_value(value, varianttype)
+  7. 订阅: create_subscription() + subscribe_data_change()
+
+数据类型映射：
+  PLC Bool    → ua.VariantType.Boolean
+  PLC Int     → ua.VariantType.Int16
+  PLC DInt    → ua.VariantType.Int32
+  PLC Real    → ua.VariantType.Float
+  PLC LReal   → ua.VariantType.Double
+  PLC String  → ua.VariantType.String
+
+========================================
+第四部分：OPC UA 安全配置
+========================================
+
+安全策略选择：
+  None: 无加密无认证（仅测试用）
+  Basic256Sha256: 加密+签名（推荐生产用）
+  Aes128Sha256RsaOaep: 新标准（TIA V17+）
+
+证书管理：
+  1. 生成客户端自签名证书(DER格式)
+  2. 将客户端证书导入PLC信任列表
+  3. PLC证书导出到客户端信任存储
+  4. TIA Portal → OPC UA → Security → Trusted Clients
+
+用户认证最佳实践：
+  - 生产环境禁用 Anonymous
+  - 使用 Username/Password 或证书认证
+  - 密码存储使用 Secret Manager（不硬编码）
+  - 实施最小权限（只读用户/读写用户）
+
+========================================
+第五部分：OPC UA 与 MCP 集成
+========================================
+
+AI PLC Assistant 集成架构：
+  PLC(OPC UA Server) ← asyncua → MCP Server → AI Agent
+
+MCP 工具设计建议：
+  opcua_connect: 建立连接（IP/端口/安全策略）
+  opcua_browse: 浏览节点树结构
+  opcua_read: 读取一个或多个节点值
+  opcua_write: 写入值（经安全验证）
+  opcua_subscribe: 订阅变化通知
+  opcua_status: 连接状态查询
+
+vs S7 协议对比：
+  S7(snap7): 直接内存访问，快，无需PLC配置
+  OPC UA: 语义化节点，安全，跨平台，需PLC V2.0+
+
+适用场景选择：
+  - 仿真环境(PLCSIM): 用 S7 协议（PLCSIM 无 OPC UA）
+  - 真机(1500 V2.0+): OPC UA 优先（安全+语义）
+  - 混合环境: S7 读写 + OPC UA 浏览结构

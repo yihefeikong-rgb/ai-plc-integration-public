@@ -1,0 +1,116 @@
+西门子 S7 运动控制（伺服/步进）技术手册
+
+========================================
+第一部分：运动控制基础
+========================================
+
+运动控制类型：
+  点位控制(PTP): 从A点到B点，不关心路径
+  线性插补: 直线运动，多轴同步
+  圆弧插补: 圆弧路径（2轴）
+  电子齿轮: 从轴跟随主轴按比例运动
+  电子凸轮: 从轴按凸轮曲线跟随主轴
+
+西门子运动控制方案：
+  S7-1200: 基本运动控制（MC_MoveAbsolute 等）
+  S7-1500: 高级运动控制（含插补、凸轮）
+  S7-1500T: 集成运动控制（Technology Objects）
+  SIMOTION: 独立运动控制器（大型设备）
+
+========================================
+第二部分：PLCOpen 运动控制指令
+========================================
+
+MC_Power — 使能/禁用轴
+  Input: Enable(Bool), StopMode(Int)
+  Output: Status(Bool), Error(Bool), ErrorID(Word)
+
+MC_Home — 回参考点
+  Input: Execute(Bool), Position(Real), Mode(Int)
+  Mode: 0=绝对编码器 1=限位开关 2=当前位置
+
+MC_MoveAbsolute — 绝对定位
+  Input: Execute, Position, Velocity, Acceleration, Deceleration, Jerk
+  Output: Done, Busy, CommandAborted, Error
+
+MC_MoveRelative — 相对定位
+  Input: Execute, Distance, Velocity, Acceleration, Deceleration
+
+MC_MoveVelocity — 速度控制（连续运行）
+  Input: Execute, Velocity, Acceleration, Deceleration
+  持续运行直到新命令或停止
+
+MC_Halt — 减速停止
+  Input: Execute, Deceleration
+  停止后轴保持使能
+
+MC_Stop — 紧急停止
+  Input: Execute, Deceleration
+  停止后轴需重新使能
+
+MC_GearIn — 电子齿轮接合
+  Input: Execute, RatioNumerator, RatioDenominator, MasterAxis
+
+MC_CamIn — 电子凸轮接合
+  Input: Execute, MasterAxis, CamTable
+
+========================================
+第三部分：轴配置（Technology Object）
+========================================
+
+TIA Portal 中配置步骤：
+  1. 添加 Technology Object → "定位轴"或"速度轴"
+  2. 选择驱动类型（脉冲/模拟量/PROFINET PROFIdrive）
+  3. 配置电机参数（额定转速、编码器分辨率）
+  4. 配置机械参数（传动比、行程范围）
+  5. 配置限位（硬限位信号、软限位值）
+  6. 配置回参考点方式
+  7. 配置动态特性（速度、加速度、急停减速度）
+
+脉冲接口配置（PTO/PWM）：
+  S7-1200: 高速输出 Q0.0~Q0.3（最高200kHz）
+  信号类型: 脉冲+方向 / A/B 正交
+  连接: PLC脉冲输出 → 步进驱动器PULSE/DIR
+
+PROFINET 伺服配置：
+  驱动: SINAMICS V90 / S210 / S120
+  报文类型: 标准报文3(基本定位) / 报文5(MDI定位)
+  通信: IRT（等时实时）保证运动同步性
+
+========================================
+第四部分：定位程序结构
+========================================
+
+典型定位 FB 结构：
+  状态机：IDLE → HOMING → READY → MOVING → DONE → ERROR
+
+  IDLE: 等待使能
+  HOMING: 执行回参考点
+  READY: 就绪等待命令
+  MOVING: 执行定位（监控超时、限位）
+  DONE: 定位完成
+  ERROR: 故障处理（需复位）
+
+多轴协调：
+  1. 所有轴独立使能+回参
+  2. 确认所有轴 Ready
+  3. 同时 Execute 多轴定位命令
+  4. 等待所有轴 Done
+  5. 执行下一步
+
+========================================
+第五部分：调试要点
+========================================
+
+常见问题：
+  - 轴抖动: 检查PID增益（Kp过高）、编码器噪声
+  - 定位超时: 检查速度/加速度设置、机械阻力
+  - 跟随误差大: 检查传动比设置、负载是否超出
+  - 回参不稳定: 检查限位开关信号质量、减速速度
+  - 通信报警: 检查 PROFINET 线缆/IRT 配置
+
+安全考虑：
+  - STO(Safe Torque Off): 安全力矩关断接线
+  - SS1(Safe Stop 1): 安全减速停止
+  - SLS(Safe Limited Speed): 安全限速
+  - 安全限位输入必须接硬件安全回路
