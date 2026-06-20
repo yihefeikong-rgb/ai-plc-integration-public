@@ -6,7 +6,9 @@ from safety.validator import WriteValidator, ValidationResult
 @pytest.fixture
 def v():
     """每次测试使用全新的 validator 实例，避免 consecutive_errors 状态污染"""
-    return WriteValidator()
+    inst = WriteValidator()
+    inst.set_bit_reader(lambda addr: True)  # mock: 所有安全位 OK
+    return inst
 
 
 def test_blocks_estop_write(v):

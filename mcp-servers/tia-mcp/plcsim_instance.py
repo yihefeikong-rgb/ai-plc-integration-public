@@ -76,7 +76,7 @@ def _ensure_runtime_manager():
 
     print(f"[plcsim] 启动 Runtime Manager ...")
     try:
-        subprocess.Popen([_MANAGER_EXE], shell=True)
+        subprocess.Popen([_MANAGER_EXE])
         time.sleep(3)
         print(f"[plcsim] Runtime Manager 已启动")
     except Exception as e:
@@ -133,7 +133,7 @@ def _ensure_user_interface():
 
     print("[plcsim] 🚀 启动 PLCSIM Advanced GUI (UserInterface)...")
     try:
-        subprocess.Popen([_UI_EXE_CACHE], shell=True)
+        subprocess.Popen([_UI_EXE_CACHE])
         time.sleep(5)
         print("[plcsim] ✅ PLCSIM GUI 已启动（设备可被 V21 扫描）")
     except Exception as e:

@@ -50,6 +50,9 @@ VAR
     // 限幅中间变量
     bOutHigh : Bool;                   // 输出超上限
     bOutLow : Bool;                    // 输出低于下限
+
+    // 无扰切换
+    bPrevManualMode : Bool;            // 上次手动模式状态
 END_VAR
 
 BEGIN
@@ -60,19 +63,27 @@ BEGIN
         // ── 设定值斜坡 ──
         IF rSetpoint <> rRampTarget THEN
             rRampTarget := rSetpoint;
-            rRampCurrent := rRampTarget;  // 简化：一次到位
-            bRampActive := FALSE;
+            bRampActive := TRUE;
         END_IF;
 
         IF rSetpointRampRate > 0.0 AND rRampCurrent <> rRampTarget THEN
-            rRampCurrent := rRampCurrent + rSetpointRampRate * 0.2;
-            IF (rSetpointRampRate > 0.0 AND rRampCurrent >= rRampTarget) OR
-               (rSetpointRampRate < 0.0 AND rRampCurrent <= rRampTarget) THEN
-                rRampCurrent := rRampTarget;
-                bRampActive := FALSE;
+            IF rRampTarget > rRampCurrent THEN
+                rRampCurrent := rRampCurrent + rSetpointRampRate * 0.2;
+                IF rRampCurrent >= rRampTarget THEN
+                    rRampCurrent := rRampTarget;
+                    bRampActive := FALSE;
+                END_IF;
             ELSE
-                bRampActive := TRUE;
+                rRampCurrent := rRampCurrent - rSetpointRampRate * 0.2;
+                IF rRampCurrent <= rRampTarget THEN
+                    rRampCurrent := rRampTarget;
+                    bRampActive := FALSE;
+                END_IF;
             END_IF;
+        ELSIF rSetpointRampRate <= 0.0 THEN
+            // 无斜坡时直接到位
+            rRampCurrent := rRampTarget;
+            bRampActive := FALSE;
         END_IF;
 
         rSetpointRamped := rRampCurrent;
@@ -128,10 +139,22 @@ BEGIN
         bLimiting := bOutHigh OR bOutLow;
 
         // ── 手动/自动切换（无扰切换） ──
+        IF bPrevManualMode AND NOT bManualMode THEN
+            // 手动→自动：初始化积分使输出无跳变
+            rIntegral := rManualValue - rP - rD;
+            rI := rIntegral;
+            rPrevPV := rProcessValue;
+            rPrevError := rError;
+        END_IF;
+        bPrevManualMode := bManualMode;
+
         IF NOT bManualMode THEN
             rControlOutput := rOutput;
         ELSE
             rControlOutput := rManualValue;
+            // 自动→手动：跟踪输出，为下次切换准备
+            rIntegral := rManualValue - rP - rD;
+            rI := rIntegral;
         END_IF;
 
         // ── 更新历史值 ──

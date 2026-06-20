@@ -3,17 +3,19 @@
 import json
 import os
 import sqlite3
+import threading
 import time
 import uuid
 from typing import Optional
 
 
 class ConversationStore:
-    """SQLite 对话存储"""
+    """SQLite 对话存储（线程安全）"""
 
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
+        self._lock = threading.Lock()
 
     def initialize(self):
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
@@ -57,11 +59,12 @@ class ConversationStore:
         conv_id = str(uuid.uuid4())
         if not title:
             title = f"对话 {conv_id[:8]}"
-        self.conn.execute(
-            "INSERT INTO conversations (id, title, model_id, created_at, updated_at) VALUES (?,?,?,?,?)",
-            (conv_id, title, model_id, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO conversations (id, title, model_id, created_at, updated_at) VALUES (?,?,?,?,?)",
+                (conv_id, title, model_id, now, now),
+            )
+            self.conn.commit()
         return {"id": conv_id, "title": title, "model_id": model_id, "created_at": now, "updated_at": now}
 
     def list_conversations(self, limit: int = 50) -> list[dict]:
@@ -90,16 +93,18 @@ class ConversationStore:
 
     def update_conversation(self, conv_id: str, title: str) -> bool:
         now = time.time()
-        cur = self.conn.execute(
-            "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
-            (title, now, conv_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            cur = self.conn.execute(
+                "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
+                (title, now, conv_id),
+            )
+            self.conn.commit()
         return cur.rowcount > 0
 
     def delete_conversation(self, conv_id: str) -> bool:
-        cur = self.conn.execute("DELETE FROM conversations WHERE id=?", (conv_id,))
-        self.conn.commit()
+        with self._lock:
+            cur = self.conn.execute("DELETE FROM conversations WHERE id=?", (conv_id,))
+            self.conn.commit()
         return cur.rowcount > 0
 
     # ---- Messages ----
@@ -115,15 +120,16 @@ class ConversationStore:
         now = time.time()
         msg_id = str(uuid.uuid4())
         meta_json = json.dumps(metadata or {}, ensure_ascii=False)
-        self.conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, msg_type, metadata, created_at) VALUES (?,?,?,?,?,?,?)",
-            (msg_id, conv_id, role, content, msg_type, meta_json, now),
-        )
-        self.conn.execute(
-            "UPDATE conversations SET updated_at=? WHERE id=?",
-            (now, conv_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, msg_type, metadata, created_at) VALUES (?,?,?,?,?,?,?)",
+                (msg_id, conv_id, role, content, msg_type, meta_json, now),
+            )
+            self.conn.execute(
+                "UPDATE conversations SET updated_at=? WHERE id=?",
+                (now, conv_id),
+            )
+            self.conn.commit()
         return {
             "id": msg_id, "conversation_id": conv_id, "role": role,
             "content": content, "msg_type": msg_type,

@@ -93,7 +93,7 @@ def launch():
     is_admin = ctypes.windll.shell32.IsUserAnAdmin()
     
     if is_admin:
-        proc = subprocess.Popen([FIO_EXE], shell=True)
+        proc = subprocess.Popen([FIO_EXE])
     else:
         # UAC elevate
         ret = ctypes.windll.shell32.ShellExecuteW(

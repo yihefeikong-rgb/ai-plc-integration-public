@@ -504,7 +504,7 @@ npm run dist                 # electron-builder + NSIS
 
 ### System Prompt（内置）
 ```
-你是一名资深的西门子PLC工程师，精通TIA Portal V18/V19编程。
+你是一名资深的西门子PLC工程师，精通TIA Portal V21编程。
 专业能力：
 - SCL/LAD/FBD/STL 编程
 - S7-1200/1500 系列

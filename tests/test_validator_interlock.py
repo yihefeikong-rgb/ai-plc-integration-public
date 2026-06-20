@@ -32,29 +32,31 @@ class TestInterlockRulesLoading:
 class TestInterlockMaxMin:
     """验证 max/min 值检查"""
 
-    def test_motor_speed_over_max_rejected(self):
+    def _make_validator(self):
         from safety.validator import WriteValidator
         v = WriteValidator()
+        v.set_bit_reader(lambda addr: True)  # mock: 所有安全位 OK
+        return v
+
+    def test_motor_speed_over_max_rejected(self):
+        v = self._make_validator()
         result = v.validate("DB1.MotorSpeed", 3500)
         assert not result.allowed
         assert "最大值" in result.reason
 
     def test_motor_speed_below_min_rejected(self):
-        from safety.validator import WriteValidator
-        v = WriteValidator()
+        v = self._make_validator()
         result = v.validate("DB1.MotorSpeed", -100)
         assert not result.allowed
         assert "最小值" in result.reason
 
     def test_motor_speed_within_range_allowed(self):
-        from safety.validator import WriteValidator
-        v = WriteValidator()
+        v = self._make_validator()
         result = v.validate("DB1.MotorSpeed", 1500)
         assert result.allowed
 
     def test_heater_power_over_100_rejected(self):
-        from safety.validator import WriteValidator
-        v = WriteValidator()
+        v = self._make_validator()
         result = v.validate("DB1.HeaterPower", 150)
         assert not result.allowed
 
@@ -65,6 +67,7 @@ class TestInterlockCooldown:
     def test_heater_cooldown_enforced(self):
         from safety.validator import WriteValidator
         v = WriteValidator()
+        v.set_bit_reader(lambda addr: True)  # mock: 所有安全位 OK
 
         # 第一次写入应成功
         result1 = v.validate("DB1.HeaterPower", 50)
@@ -82,6 +85,7 @@ class TestFuseTriggeredByOverrange:
     def test_overrange_increments_fuse(self):
         from safety.validator import WriteValidator
         v = WriteValidator()
+        v.set_bit_reader(lambda addr: True)  # mock: 所有安全位 OK
 
         # 连续超范围写入
         v.validate("DB1.MotorSpeed", 5000)  # +1

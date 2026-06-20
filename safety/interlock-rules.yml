@@ -7,6 +7,7 @@ write_rules:
 
   - target: "DB1.HeaterPower"
     max_value: 100
+    min_value: 0
     require_bits: ["DB1.TemperatureSensorOK"]
     cooldown_seconds: 5
 
@@ -14,3 +15,26 @@ write_rules:
     max_value: 1500
     min_value: 0
     require_bits: ["DB1.SafetyOK"]
+
+  - target: "DB1.PumpSpeed"
+    max_value: 2000
+    min_value: 0
+    require_bits: ["DB1.SafetyOK", "DB1.PumpPressureOK"]
+    cooldown_seconds: 3
+
+  - target: "DB1.ValvePosition"
+    max_value: 100
+    min_value: 0
+    require_bits: ["DB1.SafetyOK"]
+
+  - target: "DB1.RobotSpeed"
+    max_value: 500
+    min_value: 0
+    require_bits: ["DB1.SafetyOK", "DB1.EmergencyStopOff", "DB1.RobotZoneClear"]
+    cooldown_seconds: 2
+
+  - target: "DB1.PressForce"
+    max_value: 5000
+    min_value: 0
+    require_bits: ["DB1.SafetyOK", "DB1.EmergencyStopOff", "DB1.PressGuardClosed"]
+    cooldown_seconds: 10

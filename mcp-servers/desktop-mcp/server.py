@@ -6,15 +6,68 @@
 - 需要管理员权限才能控制鼠标键盘（Windows）
 - 使用前请确保屏幕不要有敏感信息
 - 运行中不要动鼠标，会冲突
+- 需要设置 MCP_AUTH_TOKEN 环境变量启用认证
 """
 
 import asyncio
 import base64
 import io
+import os
 import time
 import json
 import sys
 from typing import Optional
+
+# ─── 认证 ────────────────────────────────────────────
+_AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "")
+
+
+def _require_auth(args: dict) -> str | None:
+    """验证请求中的 auth_token，返回 None 表示通过，否则返回错误消息"""
+    if not _AUTH_TOKEN:
+        return None
+    token = args.get("auth_token", "")
+    if token != _AUTH_TOKEN:
+        return "认证失败：无效的 auth_token"
+    return None
+
+
+# ─── 按键黑名单（危险快捷键）─────────────────────────
+HOTKEY_BLACKLIST = {
+    # 系统级危险操作
+    ("ctrl", "alt", "delete"),
+    ("ctrl", "alt", "del"),
+    ("alt", "f4"),
+    # Windows 系统操作
+    ("win", "l"),         # 锁屏
+    ("win", "r"),         # 运行
+    ("win", "d"),         # 显示桌面（暴露其他窗口）
+    ("win", "e"),         # 打开资源管理器
+    ("alt", "tab"),       # 切换窗口（可能切到敏感窗口）
+    ("ctrl", "shift", "esc"),   # 打开任务管理器
+    # 格式化/删除类
+    ("ctrl", "shift", "delete"),
+    ("ctrl", "shift", "del"),
+    # 关机类
+    ("alt", "shift", "f4"),
+}
+
+# ─── 危险单键黑名单 ──────────────────────────────────
+PRESS_KEY_BLACKLIST = {
+    "delete", "del",          # 删除文件/内容
+    "f2",                     # 重命名（桌面上下文可误操作）
+}
+
+
+def _is_blacklisted_hotkey(keys: list[str]) -> bool:
+    """检查按键组合是否在黑名单中"""
+    normalized = tuple(k.lower().strip() for k in keys)
+    return normalized in HOTKEY_BLACKLIST
+
+
+def _is_blacklisted_press_key(key: str) -> bool:
+    """检查单键是否在危险黑名单中"""
+    return key.lower().strip() in PRESS_KEY_BLACKLIST
 
 try:
     import pyautogui
@@ -50,6 +103,16 @@ async def handle_tool_call(req: dict):
     """处理工具调用"""
     tool_name = req["params"]["name"]
     args = req["params"].get("arguments", {})
+
+    # 认证检查
+    auth_err = _require_auth(args)
+    if auth_err:
+        mcp_send({
+            "jsonrpc": "2.0",
+            "id": req.get("id"),
+            "error": {"code": -2, "message": auth_err}
+        })
+        return
 
     try:
         if tool_name == "screenshot":
@@ -98,7 +161,11 @@ async def handle_tool_call(req: dict):
 
 
 async def tool_screenshot(args: dict) -> dict:
-    """截屏（可指定区域）"""
+    """截屏（可指定区域）
+
+    ⚠️ 安全警告: 截图可能包含敏感信息（密码、令牌、个人数据）。
+    返回数据中包含 sensitivity_warning 字段提醒调用方。
+    """
     region = args.get("region")  # (x, y, w, h)
     if region:
         img = pyautogui.screenshot(region=tuple(region))
@@ -116,6 +183,7 @@ async def tool_screenshot(args: dict) -> dict:
         "format": "base64_png",
         "data": b64,
         "data_len": len(b64),
+        "sensitivity_warning": "截图可能包含敏感信息，请勿存储或转发至不可信目标",
     }
 
 
@@ -173,10 +241,12 @@ async def tool_type_text(args: dict) -> dict:
 
 
 async def tool_hotkey(args: dict) -> dict:
-    """按下组合键，如 Ctrl+S、Alt+F4"""
+    """按下组合键，如 Ctrl+S"""
     keys = args.get("keys", [])
     if not keys:
         return {"error": "需要 keys 参数（数组）"}
+    if _is_blacklisted_hotkey(keys):
+        return {"error": f"按键组合 {keys} 在黑名单中，禁止执行（危险操作）"}
     pyautogui.hotkey(*keys)
     return {"success": True, "keys": keys}
 
@@ -236,6 +306,8 @@ async def tool_press_key(args: dict) -> dict:
     """按下一个键"""
     key = args.get("key", "")
     presses = args.get("presses", 1)
+    if _is_blacklisted_press_key(key):
+        return {"error": f"按键 '{key}' 在危险黑名单中，禁止执行（可能导致数据丢失）"}
     pyautogui.press(key, presses=presses)
     return {"success": True, "key": key}
 

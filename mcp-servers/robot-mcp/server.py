@@ -292,6 +292,24 @@ def _require_auth(token: str = "") -> None:
         raise PermissionError("认证失败：无效的 auth token")
 
 
+async def _safe_go_home() -> dict:
+    """安全回位 — 仅在异常处理中使用，永不抛出异常。
+    避免 go_home 失败时产生递归或级联异常。
+    """
+    try:
+        await backend.write_io("grab", False)
+        await asyncio.sleep(0.3)
+        await backend.write_io("arm_move_z", False)
+        await asyncio.sleep(0.5)
+        await backend.write_io("arm_move_x", False)
+        await asyncio.sleep(0.5)
+        await backend.write_io("conveyor_entry", False)
+        await backend.write_io("conveyor_exit", False)
+        return {"status": "ok", "position": "home"}
+    except Exception as e:
+        return {"status": "error", "error": f"安全回位失败: {e}"}
+
+
 # ═════════════════════════════════════════════════════════════════════
 # MCP 工具
 # ═════════════════════════════════════════════════════════════════════
@@ -393,7 +411,7 @@ async def pick_item(auth_token: str = "") -> dict:
         await backend.write_io("arm_move_x", True)
         x_ok = await backend.wait_for("sensor_moving_x", True, timeout=3.0)
         if not x_ok:
-            await go_home(auth_token=auth_token)
+            await _safe_go_home()
             return {"status": "error", "error": "X轴伸出超时，已回位"}
         await asyncio.sleep(0.3)
 
@@ -401,7 +419,7 @@ async def pick_item(auth_token: str = "") -> dict:
         await backend.write_io("arm_move_z", True)
         z_ok = await backend.wait_for("sensor_moving_z", True, timeout=3.0)
         if not z_ok:
-            await go_home(auth_token=auth_token)
+            await _safe_go_home()
             return {"status": "error", "error": "Z轴下降超时，已回位"}
         await asyncio.sleep(0.3)
 
@@ -413,7 +431,7 @@ async def pick_item(auth_token: str = "") -> dict:
         detected = await backend.read_io("sensor_item_detected")
         if not detected:
             await backend.write_io("grab", False)
-            await go_home(auth_token=auth_token)
+            await _safe_go_home()
             return {"status": "error", "error": "抓取失败（未检测到物料），已复位"}
 
         # 4. Z轴上升
@@ -428,7 +446,7 @@ async def pick_item(auth_token: str = "") -> dict:
 
         return {"status": "ok", "action": "pick", "message": "物料已抓取，机械臂已收回"}
     except Exception as e:
-        await go_home(auth_token=auth_token)
+        await _safe_go_home()
         return {"status": "error", "error": f"抓取异常: {e}，已复位"}
 
 
@@ -482,7 +500,7 @@ async def place_item(auth_token: str = "") -> dict:
 
         return {"status": "ok", "action": "place", "message": "物料已放置到出口，已运走"}
     except Exception as e:
-        await go_home(auth_token=auth_token)
+        await _safe_go_home()
         return {"status": "error", "error": f"放置异常: {e}，已复位"}
 
 
@@ -543,7 +561,7 @@ async def move_arm_to(position: str, auth_token: str = "") -> dict:
         return {"status": "ok", "action": "move_to", "position": position,
                 "message": f"机械臂已移动到 {position}"}
     except Exception as e:
-        await go_home(auth_token=auth_token)
+        await _safe_go_home()
         return {"status": "error", "error": f"移动异常: {e}，已复位"}
 
 
@@ -573,7 +591,7 @@ async def run_pick_cycle(count: int = 1, auth_token: str = "") -> dict:
         return {"status": "ok", "cycles_completed": len([r for r in results if r["result"].get("status") == "ok"]),
                 "total_requested": count, "details": results}
     except Exception as e:
-        await go_home(auth_token=auth_token)
+        await _safe_go_home()
         return {"status": "error", "error": f"循环异常: {e}", "partial_results": results}
 
 

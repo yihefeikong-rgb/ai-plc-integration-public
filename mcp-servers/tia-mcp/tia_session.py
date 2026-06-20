@@ -138,7 +138,7 @@ def ensure_service_initialized(timeout_sec: int = 120) -> bool:
     import ctypes
     is_admin = ctypes.windll.shell32.IsUserAnAdmin()
     if is_admin:
-        subprocess.Popen([tia_bin], shell=True)
+        subprocess.Popen([tia_bin])
     else:
         ctypes.windll.shell32.ShellExecuteW(
             None, "runas", tia_bin, "", None, 1

@@ -151,11 +151,15 @@ async def list_code_templates():
         "conveyor": "传送带文档",
         "material-cart": "料车控制文档",
         "general": "编程通用指南",
-        "motor": "电机控制参考",
-        "pid": "PID控制参考",
         "电梯控制系统": "电梯控制系统",
         "停车场管理系统": "停车场管理系统",
         "楼宇自控HVAC系统": "楼宇自控HVAC系统",
+        "冷冻站群控系统": "冷冻站群控系统",
+        "VAV变风量末端控制": "VAV变风量末端控制",
+        "恒压供水群控": "恒压供水群控",
+        "锅炉房热力站控制": "锅炉房热力站控制",
+        "智能照明控制": "智能照明控制",
+        "新风热回收控制": "新风热回收控制",
     }
 
     files = []
@@ -174,6 +178,8 @@ async def list_code_templates():
 async def get_code_template(name: str):
     """获取单个 SCL 代码模板内容"""
     import re as _re
+    if ".." in name or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="无效的模板名称")
     templates_dir = Path(__file__).parent.parent.parent.parent / "plc-code-templates" / "siemens-scl"
     for ext in (".scl", ".md"):
         f = templates_dir / f"{name}{ext}"
@@ -246,6 +252,8 @@ async def list_ladder_templates():
 async def get_ladder_template(name: str):
     """获取单个梯形图模板完整 JSON + 文本化展示"""
     import json as _json
+    if ".." in name or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="无效的模板名称")
     templates_dir = Path(__file__).parent.parent.parent.parent / "mcp-servers" / "tia-mcp" / "templates"
     f = templates_dir / f"{name}.json"
     if not f.exists():

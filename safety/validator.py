@@ -32,7 +32,7 @@ RULES_FILE = Path(__file__).parent / "interlock-rules.yml"
 class ValidationResult:
     allowed: bool
     reason: str
-    needs_confirmation: bool = False
+    needs_confirmation: bool = False  # True=需要双人确认
 
 
 class WriteValidator:
@@ -40,7 +40,22 @@ class WriteValidator:
         self.consecutive_errors = 0
         self._rules: list[dict] = []
         self._last_write_time: dict[str, float] = {}
+        self._bit_reader = None
         self._load_interlock_rules()
+
+    def set_bit_reader(self, reader_fn):
+        """注册 PLC 位读取回调（用于 require_bits 检查）
+
+        Args:
+            reader_fn: callable(address: str) -> bool | None
+                       返回 True/False 表示位状态，None 表示读取失败
+        """
+        self._bit_reader = reader_fn
+
+    def reset_fuse(self):
+        """重置熔断计数器（必须双人确认后调用）"""
+        _logger.warning("熔断计数器已重置（需双人确认）")
+        self.consecutive_errors = 0
 
     def _load_interlock_rules(self):
         """加载互锁规则文件"""
@@ -55,9 +70,34 @@ class WriteValidator:
             _logger.error(f"加载互锁规则失败: {e}")
 
     def _check_interlock_rules(self, tag_name: str, value: Any) -> ValidationResult | None:
-        """检查互锁规则（max_value, min_value, cooldown 等）"""
+        """检查互锁规则（require_bits, max_value, min_value, cooldown）"""
         for rule in self._rules:
             if rule.get("target") == tag_name:
+                # require_bits 检查（安全前置条件）
+                require_bits = rule.get("require_bits")
+                if require_bits:
+                    if self._bit_reader is None:
+                        _logger.warning(f"require_bits 定义了但无 bit_reader: {require_bits}")
+                        self.consecutive_errors += 1
+                        return ValidationResult(
+                            False,
+                            f"安全前置条件无法验证（未注册 bit_reader）: {require_bits}"
+                        )
+                    for bit_addr in require_bits:
+                        bit_val = self._bit_reader(bit_addr)
+                        if bit_val is None:
+                            self.consecutive_errors += 1
+                            return ValidationResult(
+                                False,
+                                f"安全位读取失败: {bit_addr}（通信异常，拒绝写入）"
+                            )
+                        if not bit_val:
+                            self.consecutive_errors += 1
+                            return ValidationResult(
+                                False,
+                                f"安全前置条件不满足: {bit_addr} = FALSE（急停/安全回路未就绪）"
+                            )
+
                 # 数值范围检查
                 try:
                     num_value = float(value)

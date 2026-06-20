@@ -108,7 +108,7 @@ def launch(timeout_sec: int = 60) -> bool:
 
     is_admin = ctypes.windll.shell32.IsUserAnAdmin()
     if is_admin:
-        subprocess.Popen([exe_path], shell=True)
+        subprocess.Popen([exe_path])
     else:
         ret = ctypes.windll.shell32.ShellExecuteW(
             None, "runas", exe_path, "", None, 1

@@ -14,9 +14,29 @@ import argparse
 import tempfile
 import os
 from pathlib import Path
+
+# 追加项目根到 sys.path（安全模块依赖）
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(_PROJECT_ROOT))
+
 from fastmcp import FastMCP
 from config_loader import cfg, validate_ladder_spec
 from audit import audit_log
+from safety.validator import validator as safety_validator
+
+
+def _safety_gate(operation: str, block_name: str = "") -> dict | None:
+    """工程态安全闸：通过 validator 检查熔断状态和安全前置条件。
+
+    注: 工程态操作（导入代码/下载到PLC）不同于运行态标签写入，
+    shadow_sim 数值仿真不适用。安全链通过 validator 熔断机制保护。
+    """
+    result = safety_validator.validate(f"_eng.{operation}", 0)
+    if not result.allowed:
+        audit_log(operation, user_input=block_name, block_name=block_name,
+                  success=False, detail=f"安全链拒绝: {result.reason}")
+        return {"status": "error", "message": f"安全链拒绝工程态操作: {result.reason}"}
 
 # SVG 渲染器（可选，渲染失败不影响主流程）
 try:
@@ -170,6 +190,9 @@ def import_scl_file(
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
+    gate = _safety_gate("import_scl_file", block_name=block_name)
+    if gate:
+        return gate
     try:
         path = _resolve_path(project_path)
     except ValueError as e:
@@ -276,6 +299,9 @@ def download_to_plcsim(
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
+    gate = _safety_gate("download_to_plcsim", block_name=project_path)
+    if gate:
+        return gate
     try:
         path = _resolve_path(project_path)
         from download_to_plcsim import (
@@ -504,6 +530,9 @@ def create_ladder_block(
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
+    gate = _safety_gate("create_ladder_block")
+    if gate:
+        return gate
     # 快速命令：直接走硬编码模板
     if description == "cart3cycle":
         result = subprocess.run(
@@ -558,6 +587,9 @@ def full_pipeline(
         {"status": "ok", "blockName": "...", "steps": [...]}
     """
     _require_auth(auth_token)
+    gate = _safety_gate("full_pipeline")
+    if gate:
+        return gate
     steps = []
 
     # ── Step 1: 生成 LAD FB ──

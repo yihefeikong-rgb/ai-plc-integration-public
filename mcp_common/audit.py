@@ -2,19 +2,20 @@
 统一审计日志模块 — 合并 safety/audit.py 和 tia-mcp/audit.py 的功能。
 
 特性:
-  - 链式哈希防篡改（来自 safety/audit.py）
+  - HMAC-SHA256 链式防篡改（密钥来自 AUDIT_HMAC_KEY 环境变量）
   - 灵活的 log() 方法，支持 operation/action 双命名
   - 从配置文件读取日志路径（来自 tia-mcp/audit.py）
   - 向后兼容的 audit_log() 便捷函数
+  - 惰性初始化：import 时不创建文件，首次写入时才初始化
 
 用法:
-    from mcp_common.audit import get_audit_logger
+    from mcp_common.audit import audit
 
-    logger = get_audit_logger()
-    logger.log("write", "DB1.Motor", "1500", operator="ai")
-    logger.log_operation("create_ladder_block", block_name="MotorFwdRev", result="ok")
+    audit.log("write", "DB1.Motor", "1500", operator="ai")
+    audit.log_operation("create_ladder_block", block_name="MotorFwdRev", result="ok")
 """
 
+import hmac
 import json
 import hashlib
 import os
@@ -23,10 +24,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
+# HMAC 密钥：从环境变量读取，未设置时使用默认值（开发环境）
+_HMAC_KEY = os.environ.get("AUDIT_HMAC_KEY", "ai-plc-dev-audit-key-change-in-prod").encode()
+
 
 def _compute_hash(entry: dict, prev_hash: str) -> str:
     payload = json.dumps(entry, sort_keys=True) + prev_hash
-    return hashlib.sha256(payload.encode()).hexdigest()
+    return hmac.new(_HMAC_KEY, payload.encode(), hashlib.sha256).hexdigest()
 
 
 class AuditLogger:
@@ -143,23 +147,43 @@ class AuditLogger:
         return entries[-limit:]
 
 
-# ─── 全局单例 ───────────────────────────────────
+# ─── 全局单例（惰性初始化） ───────────────────────────────────
 
 _audit_logger: Optional[AuditLogger] = None
 
+
+class _LazyAuditProxy:
+    """惰性代理：首次访问属性时才创建 AuditLogger 实例。
+    解决 `from mcp_common.audit import audit` 得到 None 的问题。
+    """
+
+    def _get_instance(self) -> AuditLogger:
+        global _audit_logger
+        if _audit_logger is None:
+            _audit_logger = AuditLogger()
+        return _audit_logger
+
+    def __getattr__(self, name: str):
+        return getattr(self._get_instance(), name)
+
+
 # 便捷单例引用（兼容: from mcp_common.audit import audit）
-audit: AuditLogger = None  # type: ignore  # 首次访问时惰性初始化
+audit: AuditLogger = _LazyAuditProxy()  # type: ignore
 
 
 def get_audit_logger(log_path: str = "") -> AuditLogger:
     """获取全局审计日志单例"""
-    global _audit_logger, audit
+    global _audit_logger
     if _audit_logger is None:
         _audit_logger = AuditLogger(log_path)
-        audit = _audit_logger
     return _audit_logger
 
 
 def audit_log(operation: str, **kwargs) -> dict:
     """便捷函数：audit_log("operation_name", key1=val1, key2=val2)"""
     return get_audit_logger().log_operation(operation, **kwargs)
+
+
+def read_logs(operation: str = None, limit: int = 50) -> list:
+    """便捷函数：read_logs(operation="write", limit=50)"""
+    return get_audit_logger().read_logs(operation=operation, limit=limit)

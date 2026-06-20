@@ -474,16 +474,6 @@ def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = ""
 
     print('🔌 通过 C# TiaWorker 下载到 PLCSIM...')
 
-    # 先清理残留的 TIA Portal 进程（避免项目锁定）
-    import subprocess as _sp_ui
-    print('   清理 TIA Portal 残留进程...')
-    _sp_ui.run(['cmd.exe', '/c', 'taskkill', '/f', '/im', 'Siemens.Automation.Portal.exe'],
-               capture_output=True, timeout=5)
-    _sp_ui.run(['cmd.exe', '/c', 'taskkill', '/f', '/im', 'Siemens.Automation.Portal.exe'],
-               capture_output=True, timeout=5)
-    import time as _time
-    _time.sleep(5)  # 等 5 秒确保锁释放
-
     # V21 需要 PLCSIM GUI 窗口在运行，否则扫描不到设备
     print('   确保 PLCSIM GUI 已启动...')
     try:

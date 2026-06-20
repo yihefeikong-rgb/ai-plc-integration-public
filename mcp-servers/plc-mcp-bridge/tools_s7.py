@@ -33,13 +33,22 @@ except ImportError:
     _logger.critical("影子仿真模块加载失败！所有写入操作将被拒绝。")
     shadow_sim = None
 
-# ── 审计日志 ──
-try:
-    from mcp_common.audit import get_audit_logger
-    _audit = get_audit_logger()
-except ImportError:
-    _audit = None
-    _logger.warning("审计日志模块不可用")
+# ── 审计日志（强制） ──
+from mcp_common.audit import get_audit_logger
+_audit = get_audit_logger()
+
+# ── 注册 bit_reader（require_bits 安全前置条件检查） ──
+if SAFETY_AVAILABLE:
+    def _read_safety_bit(address: str):
+        """读取 PLC 安全位，用于 require_bits 互锁检查"""
+        if not adapter.is_connected:
+            return None
+        try:
+            val = adapter.read_address(address)
+            return bool(val)
+        except Exception:
+            return None
+    safety_val.set_bit_reader(_read_safety_bit)
 
 
 @mcp.tool(
@@ -139,32 +148,27 @@ async def s7_write(address: str, value: str) -> str:
         # 2. 互锁校验
         result = safety_val.validate(address, numeric_value, current_value=current_value)
         if not result.allowed:
-            if _audit:
-                _audit.log("write_rejected", address, str(value), success=False, detail=result.reason)
+            _audit.log("write_rejected", address, str(value), success=False, detail=result.reason)
             return f"🚫 写入被拒绝: {result.reason}"
 
         # 3. 影子仿真验证
         sim_result = await shadow_sim.simulate_write(address, numeric_value, current_value=current_value)
         if not sim_result.safe:
-            if _audit:
-                _audit.log("shadow_rejected", address, str(value), success=False, detail=sim_result.reason)
+            _audit.log("shadow_rejected", address, str(value), success=False, detail=sim_result.reason)
             return f"🚫 影子仿真拒绝: {sim_result.reason}"
 
         # 4. 执行写入
         write_result = adapter.write_address(address, value)
 
         # 5. 审计日志
-        if _audit:
-            _audit.log("write", address, str(value), success=True)
+        _audit.log("write", address, str(value), success=True)
 
         return write_result
     except ConnectionError as e:
-        if _audit:
-            _audit.log("write_error", address, str(value), success=False, detail=str(e))
+        _audit.log("write_error", address, str(value), success=False, detail=str(e))
         return f"❌ {e}"
     except Exception as e:
-        if _audit:
-            _audit.log("write_error", address, str(value), success=False, detail=str(e))
+        _audit.log("write_error", address, str(value), success=False, detail=str(e))
         return f"❌ 写入失败 [{address}={value}]: {e}"
 
 

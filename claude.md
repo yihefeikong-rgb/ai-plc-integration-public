@@ -6,7 +6,7 @@
 
 ---
 
-## 当前进度（2026-06-17）
+## 当前进度（2026-06-20）
 
 | 模块 | 状态 |
 |------|------|
@@ -16,6 +16,8 @@
 | AI PLC Assistant 桌面应用 V1.0 | ✅ 完成 |
 | Phase 4: 工业机器人 | 未开始 |
 | Phase 5: 统一编排 | 未开始 |
+| 全仓审查修复 (63 A级) | ✅ 完成（58/58，2026-06-20） |
+| 测试覆盖 | ✅ 174 pass / 0 fail |
 
 ---
 
@@ -55,7 +57,7 @@ ai-plc-integration/
 ### 开发环境
 - OS: Windows 11
 - Python: `D:\Python3\python.exe` (3.13.2)
-- TIA Portal: V18
+- TIA Portal: V21
 - PLCSIM: Advanced V8.0 (TCP/IP Single Adapter)
 - PLC IP: 192.168.0.110 (Rack=0, Slot=1)
 
@@ -69,8 +71,13 @@ ai-plc-integration/
 
 ## 安全红线
 
+### 运行安全
 1. **禁止 AI 直接操作急停回路**
 2. **禁止 AI 修改安全 PLC（F-CPU）参数**
 3. **所有控制指令必须经过影子仿真**
-4. **生产环境写入需双人确认**
-5. **审计日志不可篡改**
+4. **生产环境写入需双人确认**（操作人 + 确认人不是同一人）
+5. **审计日志不可篡改**（HMAC 链式哈希）
+
+### 配置安全
+6. **安装 global git hooks 前必须显示预览并确认**（列出要安装的 hook 内容，获得用户明确同意）
+7. **修改 ~/.claude/settings.json 前必须先备份并显示 diff 预览**（备份路径: ~/.claude/settings.json.bak）

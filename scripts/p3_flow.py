@@ -227,7 +227,7 @@ drivers.siemens_s7plcsim.connection_timeout = 60
         except Exception as e:
             log(f"写入 auto.cfg 失败: {e}", "warn")
 
-    subprocess.Popen([fio_exe], shell=True)
+    subprocess.Popen([fio_exe])
     log("Factory I/O 已启动", "ok")
     return True
 

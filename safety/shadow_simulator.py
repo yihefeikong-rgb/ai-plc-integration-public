@@ -1,5 +1,9 @@
 """
-影子仿真验证器 — AI 写入前在影子 PLC 实例中模拟执行。
+写入前置检查器（PreWriteChecker）— AI 写入前的静态安全检查。
+
+注意: 本模块执行的是静态规则检查（禁止标签、数值范围、变化率），
+并非真正的 PLC 影子仿真（不模拟 PLC 扫描周期或逻辑执行）。
+真正的互锁条件检查（require_bits）在 safety.validator 中实现。
 
 用法:
     from safety.shadow_simulator import shadow_sim
@@ -8,7 +12,7 @@
     if result.safe:
         # 执行真实写入
     else:
-        print(f"[影子仿真] 拒绝: {result.reason}")
+        print(f"[预检查] 拒绝: {result.reason}")
 """
 
 from __future__ import annotations
@@ -27,13 +31,15 @@ class ShadowResult:
     warnings: list[str] = field(default_factory=list)
 
 
-class ShadowSimulator:
-    """影子仿真验证器
+class PreWriteChecker:
+    """写入前置检查器（原 ShadowSimulator）
 
-    在 AI 写入前模拟执行，检查：
+    在 AI 写入前执行静态安全检查：
     - 写入值是否在合理范围内
-    - 写入后是否会导致急停/安全回路异常
-    - 写入前后变化是否剧烈
+    - 标签是否属于禁止写入列表
+    - 写入前后变化是否剧烈（变化率检测）
+
+    注: 不模拟 PLC 逻辑执行，仅做数值级别安全检查。
     """
 
     def __init__(self):
@@ -149,5 +155,6 @@ class ShadowSimulator:
         )
 
 
-# 全局单例
-shadow_sim = ShadowSimulator()
+# 全局单例（保持 shadow_sim 别名兼容现有调用方）
+shadow_sim = PreWriteChecker()
+ShadowSimulator = PreWriteChecker  # 向后兼容

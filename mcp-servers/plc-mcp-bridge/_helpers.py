@@ -35,13 +35,11 @@ try:
     PLCSIM_INSTANCE = cfg.factory_io.plcsim_instance
     GOLDEN_ZIP = os.path.join(os.path.dirname(PROJECT_PATH), 'factory_io1_golden.zip')
     STORAGE_PATH = os.path.join(os.path.dirname(PROJECT_PATH), 'plcsim_storage')
-except Exception:
-    cfg = None
-    PROJECT_PATH = ""
-    PLC_IP = "192.168.0.1"
-    PLCSIM_INSTANCE = "factoryio"
-    GOLDEN_ZIP = ""
-    STORAGE_PATH = ""
+except Exception as e:
+    raise RuntimeError(
+        f"无法加载 TIA 配置文件 (mcp-servers/tia-mcp/config.yaml): {e}\n"
+        "请检查 config.yaml 是否存在，以及 .env 中的环境变量是否正确配置"
+    )
 
 
 # ── 辅助函数 ──
@@ -71,89 +69,28 @@ def _run_python(script: Path, args: list[str], timeout: int = 60) -> dict:
         return {"success": False, "error": str(e)}
 
 
-# ── 错误码定义 ──
-ERR_CODES = {
-    "NOT_FOUND": "TIA_ERR_001",
-    "TIMEOUT": "TIA_ERR_002",
-    "NO_OUTPUT": "TIA_ERR_003",
-    "COMPILE_ERROR": "TIA_ERR_004",
-    "EXEC_ERROR": "TIA_ERR_005",
-    "JSON_DECODE": "TIA_ERR_006",
-    "NOT_COMPILED": "TIA_ERR_007",
-    "UNKNOWN": "TIA_ERR_999",
-}
+# ── 错误码和 TiaWorker 客户端（从共享层导入） ──
+from mcp_common.tiaworker_client import (
+    ERR_CODES, ERR_MSGS, make_error as _make_error, TiaWorkerClient,
+)
 
-ERR_MSGS = {
-    "NOT_FOUND": "文件或资源不存在",
-    "TIMEOUT": "TiaWorker 操作超时",
-    "NO_OUTPUT": "TiaWorker 无输出",
-    "COMPILE_ERROR": "编译失败",
-    "EXEC_ERROR": "子进程执行错误",
-    "JSON_DECODE": "JSON 解析失败",
-    "NOT_COMPILED": "TiaWorker 程序未编译",
-    "UNKNOWN": "未知错误",
-}
-
-
-def _make_error(code_key: str, detail: str = "") -> dict:
-    """构造带错误码的结构化错误响应"""
-    msg = ERR_MSGS.get(code_key, ERR_MSGS["UNKNOWN"])
-    err_str = f"[{ERR_CODES.get(code_key, ERR_CODES['UNKNOWN'])}] {msg}"
-    if detail:
-        err_str += f": {detail}"
-    return {"success": False, "error": err_str, "error_code": code_key}
+# 全局 TiaWorker 客户端实例
+_tia_version = getattr(cfg.tia, 'version', None) if cfg else None
+_tiaworker_client = TiaWorkerClient(
+    exe_path=TIAWORKER_EXE,
+    tia_version=_tia_version,
+)
 
 
 def _run_tiaworker(command: str, data: dict, timeout: int = 180, tia_version: str | None = None, max_retries: int = 1, dry_run: bool = False) -> dict:
-    """运行 TiaWorker.exe 子进程，带超时重试"""
-    if not TIAWORKER_EXE.exists():
-        return _make_error("NOT_COMPILED", str(TIAWORKER_EXE))
-
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
-    json.dump(data, tmp)
-    tmp_path = tmp.name
-    tmp.close()
-
-    try:
-        last_error = None
-        for attempt in range(1 + max_retries):
-            try:
-                cmd = [str(TIAWORKER_EXE)]
-                if dry_run:
-                    cmd.append("--dry-run")
-                tia_ver = tia_version or getattr(cfg.tia, 'version', None) if cfg else None
-                if tia_ver:
-                    cmd.extend([f"--tia-major-version={tia_ver}"])
-                cmd.extend([command, tmp_path])
-                r = subprocess.run(
-                    cmd,
-                    capture_output=True, text=True, timeout=timeout,
-                    encoding='utf-8', errors='replace',
-                )
-                out = r.stdout.strip()
-                if out:
-                    try:
-                        result = json.loads(out)
-                        if result.get('ok') is True:
-                            return {"success": True, "data": result.get('result', {}), "raw": out}
-                        else:
-                            err_msg = result.get('error', '')
-                            return _make_error("EXEC_ERROR", err_msg)
-                    except json.JSONDecodeError:
-                        return _make_error("JSON_DECODE", f"rc={r.returncode}, out={out[:200]}")
-                return _make_error("NO_OUTPUT")
-            except subprocess.TimeoutExpired:
-                last_error = _make_error("TIMEOUT", f"尝试 {attempt+1}/{1+max_retries}, 超时 {timeout}s")
-                if attempt < max_retries:
-                    continue
-                return last_error
-            except Exception as e:
-                return _make_error("EXEC_ERROR", str(e))
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+    """运行 TiaWorker.exe 子进程，带超时重试（委托给共享客户端）"""
+    return _tiaworker_client.run(
+        command=command,
+        data=data,
+        timeout=timeout,
+        max_retries=max_retries,
+        dry_run=dry_run,
+    )
 
 
 def _format_result(success: bool, data=None, error: str = "") -> str:

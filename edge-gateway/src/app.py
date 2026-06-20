@@ -9,9 +9,12 @@ Edge Gateway — 阶段1+2 主程序（Token 优化版）
 
 import json
 import asyncio
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from mcp_common.config import env_config
 from mcp_common.audit import audit
@@ -23,7 +26,8 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "mcp-servers" / "plc-mcp-bridge"))
 from s7_adapter import S7Adapter  # noqa: E402
 from safety.validator import validator as safety_validator
-from ai_client import ai
+from src.ai_client import ai
+from src.change_detector import has_significant_change, is_out_of_bounds
 
 try:
     from influxdb_client import InfluxDBClient, Point
@@ -44,6 +48,8 @@ class EdgeGateway:
         self.running = False
         self.tag_config = self._load_tags()
         self._prev_values: dict[str, float | int | None] = {}
+        self._ai_json_fail_count: int = 0
+        self._ai_fused: bool = False
 
     def _load_tags(self) -> list[dict]:
         config_dir = Path(__file__).parent.parent / "config"
@@ -66,32 +72,13 @@ class EdgeGateway:
         ]
 
     def _has_significant_change(self, tag: str, value: float | int | None) -> bool:
-        """值有显著变化？超过 delta 或从 None 变有值"""
-        if value is None:
-            return False
-        prev = self._prev_values.get(tag)
-        if prev is None:
+        result = has_significant_change(tag, value, self._prev_values, self.tag_config)
+        if result and value is not None:
             self._prev_values[tag] = value
-            return True
-        cfg = next((t for t in self.tag_config if t["tag"] == tag), {})
-        delta = cfg.get("threshold", {}).get("delta", 0)
-        if delta and abs(value - prev) >= delta:
-            self._prev_values[tag] = value
-            return True
-        if value != prev:
-            self._prev_values[tag] = value
-            return True
-        return False
+        return result
 
     def _is_out_of_bounds(self, tag: str, value: float | int | None) -> bool:
-        """值超出阈值范围？"""
-        if value is None:
-            return False
-        cfg = next((t for t in self.tag_config if t["tag"] == tag), {})
-        limits = cfg.get("threshold", {})
-        if not limits:
-            return False
-        return value < limits["min"] or value > limits["max"]
+        return is_out_of_bounds(tag, value, self.tag_config)
 
     async def scan_once(self, read_func) -> list[dict]:
         results = []
@@ -119,9 +106,15 @@ class EdgeGateway:
                 .tag("protocol", d.get("protocol", "")) \
                 .field("value", float(d["value"])) \
                 .time(datetime.now(timezone.utc))
-            _write_api.write(bucket=settings.influxdb_bucket, record=p)
+            try:
+                _write_api.write(bucket=settings.influxdb_bucket, record=p)
+            except Exception as e:
+                logger.error("[InfluxDB] 写入失败 tag=%s: %s", d["tag"], e)
 
     async def ai_control_loop(self, data: list[dict], write_func=None):
+        if self._ai_fused:
+            return
+
         normal = [d for d in data if d["status"] == "ok"]
         if not normal:
             return
@@ -132,14 +125,16 @@ class EdgeGateway:
         if not changed and not abnormal:
             return
 
-        analysis = ai.analyze_data(abnormal if abnormal else changed[:5])
+        analysis = await ai.analyze_data(abnormal if abnormal else changed[:5])
         print(f"[AI] 分析 | 变化 {len(changed)} 异常 {len(abnormal)} | {analysis[:80]}...")
 
         # 有变化或异常就走 AI 决策
         if changed or abnormal:
             available = [t["tag"] for t in self.tag_config]
             try:
-                decision = json.loads(ai.decide_control(analysis, available))
+                raw_response = await ai.decide_control(analysis, available)
+                decision = json.loads(raw_response)
+                self._ai_json_fail_count = 0  # 解析成功，重置熔断计数
                 if decision.get("action") == "write":
                     result = safety_validator.validate(decision["target"], decision["value"])
                     if not result.allowed:
@@ -163,7 +158,15 @@ class EdgeGateway:
                                   str(decision.get("value")), operator="ai",
                                   detail=decision.get("reason", ""))
             except json.JSONDecodeError:
-                pass
+                self._ai_json_fail_count += 1
+                logger.error("[AI] 非 JSON 响应(连续 %d 次): %s",
+                             self._ai_json_fail_count, raw_response[:200])
+                if self._ai_json_fail_count >= 3:
+                    logger.critical("[AI] 连续 %d 次非 JSON 响应，触发熔断",
+                                    self._ai_json_fail_count)
+                    self._ai_fused = True
+            except Exception as e:
+                logger.error("[AI] 决策调用异常: %s", e)
 
     async def run(self, read_func, write_func=None):
         self.running = True
@@ -197,24 +200,27 @@ async def main(protocol: str = "s7"):
     gw = EdgeGateway()
 
     if protocol == "modbus":
-        from pymodbus.client import ModbusTcpClient
+        from pymodbus.client import AsyncModbusTcpClient
 
-        def modbus_read(tag: str) -> dict:
-            c = ModbusTcpClient(
-                host=settings.modbus_host,
-                port=int(settings.modbus_port),
-            )
-            c.connect()
+        modbus_client = AsyncModbusTcpClient(
+            host=settings.modbus_host,
+            port=int(settings.modbus_port),
+        )
+        await modbus_client.connect()
+
+        async def modbus_read(tag: str) -> dict:
+            if not modbus_client.connected:
+                await modbus_client.connect()
             parts = tag.split(".")
             typ, addr = parts[0], int(parts[1])
             if typ == "coil":
-                rr = c.read_coils(addr, count=1, device_id=1)
+                rr = await modbus_client.read_coils(addr, count=1, slave=1)
                 return {"value": rr.bits[0] if not rr.isError() else None}
             elif typ == "register":
-                rr = c.read_holding_registers(addr, count=1, device_id=1)
+                rr = await modbus_client.read_holding_registers(addr, count=1, slave=1)
                 return {"value": rr.registers[0] if not rr.isError() else None}
             elif typ == "input":
-                rr = c.read_discrete_inputs(addr, count=1, device_id=1)
+                rr = await modbus_client.read_discrete_inputs(addr, count=1, slave=1)
                 return {"value": rr.bits[0] if not rr.isError() else None}
             return {"value": None}
 
@@ -222,6 +228,8 @@ async def main(protocol: str = "s7"):
             await gw.run(modbus_read)
         except KeyboardInterrupt:
             gw.stop()
+        finally:
+            modbus_client.close()
             print("[Gateway] 已停止")
     else:
         # S7 协议模式（默认）

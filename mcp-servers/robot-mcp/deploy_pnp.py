@@ -21,11 +21,18 @@ SCL_FC = ROBOT_MCP_DIR / "pnp_fc.scl"
 TIA_WORKER = TIA_MCP_DIR / "bin" / "TiaWorker.exe"
 PNP_TAGS = ROBOT_MCP_DIR / "pnp_tags.json"
 
-GOLDEN_ZIP = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\factory_io1_golden.zip"
-STORAGE_PATH = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\plcsim_storage"
-PROJECT_PATH = r"D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\demo_V21.ap21"
-PLC_IP = "192.168.0.1"
-FIO_EXE = r"D:\Factory IO\Factory IO.exe"
+# 从统一配置加载（支持环境变量覆盖）
+sys.path.insert(0, str(TIA_MCP_DIR))
+from config_loader import cfg
+PROJECT_PATH = getattr(cfg.tia, 'project_path', os.environ.get('TIA_PROJECT_PATH', ''))
+PLC_IP = getattr(getattr(cfg.simulation, 'advanced', None), 'plc_ip', os.environ.get('PLC_IP', '192.168.0.1'))
+FIO_EXE = getattr(getattr(cfg, 'factory_io', None), 'exe_path', os.environ.get('FACTORY_IO_DIR', r'D:\Factory IO\Factory IO.exe'))
+GOLDEN_ZIP = getattr(getattr(cfg.simulation, 'golden_backup', None), 'zip_path', '')
+if not GOLDEN_ZIP:
+    GOLDEN_ZIP = os.path.join(os.path.dirname(PROJECT_PATH) if PROJECT_PATH else '', 'factory_io1_golden.zip')
+STORAGE_PATH = getattr(getattr(cfg.simulation, 'golden_backup', None), 'storage_path', '')
+if not STORAGE_PATH:
+    STORAGE_PATH = os.path.join(os.path.dirname(PROJECT_PATH) if PROJECT_PATH else '', 'plcsim_storage')
 
 GREEN='\033[92m'; YELLOW='\033[93m'; RED='\033[91m'; BLUE='\033[94m'; CYAN='\033[96m'; RESET='\033[0m'
 
@@ -162,7 +169,7 @@ def step5_fio():
     if not os.path.exists(FIO_EXE):
         log(f"Factory I/O 未找到: {FIO_EXE}", "warn")
         return False
-    subprocess.Popen([FIO_EXE], shell=True)
+    subprocess.Popen([FIO_EXE])
     log("已启动，请手动:", "info")
     log("  File → Load Scene → Pick & Place (Basic)", "info")
     log("  F4 → Siemens S7-PLCSIM → Connect", "info")

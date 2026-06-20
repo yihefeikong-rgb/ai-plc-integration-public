@@ -1,10 +1,10 @@
 """
-三菱 MC 协议单元测试 — 帧结构、设备解析、响应解析
+三菱 MC 协议单元测试 — 3E Binary 帧结构、设备解析、响应解析
 不依赖硬件，验证协议层的内部一致性
 
-注意：代码中 parse_read_response 期望的响应格式为：
-  [subheader 2B] [?? 2B] [end_code 2B] [data...]
-所以 mock 响应也按此结构构造。
+3E Binary 响应帧:
+  Subheader(2) + Network(1) + PC(1) + DestIO(2) + Station(1) + DataLen(2) + EndCode(2) + Data
+  头 9 字节，EndCode 在 offset 9，数据从 offset 11 开始
 """
 
 import struct
@@ -13,19 +13,28 @@ from mc_protocol import (
     _parse_device, is_bit_device,
     build_read_request, build_write_request,
     parse_read_response, parse_write_response,
-    MCFrameError, DEVICE_CODES,
+    MCFrameError, DEVICE_CODES, RESP_HEADER_LEN,
+    SUBHEADER_REQ, SUBHEADER_RESP,
 )
 
-# Helper: build a mock read response that matches parse_read_response's layout
+
+# ── 帮助函数 ──
+
+def _make_resp_header(end_code: int = 0, data_len: int = 2) -> bytes:
+    """构造标准 3E Binary 响应头（9 字节）+ EndCode（2 字节）"""
+    header = struct.pack("<H", SUBHEADER_RESP)  # subheader
+    header += struct.pack("<B", 0x00)           # network
+    header += struct.pack("<B", 0xFF)           # pc
+    header += struct.pack("<H", 0x03FF)         # dest io
+    header += struct.pack("<B", 0x00)           # dest station
+    header += struct.pack("<H", data_len)       # data length (incl end_code + data)
+    header += struct.pack("<H", end_code)       # end code
+    return header
+
+
 def _make_read_response(values: list[int], addr: str) -> bytes:
-    """构造模拟读响应：
-    data[0:2] = subheader (D0 00)
-    data[2:4] = ?? padding
-    data[4:6] = end_code
-    data[6:]  = data values
-    """
+    """构造模拟读响应（标准 3E Binary 格式）"""
     if is_bit_device(addr):
-        # bits packed 4 per byte (nibble)
         byte_count = (len(values) + 1) // 2
         raw = bytearray(byte_count)
         for i, v in enumerate(values):
@@ -34,7 +43,13 @@ def _make_read_response(values: list[int], addr: str) -> bytes:
         payload = bytes(raw)
     else:
         payload = b"".join(struct.pack("<H", v) for v in values)
-    return b"\xD0\x00\x00\x00\x00\x00" + payload
+    data_len = 2 + len(payload)  # EndCode(2) + payload
+    return _make_resp_header(end_code=0, data_len=data_len) + payload
+
+
+def _make_write_response(end_code: int = 0) -> bytes:
+    """构造写响应"""
+    return _make_resp_header(end_code=end_code, data_len=2)
 
 
 # =============================================
@@ -116,11 +131,9 @@ class TestIsBitDevice:
         assert not is_bit_device("W10")
 
     def test_t_is_bit(self):
-        """T（定时器触点）当前实现中按位设备处理"""
         assert is_bit_device("T0")
 
     def test_tn_is_word(self):
-        """TN（定时器当前值）按字设备"""
         assert not is_bit_device("TN0")
 
 
@@ -129,56 +142,72 @@ class TestIsBitDevice:
 # =============================================
 
 class TestBuildReadRequest:
-    REQ_HEADER_LEN = 11  # subheader(2) + PC(1) + timer(2) + bodyLen(2) + cmd(2) + subcmd(2)
+    # 请求头: Subheader(2) + Net(1) + PC(1) + IO(2) + Station(1) + DataLen(2) = 9 bytes
+    REQ_HEADER_LEN = 9
 
-    def test_starts_with_header(self):
+    def test_starts_with_correct_subheader(self):
         frame = build_read_request("D100", 1)
-        assert frame[:2] == b"\x50\x00"
+        subheader = struct.unpack("<H", frame[0:2])[0]
+        assert subheader == SUBHEADER_REQ
 
-    def test_has_pc_and_timer(self):
+    def test_network_and_pc(self):
         frame = build_read_request("D100", 1)
-        assert frame[2:3] == b"\xFF"
-        assert frame[3:5] == b"\x10\x00"
+        assert frame[2] == 0x00  # network
+        assert frame[3] == 0xFF  # pc
+
+    def test_dest_io_and_station(self):
+        frame = build_read_request("D100", 1)
+        dest_io = struct.unpack("<H", frame[4:6])[0]
+        assert dest_io == 0x03FF
+        assert frame[6] == 0x00  # station
+
+    def test_data_length_field(self):
+        frame = build_read_request("D100", 1)
+        data_len = struct.unpack("<H", frame[7:9])[0]
+        actual_body = frame[self.REQ_HEADER_LEN:]
+        assert len(actual_body) == data_len
 
     def test_has_read_command(self):
         frame = build_read_request("D100", 1)
-        cmd = struct.unpack("<H", frame[7:9])[0]
+        # 帧体: Timer(2) + Cmd(2)... Cmd 在 offset 9+2=11
+        cmd = struct.unpack("<H", frame[11:13])[0]
         assert cmd == 0x0401
 
-    def test_body_length_matches(self):
+    def test_has_monitor_timer(self):
         frame = build_read_request("D100", 1)
-        body_len = struct.unpack("<H", frame[5:7])[0]
-        actual_body = frame[self.REQ_HEADER_LEN:]
-        assert len(actual_body) == body_len
+        timer = struct.unpack("<H", frame[9:11])[0]
+        assert timer == 0x0010
 
-    def test_contains_device_code(self):
-        frame = build_read_request("D200", 1)
-        body = frame[self.REQ_HEADER_LEN:]
-        assert body[0:1] == b"\xA8"
-
-    def test_contains_address(self):
-        frame = build_read_request("D200", 1)
-        body = frame[self.REQ_HEADER_LEN:]
-        addr_bytes = body[1:4]
-        assert addr_bytes == struct.pack("<I", 200)[:3]
-
-    def test_word_read_subcmd(self):
+    def test_word_subcmd(self):
         frame = build_read_request("D100", 1)
-        body = frame[self.REQ_HEADER_LEN:]
-        assert body[7:10] == b"\x01\x00\x00"  # SUB_CMD_READ_WORD
+        subcmd = struct.unpack("<H", frame[13:15])[0]
+        assert subcmd == 0x0000  # SUBCMD_WORD
 
-    def test_bit_read_subcmd(self):
+    def test_bit_subcmd(self):
         frame = build_read_request("M100", 1)
-        body = frame[self.REQ_HEADER_LEN:]
-        assert body[7:10] == b"\x01\x00\x01"  # SUB_CMD_READ_BIT
+        subcmd = struct.unpack("<H", frame[13:15])[0]
+        assert subcmd == 0x0001  # SUBCMD_BIT
 
-    def test_multi_point_read(self):
+    def test_device_address_encoding(self):
+        frame = build_read_request("D200", 1)
+        # 帧体从 offset 9 开始: Timer(2) + Cmd(2) + SubCmd(2) + HeadDev(3) + DevCode(1) + Points(2)
+        # HeadDev at offset 9+6=15, 3 bytes
+        head_dev = frame[15:18]
+        assert head_dev == struct.pack("<I", 200)[:3]
+
+    def test_device_code(self):
+        frame = build_read_request("D200", 1)
+        # DevCode at offset 9+6+3=18, 1 byte
+        assert frame[18] == 0xA8
+
+    def test_point_count(self):
         frame = build_read_request("D100", 5)
-        body = frame[self.REQ_HEADER_LEN:]
-        count = struct.unpack("<H", body[5:7])[0]
-        assert count == 5
+        # Points at offset 9+6+3+1=19, 2 bytes
+        points = struct.unpack("<H", frame[19:21])[0]
+        assert points == 5
 
-    def test_read_frame_length(self):
+    def test_read_frame_total_length(self):
+        # Header(9) + Timer(2) + Cmd(2) + SubCmd(2) + HeadDev(3) + DevCode(1) + Points(2) = 21
         frame = build_read_request("D100", 1)
         assert len(frame) == 21
 
@@ -188,49 +217,42 @@ class TestBuildReadRequest:
 # =============================================
 
 class TestBuildWriteRequest:
-    REQ_HEADER_LEN = 11
+    REQ_HEADER_LEN = 9
 
     def test_has_write_command(self):
         frame = build_write_request("D100", 500)
-        cmd = struct.unpack("<H", frame[7:9])[0]
+        cmd = struct.unpack("<H", frame[11:13])[0]
         assert cmd == 0x1401
 
-    def test_write_word_value_at_correct_offset(self):
-        """字设备写入值在 body[8:10]"""
+    def test_write_word_value(self):
         frame = build_write_request("D100", 1234)
-        body = frame[self.REQ_HEADER_LEN:]
-        value = struct.unpack("<H", body[8:10])[0]
+        # Data at offset 9+6+3+1+2=21, 2 bytes for word write
+        value = struct.unpack("<H", frame[21:23])[0]
         assert value == 1234
 
     def test_write_bit_on(self):
         frame = build_write_request("M100", 1)
-        body = frame[self.REQ_HEADER_LEN:]
-        value = struct.unpack("<H", body[8:10])[0]
-        assert value == 1
+        # Bit data at offset 21, 1 byte (0x10=ON)
+        assert frame[21] == 0x10
 
     def test_write_bit_off(self):
         frame = build_write_request("M100", 0)
-        body = frame[self.REQ_HEADER_LEN:]
-        value = struct.unpack("<H", body[8:10])[0]
-        assert value == 0
-
-    def test_write_bit_nonzero(self):
-        """位设备非零值 → 1"""
-        frame = build_write_request("M100", 255)
-        body = frame[self.REQ_HEADER_LEN:]
-        value = struct.unpack("<H", body[8:10])[0]
-        assert value == 1
+        assert frame[21] == 0x00
 
     def test_write_large_value_truncated(self):
-        """超过 16 位的值应截断"""
         frame = build_write_request("D100", 0x1FFFF)
-        body = frame[self.REQ_HEADER_LEN:]
-        value = struct.unpack("<H", body[8:10])[0]
+        value = struct.unpack("<H", frame[21:23])[0]
         assert value == 0xFFFF
 
-    def test_write_frame_length(self):
+    def test_write_word_frame_length(self):
+        # Header(9) + Timer(2) + Cmd(2) + SubCmd(2) + HeadDev(3) + DevCode(1) + Points(2) + Value(2) = 23
         frame = build_write_request("D100", 500)
-        assert len(frame) == 24
+        assert len(frame) == 23
+
+    def test_write_bit_frame_length(self):
+        # Header(9) + Timer(2) + Cmd(2) + SubCmd(2) + HeadDev(3) + DevCode(1) + Points(2) + BitVal(1) = 22
+        frame = build_write_request("M100", 1)
+        assert len(frame) == 22
 
 
 # =============================================
@@ -253,7 +275,6 @@ class TestParseReadResponse:
         resp = _make_read_response([1, 0, 1, 0], "M100")
         values = parse_read_response(resp, "M100")
         assert len(values) == 4
-        # nibble order: low nibble first
         assert values == [1, 0, 1, 0]
 
     def test_parse_zero(self):
@@ -267,18 +288,23 @@ class TestParseReadResponse:
         assert values == [65535]
 
     def test_parse_empty(self):
-        resp = b"\xD0\x00\x00\x00\x00\x00"
+        resp = _make_resp_header(end_code=0, data_len=2)
         values = parse_read_response(resp, "D100")
         assert values == []
 
     def test_error_end_code_raises(self):
-        resp = b"\xD0\x00\x00\x00\xC0\x05"
+        resp = _make_resp_header(end_code=0x05C0, data_len=2)
         with pytest.raises(MCFrameError, match="错误码"):
             parse_read_response(resp, "D100")
 
     def test_short_response_raises(self):
         with pytest.raises(MCFrameError, match="过短"):
             parse_read_response(b"\x00\x00\x00", "D100")
+
+    def test_invalid_subheader_raises(self):
+        bad = b"\x50\x00" + b"\x00" * 9  # wrong subheader
+        with pytest.raises(MCFrameError, match="无效响应子头"):
+            parse_read_response(bad, "D100")
 
 
 # =============================================
@@ -288,11 +314,11 @@ class TestParseReadResponse:
 class TestParseWriteResponse:
 
     def test_success(self):
-        resp = b"\xD0\x00\x00\x00\x00\x00"
+        resp = _make_write_response(end_code=0)
         assert parse_write_response(resp)
 
     def test_error_raises(self):
-        resp = b"\xD0\x00\x00\x00\xC0\x05"
+        resp = _make_write_response(end_code=0x05C0)
         with pytest.raises(MCFrameError, match="写入错误码"):
             parse_write_response(resp)
 
@@ -314,25 +340,19 @@ class TestEdgeCases:
 
     def test_max_address_encoding(self):
         frame = build_read_request("D65535", 1)
-        body = frame[11:]
-        addr_bytes = body[1:4]
+        # HeadDevice at offset 15
+        addr_bytes = frame[15:18]
         assert addr_bytes == struct.pack("<I", 65535)[:3]
-
-    def test_negative_count_raises(self):
-        """负 count 触发 struct.error"""
-        with pytest.raises(struct.error):
-            build_read_request("D100", -1)
 
     def test_build_write_zero(self):
         frame = build_write_request("D100", 0)
         assert len(frame) > 0
 
     def test_build_write_negative(self):
-        """负值也能编码（二进制补码）"""
+        """负值按无符号 16 位编码"""
         frame = build_write_request("D100", -1)
-        body = frame[11:]
-        value = struct.unpack("<H", body[8:10])[0]
-        assert value == 0xFFFF  # -1 as unsigned 16-bit
+        value = struct.unpack("<H", frame[21:23])[0]
+        assert value == 0xFFFF
 
 
 # =============================================
@@ -342,7 +362,6 @@ class TestEdgeCases:
 class TestRoundTrip:
 
     def test_read_word_roundtrip(self):
-        """构建读请求 → 解析模拟响应"""
         values = [42, 999, 12345]
         resp = _make_read_response(values, "D100")
         result = parse_read_response(resp, "D100")
@@ -354,8 +373,10 @@ class TestRoundTrip:
         result = parse_read_response(resp, "M100")
         assert result[:len(values)] == values
 
-    def test_different_devices_same_frame_structure(self):
+    def test_different_devices_same_header(self):
+        """不同设备类型的请求头（前 9 字节）应相同"""
         frame_d = build_read_request("D100", 1)
         frame_m = build_read_request("M100", 1)
-        assert frame_d[:11] == frame_m[:11]
-        assert frame_d[11:12] != frame_m[11:12]
+        assert frame_d[:9] == frame_m[:9]
+        # 但设备代码不同
+        assert frame_d[18] != frame_m[18]

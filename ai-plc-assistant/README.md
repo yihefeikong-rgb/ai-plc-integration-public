@@ -29,7 +29,7 @@ ai-plc-assistant/
 cd backend
 pip install -r requirements.txt
 python main.py
-# 服务运行在 http://127.0.0.1:8000
+# 服务运行在 http://127.0.0.1:8005
 ```
 
 ### 前端
@@ -58,13 +58,13 @@ npm run dev
 └───────────────────────────────────────────────────┘
 ```
 
-## V0.1 功能
+## V1.0 功能
 
 - [x] 三栏布局：项目列表 / AI聊天 / 上下文面板
 - [x] 多模型切换（OpenAI / Claude / Kimi / DeepSeek / OpenRouter）
 - [x] 底部日志面板
-- [ ] 模型 API 接入
-- [ ] 本地知识库 (RAG)
-- [ ] PLC 工程搜索
-- [ ] Prompt 模板管理
-- [ ] 梯形图生成
+- [x] 模型 API 接入
+- [x] 本地知识库 (RAG)
+- [x] PLC 工程搜索
+- [x] Prompt 模板管理
+- [x] 梯形图生成

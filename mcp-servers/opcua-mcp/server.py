@@ -14,9 +14,14 @@ OPC UA MCP Server — AI 通过 OPC UA 协议读写 PLC 变量
   python server.py              # stdio 模式（给 Claude Code 用）
   python server.py --test       # 测试连接
 """
+import os
 import sys
 from typing import Optional
 from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -30,9 +35,28 @@ try:
 except ImportError:
     ASYNCUA_AVAILABLE = False
 
-# 导入本地安全模块
+# 导入本地安全模块（OPC UA 专用互锁检查）
 sys.path.insert(0, str(Path(__file__).parent))
 import safety
+
+# 导入根安全链（validator + shadow_sim + audit）
+from safety.validator import validator as safety_validator
+from safety.shadow_simulator import shadow_sim
+from mcp_common.audit import get_audit_logger
+
+_audit = get_audit_logger()
+
+# ── 认证 ──
+_AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "")
+
+
+def _require_auth(token: str = "") -> None:
+    """验证 auth token（空 _AUTH_TOKEN 表示未启用认证，直接通过）"""
+    if not _AUTH_TOKEN:
+        return
+    if token != _AUTH_TOKEN:
+        raise PermissionError("认证失败：无效的 auth token")
+
 
 # ── 全局状态 ──
 mcp = FastMCP("opcua_plc")
@@ -48,12 +72,14 @@ _endpoint: str = ""
     name="opcua_connect",
     annotations={"destructiveHint": False},
 )
-async def connect(endpoint: str = "opc.tcp://192.168.0.1:4840") -> str:
+async def connect(endpoint: str = "opc.tcp://192.168.0.1:4840", auth_token: str = "") -> str:
     """连接到 OPC UA 服务器（西门子 PLC 默认端口 4840）
 
     Args:
         endpoint: OPC UA 端点地址
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     global _client, _endpoint
 
     if not ASYNCUA_AVAILABLE:
@@ -76,8 +102,13 @@ async def connect(endpoint: str = "opc.tcp://192.168.0.1:4840") -> str:
     name="opcua_disconnect",
     annotations={"destructiveHint": False},
 )
-async def disconnect() -> str:
-    """断开 OPC UA 连接"""
+async def disconnect(auth_token: str = "") -> str:
+    """断开 OPC UA 连接
+
+    Args:
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
     global _client, _endpoint
 
     if _client is None:
@@ -97,8 +128,13 @@ async def disconnect() -> str:
     name="opcua_get_status",
     annotations={"readOnlyHint": True},
 )
-async def get_status() -> str:
-    """获取 OPC UA 连接状态和安全信息"""
+async def get_status(auth_token: str = "") -> str:
+    """获取 OPC UA 连接状态和安全信息
+
+    Args:
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
     fuse = safety.get_fuse_status()
     status_lines = [
         f"asyncua: {'可用' if ASYNCUA_AVAILABLE else '未安装'}",
@@ -117,12 +153,14 @@ async def get_status() -> str:
     name="opcua_read",
     annotations={"readOnlyHint": True},
 )
-async def read_node(node_id: str) -> str:
+async def read_node(node_id: str, auth_token: str = "") -> str:
     """读取 OPC UA 节点的当前值
 
     Args:
         node_id: 节点标识符，如 "ns=3;s=DB1.MotorSpeed" 或 "ns=3;i=100"
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     if _client is None:
         return "❌ 未连接，请先调用 opcua_connect"
 
@@ -139,13 +177,15 @@ async def read_node(node_id: str) -> str:
     name="opcua_browse",
     annotations={"readOnlyHint": True},
 )
-async def browse(node_id: str = "ns=0;i=85", depth: int = 2) -> str:
+async def browse(node_id: str = "ns=0;i=85", depth: int = 2, auth_token: str = "") -> str:
     """浏览 OPC UA 节点树结构
 
     Args:
         node_id: 起始节点（默认 Objects 文件夹 ns=0;i=85）
         depth: 浏览深度（默认 2 层）
+        auth_token: 认证令牌
     """
+    _require_auth(auth_token)
     if _client is None:
         return "❌ 未连接，请先调用 opcua_connect"
 
@@ -185,6 +225,7 @@ async def write_node(
     node_id: str,
     value: str,
     data_type: str = "auto",
+    auth_token: str = "",
 ) -> str:
     """写入 OPC UA 节点值（自动检查安全互锁）
 
@@ -192,31 +233,54 @@ async def write_node(
         node_id: 节点标识符
         value: 要写入的值（字符串形式）
         data_type: 数据类型 (auto/bool/int/float/string)
+        auth_token: 认证令牌
 
     安全机制:
-        - 写入前自动检查互锁条件（急停、安全位）
+        - 认证令牌验证
+        - 根安全链: validator → shadow_sim → audit
+        - OPC UA 互锁检查（急停、安全位）
         - 数值范围检查
         - 连续异常自动熔断
     """
+    _require_auth(auth_token)
+
     if _client is None:
         return "❌ 未连接，请先调用 opcua_connect"
 
-    # 1. 互锁检查
+    # 1. 根安全链 — validator 互锁检查
+    val_result = safety_validator.validate(node_id, value)
+    if not val_result.allowed:
+        _audit.log("write_blocked", node_id, str(value),
+                   success=False, detail=val_result.reason)
+        return f"🚫 安全校验拒绝: {val_result.reason}"
+
+    # 2. 根安全链 — 影子仿真
+    sim_result = await shadow_sim.simulate_write(node_id, value)
+    if not sim_result.safe:
+        _audit.log("shadow_rejected", node_id, str(value),
+                   success=False, detail=sim_result.reason)
+        return f"🚫 影子仿真拒绝: {sim_result.reason}"
+
+    # 3. OPC UA 专用互锁检查（读取 PLC 安全位）
     interlock_ok, interlock_reason = await safety.check_interlock(_client)
     if not interlock_ok:
         safety.record_write(node_id, value, False, interlock_reason)
+        _audit.log("interlock_blocked", node_id, str(value),
+                   success=False, detail=interlock_reason)
         return f"🚫 写入被拒绝: {interlock_reason}"
 
-    # 2. 范围检查
+    # 4. 范围检查
     range_ok, range_reason = safety.check_value_range(node_id, value)
     if not range_ok:
         safety.record_write(node_id, value, False, range_reason)
+        _audit.log("range_blocked", node_id, str(value),
+                   success=False, detail=range_reason)
         return f"🚫 值超出范围: {range_reason}"
 
-    # 3. 类型转换
+    # 5. 类型转换
     converted = _convert_value(value, data_type)
 
-    # 4. 执行写入
+    # 6. 执行写入
     try:
         node = _client.get_node(node_id)
         if data_type == "auto":
@@ -226,12 +290,14 @@ async def write_node(
             dv = ua.DataValue(ua.Variant(converted))
         await node.write_value(dv)
 
-        # 5. 读回验证
+        # 7. 读回验证
         readback = await node.read_value()
         safety.record_write(node_id, value, True)
+        _audit.log("write", node_id, str(value), success=True)
         return f"✅ 已写入 {node_id} = {readback}"
     except Exception as e:
         safety.record_write(node_id, value, False, str(e))
+        _audit.log("write", node_id, str(value), success=False, detail=str(e))
         return f"❌ 写入失败: {e}"
 
 
@@ -239,8 +305,13 @@ async def write_node(
     name="opcua_reset_fuse",
     annotations={"destructiveHint": True},
 )
-async def reset_fuse() -> str:
-    """重置安全熔断器（连续写入失败后自动触发熔断，需人工重置）"""
+async def reset_fuse(auth_token: str = "") -> str:
+    """重置安全熔断器（连续写入失败后自动触发熔断，需人工重置）
+
+    Args:
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
     result = safety.reset_fuse()
     return result
 

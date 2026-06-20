@@ -3,19 +3,46 @@
 支持 FX3U / FX5U，TCP Binary 模式
 """
 
+import os
+import sys
 import asyncio
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_MODULE_DIR = Path(__file__).parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(_PROJECT_ROOT))
+if str(_MODULE_DIR) not in sys.path:
+    sys.path.append(str(_MODULE_DIR))
+
 from fastmcp import FastMCP
-from config.settings import settings
+from mcp_common.config import env_config
 from safety.validator import validator as safety_validator
-from mcp_common.audit import audit
-from .mc_protocol import (
+from safety.shadow_simulator import shadow_sim
+from mcp_common.audit import get_audit_logger
+
+audit = get_audit_logger()
+from mc_protocol import (
     build_read_request, build_write_request,
     parse_read_response, parse_write_response, MCFrameError,
 )
 
+settings = env_config()
+
 mcp = FastMCP("mitsubishi-plc")
 _reader: asyncio.StreamReader | None = None
 _writer: asyncio.StreamWriter | None = None
+
+# ── 认证 ──
+_AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "")
+
+
+def _require_auth(token: str):
+    """验证 auth token（必须设置 MCP_AUTH_TOKEN）"""
+    if not _AUTH_TOKEN:
+        raise PermissionError("MCP_AUTH_TOKEN 未配置，服务不可用")
+    if token != _AUTH_TOKEN:
+        raise PermissionError("认证失败：无效的 auth token")
 
 
 async def get_connection():
@@ -30,8 +57,9 @@ async def get_connection():
 # ===== 阶段1：读取 =====
 
 @mcp.tool()
-async def read_device(addr: str) -> dict:
+async def read_device(addr: str, auth_token: str = "") -> dict:
     """读取单个设备地址（如 'M100', 'D200'）"""
+    _require_auth(auth_token)
     try:
         r, w = await get_connection()
         frame = build_read_request(addr, 1)
@@ -47,21 +75,29 @@ async def read_device(addr: str) -> dict:
 
 
 @mcp.tool()
-async def read_devices(addresses: list[str]) -> list[dict]:
+async def read_devices(addresses: list[str], auth_token: str = "") -> list[dict]:
     """批量读取设备"""
-    return [await read_device(a) for a in addresses]
+    _require_auth(auth_token)
+    return [await read_device(a, auth_token=auth_token) for a in addresses]
 
 
 # ===== 阶段2：写入（带安全校验）=====
 
 @mcp.tool()
-async def write_device(addr: str, value: int, operator: str = "ai-agent") -> dict:
+async def write_device(addr: str, value: int, operator: str = "ai-agent", auth_token: str = "") -> dict:
     """写入设备地址"""
+    _require_auth(auth_token)
     result = safety_validator.validate(addr, value)
     if not result.allowed:
         audit.log("write_blocked", addr, str(value), operator=operator,
                   success=False, detail=result.reason)
         return {"device": addr, "status": "blocked", "reason": result.reason}
+
+    sim_result = await shadow_sim.simulate_write(addr, value)
+    if not sim_result.safe:
+        audit.log("shadow_rejected", addr, str(value), operator=operator,
+                  success=False, detail=sim_result.reason)
+        return {"device": addr, "status": "blocked", "reason": sim_result.reason}
 
     try:
         r, w = await get_connection()
@@ -76,7 +112,7 @@ async def write_device(addr: str, value: int, operator: str = "ai-agent") -> dic
     except Exception as e:
         audit.log("write", addr, str(value), operator=operator,
                   success=False, detail=str(e))
-        safety_validator.record_error()
+        safety_validator.consecutive_errors += 1
         return {"device": addr, "status": "error", "error": str(e)}
 
 

@@ -5,7 +5,7 @@
 
 **技术栈：** MCP + Python + C#/.NET + Electron + React + FastAPI + Docker
 
-**版本：** TIA Portal V18 / PLCSIM Advanced V8.0
+**版本：** TIA Portal V21 / PLCSIM Advanced V8.0
 
 ---
 
@@ -149,7 +149,7 @@ python plcsim_api.py purge factoryio   # 强制清理残留实例数据
 | └─ | TIA Portal V21 升级适配 + DLL 拆分 | ✅ |
 | └─ | TCP/IP 模式切换 + Factory I/O 连接 | ✅ |
 | └─ | TiaWorker C# 桥接 + 端到端脚本 p3_flow.py | ✅ |
-| **4** | 工业机器人 MCP (Pick & Place / OPC UA) | 🟡 开发中 |
+| **4** | 工业机器人 MCP (Pick & Place / OPC UA) | ⚪ 未开始（骨架） |
 | └─ | robot-mcp 服务器 (7 工具) | ✅ 完成 |
 | └─ | Pick & Place (Basic) 场景 I/O 映射 | ✅ 完成 |
 | └─ | 安全复位/急停互锁/异常恢复 | ✅ 完成 |
@@ -208,10 +208,21 @@ TIA Portal 项目 → 编译 → PLCSIM 仿真 → Factory I/O 可视化
 ## 🔒 安全
 
 - 所有写入操作需影子仿真验证（PLCSIM）
-- 生产环境写入需人工确认
-- 连续 3 次异常值自动熔断
-- 审计日志不可篡改（只追加模式）
+- 生产环境写入需双人确认（操作人 + 确认人）
+- 连续 3 次异常值自动熔断（需双人确认后人工重置）
+- 审计日志不可篡改（HMAC 链式哈希 + 只追加模式）
 - 安全互锁规则配置（`safety/interlock-rules.yml`）
+
+### MCP 服务器认证
+
+所有 MCP 服务器（tia-mcp / opcua-mcp / modbus-mcp / mitsubishi-mcp / desktop-mcp / robot-mcp）均通过 `MCP_AUTH_TOKEN` 环境变量启用认证：
+
+```bash
+# .env 或环境变量中设置
+export MCP_AUTH_TOKEN="your-secret-token"
+```
+
+未设置此环境变量时，MCP 服务器将**拒绝所有请求**（默认拒绝策略）。部署前必须设置此变量。`plc-mcp-bridge` 作为内部桥接服务器不在此列。
 
 ## 📚 参考
 

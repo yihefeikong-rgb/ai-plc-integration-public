@@ -19,19 +19,29 @@ VAR_OUTPUT
 END_VAR
 
 VAR
-    iState : Int := 0;       // 0=停止 1=主路绿 2=主路黄 3=支路绿 4=支路黄
+    iState : Int := 0;       // 0=停止 1=主路绿 2=主路黄 3=支路绿 4=支路黄 5=黄闪
     tGreen1 : TON;           // 主路绿灯时长 30s
     tYellow1 : TON;          // 主路黄灯时长 3s
     tGreen2 : TON;           // 支路绿灯时长 20s
     tYellow2 : TON;          // 支路黄灯时长 3s
+    tFlash : TON;            // 黄闪周期定时器
+    bFlashState : Bool;      // 黄闪当前状态
 END_VAR
 
 BEGIN
-    // ── 急停 ──
+    // ── 急停：四向黄闪（交通安全标准） ──
     IF NOT bEmergencyStop THEN
-        bRed1 := FALSE; bYellow1 := FALSE; bGreen1 := FALSE;
-        bRed2 := FALSE; bYellow2 := FALSE; bGreen2 := FALSE;
-        iState := 0;
+        bRed1 := FALSE; bGreen1 := FALSE;
+        bRed2 := FALSE; bGreen2 := FALSE;
+        // 四向黄灯闪烁（500ms 周期）
+        tFlash(IN := NOT tFlash.Q, PT := T#500MS);
+        IF tFlash.Q THEN
+            bFlashState := NOT bFlashState;
+            tFlash(IN := FALSE);
+        END_IF;
+        bYellow1 := bFlashState;
+        bYellow2 := bFlashState;
+        iState := 5;
         RETURN;
     END_IF;
 

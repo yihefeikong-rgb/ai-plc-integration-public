@@ -20,7 +20,7 @@
 ### 1.2 TIA Portal
 
 - TIA Portal = Totally Integrated Automation Portal
-- 版本: V18（本项目主力）、V19、V21
+- 版本: V21（本项目主力）
 - TIA Portal Openness: COM 接口，允许外部程序操作 TIA Portal
 - 项目文件格式: `.ap18` (V18)、`.ap19` (V19)、`.ap21` (V21)
 
@@ -72,12 +72,12 @@ END_FUNCTION_BLOCK
 
 ## 2. TIA Portal 相关经验
 
-### 2.1 V18 特殊处理
+### 2.1 V21 当前环境
 
-- **TIA Portal V18** 是项目主版本
-- Windows 11 兼容性: V18 官方支持 Windows 10/11
+- **TIA Portal V21** 是项目主版本（已从 V18 迁移）
+- Windows 11 兼容性: V21 官方支持 Windows 10/11
 - Openness 接口需要管理员权限运行
-- COM 接口需要注册（`TIA Openness V18` 程序集）
+- 模块化 DLL 加载（V21 新架构）
 
 ### 2.2 V18 → V21 差异（遇到的）
 
@@ -340,5 +340,5 @@ system.DownloadToPLCSIM();
 
 - **项目维护**: @yihefeixong-rgb
 - **技术栈**: Python 3.13 + FastAPI + React + Electron + ChromaDB + SQLite
-- **硬件环境**: Windows 11, TIA Portal V18, PLCSIM Advanced V8.0
+- **硬件环境**: Windows 11, TIA Portal V21, PLCSIM Advanced V8.0
 - **开发周期**: Phase 1-3 约 3 周，AI PLC Assistant 约 2 周

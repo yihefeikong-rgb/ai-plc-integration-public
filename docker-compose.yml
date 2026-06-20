@@ -38,7 +38,9 @@ services:
 
   # 边缘网关（DeepSeek 云端 AI）
   edge-gateway:
-    build: ./edge-gateway
+    build:
+      context: .
+      dockerfile: edge-gateway/Dockerfile
     container_name: ai-plc-gateway
     ports:
       - "8000:8000"

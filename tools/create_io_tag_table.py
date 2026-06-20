@@ -196,22 +196,6 @@ def main():
         return 1
     finally:
         tia.Dispose()
-        # 确保 TIA Portal 进程真正结束
-        import subprocess
-        for filt in ['S7*', 'Tia*']:
-            try:
-                r = subprocess.run(f'tasklist /fi "IMAGENAME eq {filt}" /fo csv /nh', shell=True, capture_output=True, text=True, encoding='gbk', errors='replace')
-            except Exception:
-                continue
-            stdout = r.stdout or ''
-            for line in stdout.strip().split('\n'):
-                if line:
-                    parts = line.replace('"','').split(',')
-                    if parts:
-                        proc_name = parts[0].strip()
-                        if proc_name:
-                            subprocess.run(['taskkill', '/f', '/im', proc_name], capture_output=True)
-                            print(f'   💀 已杀进程: {proc_name}')
         print('✅ TIA Portal 已关闭')
 
     return 0
