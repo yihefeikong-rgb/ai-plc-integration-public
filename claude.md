@@ -63,10 +63,12 @@
 1. 读取 `CLAUDE.md`（本文件，始终在上下文）
 2. 读取 `.plans/ai-plc-integration/handoff.md` → 知道上次交接状态
 3. 读取 `.plans/ai-plc-integration/task_plan.md` → 知道当前路线图
-4. 读取 `.plans/ai-plc-integration/progress.md` → 知道上次做到哪
-5. 读取 `.plans/ai-plc-integration/findings.md` → 知道已有结论
-6. 读取 `.plans/ai-plc-integration/tech_debt.md` 和 `risks.md` → 知道债务和风险
-7. 然后开始工作，不重复盘点
+4. 读取 `.plans/ai-plc-integration/task_queue.md` → 知道当前任务队列（操作入口）
+5. 读取 `.plans/ai-plc-integration/task_spec.md` → 知道当前 slice 规格
+6. 读取 `.plans/ai-plc-integration/progress.md` → 知道上次做到哪
+7. 读取 `.plans/ai-plc-integration/findings.md` → 知道已有结论
+8. 读取 `.plans/ai-plc-integration/tech_debt.md` 和 `risks.md` → 知道债务和风险
+9. 然后开始工作，不重复盘点
 
 ---
 
@@ -146,3 +148,39 @@ ai-plc-integration/
 ### 配置安全
 6. **安装 global git hooks 前必须显示预览并确认**（列出要安装的 hook 内容，获得用户明确同意）
 7. **修改 ~/.claude/settings.json 前必须先备份并显示 diff 预览**（备份路径: ~/.claude/settings.json.bak）
+
+---
+
+## Team OS 主控规则（强制）
+
+### 主对话权限
+主对话（team-lead）只允许做三件事：
+1. **拆分任务**: 将需求拆分为 vertical slices，写入 `task_queue.md` 和 `task_spec.md`。
+2. **调度角色**: 按 `Researcher → Developer → Reviewer → Documenter` 的顺序分派任务。
+3. **验收产物**: 检查每个角色的输出是否落在其 allowed outputs 范围内。
+
+### 主对话禁止
+- 不能直接写研究结论（findings.md 只能由 Researcher/Documenter 更新）。
+- 不能直接写业务代码、测试代码、或修改业务文件。
+- 不能直接做详细代码审查或输出 PASS/FAIL。
+- 不能直接修改 `progress.md` / `handoff.md` / `decisions.md` / `findings.md`（应由 Documenter 在对应阶段更新）。
+- 不能直接回应业务问题；必须先写入任务队列，再分派给 Researcher。
+
+### 强制分工触发条件
+- 任何涉及多步骤的研究 → Researcher
+- 任何代码/测试实现 → Developer
+- 任何审查/打分/安全分析 → Reviewer
+- 任何进度/文档/交接更新 → Documenter
+
+### 单任务推进
+- 同一时刻只允许一个 `IN_PROGRESS` 的 task_spec。
+- 当前 slice 未通过 review 之前，不得开始新 slice。
+- 并行只能发生在同一 slice 内的独立子任务（由 team-lead 显式声明）。
+
+### 失败处理
+- 角色失败时，team-lead 不得替该角色补产物。
+- team-lead 应将失败原因写入 `findings.md`（通过 Documenter），然后重分配任务。
+
+### 停止条件
+- Team OS 初始化完成后，主对话必须输出 `Project Brain Initialized`，并等待人工确认。
+- 在未获得人工确认前，不得进入业务功能开发。

@@ -40,6 +40,47 @@
 
 ## 3. 当前最卡住的 3 个瓶颈
 
+## 7. TS002 研究发现 — Phase 3 (TiaWorker) 剩余 10%
+
+> 生成时间：2026-06-22 | 研究者：Researcher
+
+### 关键数据
+- TiaWorker.exe C# 代码：3326 行，40+ 命令全部实现
+- Python MCP 服务 (server.py)：775 行，9 个 MCP 工具
+- TiaWorker C# 测试：36 个（仅覆盖参数解析/DTO/JSON 辅助，核心逻辑零覆盖）
+- Phase 3 Python 模块测试覆盖：~14% 代码行有测试（主要是 download_to_plcsim.py）
+- 已归档测试：7 个 Python 测试文件在 `archived/` 中，不再维护
+
+### 核心发现
+
+| # | 发现 | 严重度 | 文件 | 行号 |
+|---|------|--------|------|------|
+| 1 | TiaWorker 35+ 业务方法零测试覆盖 | Critical | `TiaWorker/TiaWorker.Tests/` | 全局 |
+| 2 | server.py 只映射了 9/40+ TiaWorker 功能到 MCP 工具 | High | `server.py` | Lines 156-580 |
+| 3 | Phase 3 Python 层 3500+ 行无测试 | Critical | `mcp-servers/tia-mcp/*.py` | 全局 |
+| 4 | layout_engine.py 嵌套分支未实现 + TODO | Medium | `layout_engine.py` | Lines 16,97,154 |
+| 5 | UnitTest1.cs 是空壳 | Medium | `TiaWorker.Tests/UnitTest1.cs` | Lines 1-9 |
+| 6 | CreateUdt 仅创建 Placeholder:Bool 伪 UDT | Low | `TiaWorker/Program.cs` | Line 1620 |
+| 7 | ConveyorControl FB501 未在 OB1 自动调用 | High | `tech_debt.md` | T-006 |
+| 8 | p3_flow.py 解析 TiaWorker 编译输出的格式可能不兼容 | Medium | `scripts/p3_flow.py` | Line 118 |
+| 9 | 在线状态功能 (GoOnline/GoOffline) 实现脆弱 | Medium | `TiaWorker/Program.cs` | Lines 2870-2987 |
+| 10 | gen_io_map.py 和 create_plc_tags.py 零测试 | Medium | `tests/` | 无覆盖 |
+| 11 | lad_ast.py / ladder_renderer.py / layout_engine.py 零测试 | Medium | `tests/` | 无覆盖 |
+
+### 建议实施顺序
+1. **P0**: 为 server.py 9 个 MCP 工具加 mock 测试
+2. **P0**: 为 TiaWorker 核心命令（import-scl, compile, download）加 C# 测试
+3. **P1**: 修复 TiaWorker 编译输出格式与 p3_flow.py 的兼容性
+4. **P1**: 为 gen_io_map 和 create_plc_tags 加测试
+5. **P2**: 为阶梯图 AST/渲染器/布局引擎加测试
+6. **P2**: 将更多 TiaWorker 命令映射为 MCP 工具（list-blocks, create-block 等）
+7. **P2**: 修复 ConveyorControl FB501 自动调用问题
+8. **P3**: 修复 layout_engine.py 分支叠加 bug 和 CreateUdt 结构定义
+
+完整报告参见：`.superpowers/sdd/research-ts002-report.md`
+
+---
+
 ### 瓶颈 1：上下文丢失（严重度：HIGH）
 - **现象**：7 个顶层文档（CLAUDE.md / AGENTS.md / AI_CONTEXT.md / ARCHITECTURE.md / CURRENT_STATUS.md / TODO.md / PROJECT_HANDOVER.md）内容重叠、更新不同步
 - **根因**：没有单一真相源（Single Source of Truth），每次会话需要重新加载大量上下文

@@ -116,8 +116,9 @@ def step2_compile():
         if stdout:
             try:
                 result = json.loads(stdout)
-                if result.get('status') == 'ok':
-                    data = result['data']
+                # TiaWorker 实际输出格式: { "ok": true/false, "result": { ... }, "error": null/msg }
+                if result.get('ok'):
+                    data = result.get('result', {})
                     if not data.get('success'):
                         log(f"编译失败: {data.get('errors', '?')} 错误", "error")
                         return False

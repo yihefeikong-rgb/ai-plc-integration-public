@@ -1,11 +1,33 @@
 {
   "permissions": {
     "allow": [
+      "mcp__plc-mcp-bridge__*",
       "mcp__plugin_plc-mcp-kit_github__search_repositories",
       "WebFetch(domain:controlbyte.tech)",
-      "WebSearch",
       "WebFetch(domain:docs.tia.siemens.cloud)",
-      "WebFetch(domain:www.reddit.com)"
+      "WebFetch(domain:www.reddit.com)",
+      "WebSearch"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "node -e \"const p=process.env.FILE_PATH||'';if(p.includes('safety')||/interlock|estop|emergency|e_stop|急停/i.test(p)){console.error('');console.error('⚠️  [安全拦截] 正在编辑安全关键代码:');console.error('    '+p);console.error('    请确认操作符合项目安全红线。');console.error('')}\"",
+        "description": "编辑 safety/ 或含急停逻辑的代码时弹出安全提醒"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "D:/Python3/python.exe -m black --quiet \"$FILE_PATH\" 2>nul || exit 0",
+        "description": "Python 文件 black 自动格式化"
+      },
+      {
+        "matcher": "Edit|Write",
+        "command": "D:/Python3/python.exe -m ruff check --fix --quiet \"$FILE_PATH\" 2>nul || exit 0",
+        "description": "Python 文件 ruff 自动 lint 修复"
+      }
     ]
   }
 }

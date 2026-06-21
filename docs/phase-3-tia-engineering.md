@@ -183,3 +183,38 @@ cd mcp-servers/tia-mcp && python server.py
 | `mcp-servers/tia-mcp/ladder_renderer.py` | SVG 渲染（可选） |
 | `mcp-servers/tia-mcp/gen_io_map.py` | IO 映射生成 |
 | `mcp-servers/tia-mcp/call_fb_in_ob1.py` | OB1 调用链生成 |
+
+---
+
+## 🧪 测试覆盖（2026-06-22 更新）
+
+### 新增测试文件
+
+| 测试文件 | 测试数 | 覆盖目标 | 引入时间 |
+|---------|--------|---------|---------|
+| `tests/test_server_tools.py` | 40 | server.py 9 个 MCP 工具 + 内部函数（_run_worker / _resolve_path / _check_auth / _safety_gate） | TS002 |
+| `tests/test_p3_flow_parsing.py` | 12 | p3_flow.py 编译输出 JSON 解析（成功/失败/空/非法格式） | TS002 |
+| `tests/test_gen_io_map.py` | 15 | gen_io_map.py（generate_io_map / CLI 入口） | TS002 |
+| `tests/test_create_plc_tags.py` | 17 | create_plc_tags.py（_generate_tag_xml / create_tags / create_tags_from_json） | TS002 |
+
+### 测试运行结果
+
+```bash
+# 新增测试：83 passed, 0 failed, 0 skipped
+# 与预存测试共存：212 passed, 6 skipped, 0 failed
+```
+
+### 已知缺口
+
+| 模块 | 测试状态 | 计划 |
+|------|---------|------|
+| `lad_ast.py` | 零测试 | TS004 |
+| `ladder_renderer.py` | 零测试 | TS004 |
+| `layout_engine.py` | 零测试 | TS004 |
+| `call_fb_in_ob1.py` | 零测试 | TS004 |
+| TiaWorker C# 核心命令 | 空壳测试 (`UnitTest1.cs`) | TS003 |
+
+### 注意事项
+
+1. **sys.modules 污染**：多个预存测试文件在模块级别修改 `sys.modules`，导致跨文件测试顺序依赖。运行全部测试时需要注意测试顺序。
+2. **GBK 编码**：`test_gen_io_map.py` 的 CLI 测试在 Windows 控制台下产生 GBK 解码警告，可通过设置 `PYTHONIOENCODING=utf-8` 缓解。

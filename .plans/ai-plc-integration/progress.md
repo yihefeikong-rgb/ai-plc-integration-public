@@ -40,6 +40,61 @@
 
 ---
 
+## 2026-06-22：TS002 — Phase 3 Python 层测试 + P1 修复（完成）
+
+### 已完成
+- [x] Researcher 输出 Phase 3 剩余任务的完整 findings（`.superpowers/sdd/research-ts002-report.md`）
+- [x] Developer 完成 4 项任务：
+  - `server.py` 9 个 MCP 工具全部有 mock 测试覆盖（40 个测试）
+  - `p3_flow.py` 编译输出 JSON 解析修复（TiaWorker `{"ok": true, "result": {...}}` 格式兼容）
+  - `gen_io_map.py` 单元测试（15 个测试）
+  - `create_plc_tags.py` 单元测试（17 个测试）
+- [x] 新增 83 个测试全部通过
+- [x] 与预存测试共存时 212 passed / 6 skipped / 0 failed
+- [x] Reviewer 按 5 维度审查已通过（结果见 `.superpowers/sdd/ts002-diff.txt`）
+- [x] Documenter 同步文档
+
+### 文件变更清单
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `scripts/p3_flow.py` | 修复 | 编译输出 JSON 解析适配 TiaWorker 格式 |
+| `tests/test_server_tools.py` | 新增 | 40 个测试，覆盖 9 个 MCP 工具 + 内部函数 |
+| `tests/test_p3_flow_parsing.py` | 新增 | 12 个测试，覆盖 p3_flow.py 编译解析逻辑 |
+| `tests/test_gen_io_map.py` | 新增 | 15 个测试，覆盖 gen_io_map.py 核心函数 |
+| `tests/test_create_plc_tags.py` | 新增 | 17 个测试，覆盖 create_plc_tags.py 核心函数 |
+
+### 测试结果
+```bash
+# 新增测试
+pytest tests/test_p3_flow_parsing.py tests/test_gen_io_map.py \
+       tests/test_create_plc_tags.py tests/test_server_tools.py
+# 83 passed, 0 failed, 0 skipped
+
+# 新增测试 + 无冲突的预存测试
+pytest tests/test_config_loader.py tests/test_download_flow.py \
+       tests/test_safety_audit.py tests/test_safety_validator.py \
+       tests/test_shadow_simulator.py tests/test_validator_interlock.py \
+       tests/test_robot_mcp.py tests/test_edge_gateway.py \
+       tests/test_p3_flow_parsing.py tests/test_gen_io_map.py \
+       tests/test_server_tools.py tests/test_create_plc_tags.py
+# 212 passed, 6 skipped, 0 failed
+```
+
+### 已知问题（预存，非本次引入）
+1. **测试文件间 sys.modules 污染**：多个测试文件在模块级别修改 sys.modules，导致跨文件测试顺序依赖。
+2. **GBK 编码警告**：`test_gen_io_map.py` CLI 测试在 subprocess 线程中产生 GBK 解码警告，已通过 `PYTHONIOENCODING=utf-8` 缓解。
+3. **未覆盖模块**：`lad_ast.py`、`ladder_renderer.py`、`layout_engine.py` 零测试（TS004 范围）。
+
+### 阻塞项
+- 无
+
+### 下一步
+- TS003：补齐 TiaWorker C# 核心测试（IN_PROGRESS）
+- TS004：扩展 TIA MCP 工具映射 + FB501 自动调用
+- TS005：启动 Phase 5 统一编排层
+
+---
+
 ## 2026-06-22：修复 AI PLC Assistant 后端测试损坏用例
 
 ### 已完成
