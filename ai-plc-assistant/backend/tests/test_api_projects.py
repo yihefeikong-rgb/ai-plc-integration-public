@@ -49,8 +49,17 @@ class TestProjects:
         assert res.status_code == 404
 
     def test_list_after_create(self, client):
+        res = client.get("/api/projects")
+        before_count = len(res.json()["projects"])
+
         client.post("/api/projects", json={"name": "P1"})
         client.post("/api/projects", json={"name": "P2"})
+
         res = client.get("/api/projects")
+        after = res.json()["projects"]
+        after_names = {p["name"] for p in after}
+
         assert res.status_code == 200
-        assert len(res.json()["projects"]) == 2
+        assert "P1" in after_names
+        assert "P2" in after_names
+        assert len(after) >= before_count + 2

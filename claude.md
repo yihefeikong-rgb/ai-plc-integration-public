@@ -6,7 +6,71 @@
 
 ---
 
-## 当前进度（2026-06-20）
+## 运营规则（CCteam-creator 执行层）
+
+### 任务推进原则
+1. **先理解**：读 `.plans/ai-plc-integration/` 下的 `handoff.md` + `task_plan.md` + `progress.md` + `findings.md` + `docs/`
+2. **再拆分**：将需求拆成 vertical slice（贯穿 schema→API→测试，可独立验收）
+3. **再执行**：researcher 确认事实 → developer 实现 → reviewer 审查 → documenter 同步文档
+4. **再复核**：reviewer 独立审查，developer 不能自审自批
+
+### 文档同步原则
+- 代码改动后必须同步 `docs/architecture.md`（架构变更）和 `docs/api-contracts.md`（API 变更）
+- 新决策写入 `decisions.md`，新发现写入 `findings.md`
+- 技术债务更新 `tech_debt.md`，风险更新 `risks.md`
+- 每次会话结束更新 `handoff.md`
+- 所有 agent 优先读 `.plans/` 文件，再开始工作
+- **Undocumented APIs don't exist for other agents**
+
+### 不可破坏约束 (invariants)
+见 `.plans/ai-plc-integration/docs/invariants.md`（12 条硬边界）。最高优先级：
+- 禁止 AI 操作急停回路
+- 所有控制指令必须经过影子仿真
+- 审计日志不可篡改（HMAC 链式哈希）
+- 安全相关代码必须经过 reviewer 独立审查
+
+### 失败处理原则
+- 出现阻塞时先写入 `findings.md` 和 `progress.md`，再继续推进
+- 每次失败 → 沉淀为护栏（更新 invariants 或 Known Pitfalls）
+- 不回退到临场硬冲模式
+
+### 复核机制
+- **developer 和 reviewer 必须分离**，不能是同一 agent
+- reviewer 按 5 维度打分（安全30% / 正确性25% / 文档一致性20% / Invariants15% / 代码质量10%）
+- STRONG → 可合并 / ADEQUATE → 可合并附建议 / WEAK → BLOCK
+- 安全维度任何违反 = 自动 WEAK
+
+### 进度推进机制
+- 每次完成一个 slice，必须更新 `progress.md`
+- team-lead 负责验收每个 slice
+- 进度过长时归档 `progress.md` 旧内容
+
+### 团队配置
+
+| 角色 | 百炼模型 | Claude 映射 | 职责 |
+|------|---------|------------|------|
+| Team Lead（主对话） | Kimi K2.7 Code | — | 项目规划、Agent调度、任务拆分、Slice规划 |
+| Developer | DeepSeek V4 Pro | Sonnet | 编码、修Bug、重构、实现需求 |
+| Researcher | DeepSeek V4 Flash | Haiku | 搜索、读文档、整理资料、摘要 |
+| Reviewer/Architect | Qwen3.7-Max | Opus | 架构审查、代码Review、挑战方案、第二意见 |
+| Documenter | DeepSeek V4 Pro | Sonnet | 维护 Project Brain，同步文档，填写 handoff |
+
+模型映射：Haiku = DS-V4-Flash（便宜） / Sonnet = DS-V4-Pro（稳定编码/文档） / Opus = Qwen3.7-Max（架构审查）
+
+详见 `.plans/ai-plc-integration/agents/` 下各角色文件。
+
+### 会话恢复
+1. 读取 `CLAUDE.md`（本文件，始终在上下文）
+2. 读取 `.plans/ai-plc-integration/handoff.md` → 知道上次交接状态
+3. 读取 `.plans/ai-plc-integration/task_plan.md` → 知道当前路线图
+4. 读取 `.plans/ai-plc-integration/progress.md` → 知道上次做到哪
+5. 读取 `.plans/ai-plc-integration/findings.md` → 知道已有结论
+6. 读取 `.plans/ai-plc-integration/tech_debt.md` 和 `risks.md` → 知道债务和风险
+7. 然后开始工作，不重复盘点
+
+---
+
+## 当前进度（2026-06-22）
 
 | 模块 | 状态 |
 |------|------|
@@ -17,7 +81,8 @@
 | Phase 4: 工业机器人 | 未开始 |
 | Phase 5: 统一编排 | 未开始 |
 | 全仓审查修复 (63 A级) | ✅ 完成（58/58，2026-06-20） |
-| 测试覆盖 | ✅ 174 pass / 0 fail |
+| CCteam-creator 执行层接入 | ✅ 完成（2026-06-22） |
+| 测试覆盖 | ✅ 180 pass / 0 fail |
 
 ---
 

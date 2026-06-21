@@ -27,15 +27,36 @@
   - 运行 `ai-plc-assistant/backend/tests/` 验证：250 collected / 237 passed / 6 failed / 7 errors
   - 修正 `findings.md` 中"AI PLC Assistant 零测试"的错误描述
   - 修正 `tech_debt.md`：T-001 改为"后端测试有损坏用例"，T-002 改为"SVG 可视化待验证"
+- [x] 阶段 7：Project Brain 提交到 git
+  - 提交 21 个文件，包含 .plans/、AGENTS.md、CLAUDE.md、测试文件等
+  - commit: `dcf254f`
 
 ### 阻塞项
 - 无
 
 ### 下一步
-- 更新 `CLAUDE.md`：加入 Documenter 角色和 handoff 流程
-- 更新 `AGENTS.md`：补充 Project Brain 读取顺序
-- Phase 0 验收：确认 Project Brain Initialized
-- Phase 1 再启动：Slice 2（AI PLC Assistant 后端测试基础）或 其他优先项
+- 修复 `ai-plc-assistant/backend/tests/` 中 6 个失败和 7 个 error
+- 目标：250 pass / 0 fail / 0 error
+
+---
+
+## 2026-06-22：修复 AI PLC Assistant 后端测试损坏用例
+
+### 已完成
+- [x] 修复 `test_parsers_knowledge.py` 和 `test_parsers_search.py` fixture 缺失（在 `conftest.py` 添加 `sample_txt_file` / `sample_scl_file` / `sample_csv_file` / `sample_xml_file`）
+- [x] 修复 SSE 流式测试 mock 路径（patch `routes.chat.chat_stream`）
+- [x] 修复 `/api/chat` 非流式 mock 路径（patch `routes.chat.chat_with_fallback`）
+- [x] 修复 `test_api_projects.py::test_list_after_create` 测试隔离假设
+- [x] 修复 `mock_llm` 中 `generator.workflow.chat` 返回值被错误覆盖为 dict 的 bug
+- [x] 在 `client` fixture 中清空 `projects` / `conversations` / `messages` 表，提升测试隔离
+- [x] 后端测试结果：**250 passed / 0 failed / 0 error**
+
+### 阻塞项
+- 无
+
+### 下一步
+- 提交测试修复到 git
+- 更新 `tech_debt.md` T-001 状态
 
 ---
 

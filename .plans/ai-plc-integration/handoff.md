@@ -19,17 +19,20 @@
   - 创建 `agents/documenter.md`，定义 Documenter 角色
   - 更新 `CLAUDE.md`：加入 Documenter 角色、handoff 流程、tech_debt/risks 同步要求
   - 更新 `AGENTS.md`：补充 Project Brain 读取顺序
-  - **修正**：运行后端测试后发现 `ai-plc-assistant/backend/tests/` 已有 250 个测试（237 pass / 6 fail / 7 error），修正 `findings.md` 和 `tech_debt.md` 中"零测试"的错误描述
+  - 修正：运行后端测试后发现 `ai-plc-assistant/backend/tests/` 已有 250 个测试（237 pass / 6 fail / 7 error），修正 `findings.md` 和 `tech_debt.md` 中"零测试"的错误描述
+  - 修复：AI PLC Assistant 后端测试全部通过（250 passed / 0 failed / 0 error）
+    - 添加 parser fixtures
+    - 修正 SSE / chat mock 路径
+    - 修复 `mock_llm` 中 chat 返回值被覆盖的 bug
+    - 改善测试隔离（清空 projects / conversations / messages 表）
+    - 调整 `test_api_projects.py::test_list_after_create` 断言
 - **当前状态**：
-  - Phase 0（Project Brain 建设）已完成
-  - Project Brain 文件集已齐全：task_plan / progress / findings / decisions / handoff / tech_debt / risks / docs/
-  - Agent Charter 已扩展 5 角色：team-lead / researcher / developer / reviewer / documenter
-  - 业务功能暂停（Slice 2 后端测试延后）
+  - Phase 0（Project Brain 建设）已提交 git（commit `dcf254f`）
+  - AI PLC Assistant 后端测试已全部修复并通过
+  - 当前无阻塞
 - **下一步任务**：
-  - [ ] Phase 0 验收：人工确认 Project Brain Initialized
-  - [ ] 人工确认后启动 Phase 1（Slice 2 后端测试基础）
-- **阻塞/风险**：
-  - 无阻塞
+  - [ ] 提交测试修复到 git
+  - [ ] 决定 Phase 1 下一步重点（前端测试 / E2E / 其他）
 - **相关文件**：
   - `.plans/ai-plc-integration/task_plan.md`
   - `.plans/ai-plc-integration/progress.md`
