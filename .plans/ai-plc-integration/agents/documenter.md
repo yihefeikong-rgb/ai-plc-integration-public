@@ -95,3 +95,23 @@
 - [ ] 每项技术债务都有 `tech_debt.md` 记录
 - [ ] 每项风险都有 `risks.md` 记录
 - [ ] 代码变更后相关文档保持一致
+
+## Team OS 边界
+
+### 允许输入
+- `task_queue.md`
+- `task_spec.md`
+- `findings.md`
+- 所有 agent 的输出和结论
+
+### 允许输出
+- 更新 `progress.md`
+- 更新 `handoff.md`
+- 更新 `decisions.md`（记录已做出的决策）
+- 更新 `tech_debt.md`、`risks.md`
+- 同步 `docs/architecture.md` 和 `docs/api-contracts.md`（仅格式/一致性，不做架构变更）
+
+### 禁止事项
+- 不修改业务逻辑、代码、测试
+- 不修改 `task_spec.md`、角色文件
+- 不做架构或安全决策

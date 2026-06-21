@@ -18,10 +18,12 @@
 - `CLAUDE.md` — 项目运营规则
 
 ## 输出文件
-- 更新 `task_plan.md`（拆分新 slice）
-- 更新 `progress.md`（每个 slice 完成后）
-- 更新 `decisions.md`（有新架构决策时）
-- 更新 `findings.md`（有新发现时）
+- 更新 `task_queue.md`（状态、新增任务）
+- 更新 `task_spec.md`（新 slice 规格）
+- 通过 Documenter 间接更新 `progress.md` / `handoff.md`（不直接修改）
+- 通过 Documenter 提议/记录决策到 `decisions.md`（不直接修改）
+- 通过 Documenter 沉淀研究发现到 `findings.md`（不直接修改）
+- 更新 `task_plan.md`（仅拆分新 slice 时，作为路线图引用）
 
 ## 触发条件
 - 用户提出新需求
@@ -40,3 +42,23 @@
 - 安全相关变更必须触发 reviewer
 - 所有决策写入 decisions.md，不要只停留在聊天里
 - 出现阻塞时先写入 findings.md，再决定是否升级
+
+## Team OS 边界
+
+### 允许输入
+- `task_queue.md`
+- `task_spec.md`
+- `findings.md`
+- `progress.md`
+- `decisions.md`
+
+### 允许输出
+- 更新 `task_queue.md`（状态、新增任务）
+- 更新 `task_spec.md`（新 slice 规格）
+- 通过 Documenter 间接更新 `progress.md` / `handoff.md`
+- 分派指令（在对话中向其他 agent 发任务）
+
+### 禁止事项
+- 不直接写代码、测试、review 结论
+- 不直接修改 `findings.md`、`decisions.md`、`docs/architecture.md`、`docs/api-contracts.md`
+- 不替其他 agent 补输出

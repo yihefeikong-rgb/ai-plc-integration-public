@@ -43,3 +43,26 @@
 - 不要硬编码密钥或凭证
 - 安全相关代码（safety/、写入操作）必须额外小心
 - 文档同步不是可选的：API 变更 → 必须更新 api-contracts.md
+
+## Team OS 边界
+
+### 允许输入
+- `task_spec.md`
+- `findings.md`
+- `docs/architecture.md`
+- `docs/api-contracts.md`
+- `docs/invariants.md`
+- `CLAUDE.md`
+
+### 允许输出
+- 业务代码
+- 测试代码
+- 更新 `docs/architecture.md`（架构变更时）
+- 更新 `docs/api-contracts.md`（API 变更时）
+- 更新 `decisions.md`（实现决策时）
+
+### 禁止事项
+- 不审查自己的代码
+- 不修改 `task_queue.md`、`task_spec.md`、角色文件
+- 不做需求范围外的重构
+- 不修改 `progress.md`、`handoff.md`

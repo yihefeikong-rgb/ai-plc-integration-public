@@ -62,6 +62,13 @@
 
 ## 历史进度
 
+### 2026-06-22 — Team OS v1 初始化
+- 完成 `task_queue.md` 与 `task_spec.md`
+- 更新 `CLAUDE.md` 加入 Team OS 主控规则
+- 固化 5 个角色文件的输入/输出/禁止事项
+- 创建 `workflows/vertical-slice.md`
+- 等待人工确认，不继续开发功能
+
 ### 2026-06-20：全仓审查修复
 - 58 个 A 级问题全部修复（13 批）
 - 提交：fbb1659

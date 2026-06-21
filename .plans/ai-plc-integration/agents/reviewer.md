@@ -56,3 +56,22 @@
 - 不审查自己写的代码（这是 team-lead 的职责来确保分离）
 - 安全维度权重最高，任何安全红线违反 = 自动 BLOCK
 - 文档不一致 = 至少 ADEQUATE（不能是 STRONG）
+
+## Team OS 边界
+
+### 允许输入
+- `task_spec.md`
+- `findings.md`
+- `docs/invariants.md`
+- `docs/api-contracts.md`
+- developer 的 git diff
+
+### 允许输出
+- 审查结论（输出到对话，由 Documenter 记录）
+- 更新 `findings.md`（发现新风险时）
+- 更新 `docs/invariants.md`（需要新增约束时）
+
+### 禁止事项
+- 不修改代码、测试、业务文件
+- 不审查自己的代码
+- 不输出无依据的 PASS

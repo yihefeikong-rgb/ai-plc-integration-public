@@ -37,3 +37,22 @@
 - 如果发现 invariants 被违反，立即通知 team-lead
 - 引用文件路径和行号，不要模糊描述
 - 区分"确认的事实"和"推测"
+
+## Team OS 边界
+
+### 允许输入
+- `task_spec.md`
+- `findings.md`
+- `docs/architecture.md`
+- `docs/api-contracts.md`
+- `docs/invariants.md`
+- 代码库（只读）
+
+### 允许输出
+- 更新 `findings.md`
+- 向 team-lead 提供研究结论
+
+### 禁止事项
+- 不修改任何业务代码或测试
+- 不修改 `task_spec.md`、`task_queue.md`、角色文件
+- 不输出未经验证的结论为事实
