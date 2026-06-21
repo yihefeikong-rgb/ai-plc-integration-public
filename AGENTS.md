@@ -67,3 +67,23 @@
 - **`OpenCode.md`** — 完整项目规则（路径、操作指南、模板库、安全红线）
 - **`claude.md`** — 项目总纲（五阶段计划、技术规范）
 - **`AGENTS.md`** — 本文件，补充性快速参考
+
+---
+
+## Project Brain 读取顺序
+
+新会话恢复上下文时，按以下顺序读取 `.plans/ai-plc-integration/` 下文件：
+
+1. `handoff.md` — 上次交接状态
+2. `task_plan.md` — 当前路线图
+3. `progress.md` — 最新进度
+4. `findings.md` — 已有结论
+5. `decisions.md` — 架构决策
+6. `tech_debt.md` — 技术债务
+7. `risks.md` — 项目风险
+8. `docs/architecture.md` — 架构真相
+9. `docs/api-contracts.md` — API 契约
+10. `docs/invariants.md` — 不可破坏约束
+
+> 每次会话结束时，Documenter 负责更新 `handoff.md`。
+

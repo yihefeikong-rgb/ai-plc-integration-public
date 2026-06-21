@@ -78,6 +78,26 @@ class TestInterlockCooldown:
         assert not result2.allowed
         assert "冷却时间" in result2.reason
 
+    def test_heater_cooldown_expires(self, monkeypatch):
+        """冷却时间过期后应允许再次写入"""
+        import time as time_module
+        from safety.validator import WriteValidator
+
+        v = WriteValidator()
+        v.set_bit_reader(lambda addr: True)
+
+        # 第一次写入成功
+        result1 = v.validate("DB1.HeaterPower", 50)
+        assert result1.allowed
+
+        # 模拟时间前进 6 秒（超过 cooldown_seconds=5）
+        fake_now = time_module.time() + 6.0
+        monkeypatch.setattr(time_module, "time", lambda: fake_now)
+
+        # 冷却过期后应允许再次写入
+        result2 = v.validate("DB1.HeaterPower", 60)
+        assert result2.allowed, f"冷却过期后应允许写入，实际: {result2.reason}"
+
 
 class TestFuseTriggeredByOverrange:
     """验证超范围也触发熔断计数"""
