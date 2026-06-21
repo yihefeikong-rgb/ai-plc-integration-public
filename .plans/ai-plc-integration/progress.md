@@ -132,3 +132,94 @@ pytest tests/test_config_loader.py tests/test_download_flow.py \
 - 梯形图 SVG 可视化完成
 - 版本号统一
 - 交接文档生成
+---
+
+## 2026-06-22：TS003 — TiaWorker C# 核心测试（完成）
+
+### 已完成
+- [x] TiaWorker C# 层核心命令验证测试覆盖
+  - `CommandValidator.cs`：封装 import-scl, compile, download, list-devices 命令的输入校验逻辑
+  - `CommandValidatorTests.cs`：91 个测试覆盖所有核心命令
+- [x] 测试覆盖详情：
+  - **import-scl** (10+ 测试)：有效输入、空值、空路径、非法字符、文件存在性、综合校验
+  - **compile** (4+ 测试)：有效输入、空值、空路径
+  - **download** (14+ 测试)：有效输入、空值、IP 地址格式校验 (8 测试)、timeout 校验 (5 测试)
+  - **list-devices** (4+ 测试)：有效输入、空值、空路径
+  - **跨命令一致性** (2 测试)：所有命令都需要 ProjectPath、一致的路径接受标准
+- [x] dotnet test 结果：91 passed / 0 failed / 0 skipped
+
+### 文件变更清单
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `mcp-servers/tia-mcp/TiaWorker/TiaWorker.Tests/CommandValidator.cs` | 新增 | 命令验证逻辑（从 Program.cs 提取） |
+| `mcp-servers/tia-mcp/TiaWorker/TiaWorker.Tests/CommandValidatorTests.cs` | 新增 | 91 个核心命令测试 |
+| `mcp-servers/tia-mcp/TiaWorker/TiaWorker.Tests/UnitTest1.cs` | 修改 | 保留引用文件，指向核心测试套件 |
+
+### 测试结果
+```bash
+dotnet test mcp-servers/tia-mcp/TiaWorker/TiaWorker.Tests/TiaWorker.Tests.csproj
+# VSTest 版本 17.11.1 (x64)
+# 已通过! - 失败：0，通过：91，已跳过：0，总计：91，持续时间：28 ms
+```
+
+### 阻塞项
+- 无
+
+### 下一步
+- TS004：扩展 TIA MCP 工具映射 + FB501 自动调用（PENDING）
+- TS005：启动 Phase 5 统一编排层（PENDING）
+
+---
+
+## 2026-06-22：TS005 — Phase 5 统一编排层（完成）
+
+### 已完成
+- [x] Researcher 产出 Phase 5 findings：
+  - 盘点 7 个 MCP 服务器 ~116 个工具
+  - 确认无统一编排层，跨模块耦合严重，安全链多头治理
+  - 建议最小可行骨架先行，后续逐步集成
+- [x] Developer 创建 `orchestrator/` 模块（7 个源文件）：
+  - `core.py` — 工作流注册/执行引擎（装饰器 `@workflow` + `Context`）
+  - `safety_gate.py` — 统一安全拦截点（封装 validator + shadow_simulator + audit）
+  - `registry.py` — MCP 服务器/工具注册表
+  - `workflows/tia_download.py` — 示例工作流（TIA 生成→导入→编译→下载 4 步）
+  - `tests/test_core.py` — 核心引擎测试
+  - `tests/test_safety_gate.py` — 安全拦截点测试
+- [x] Reviewer 审查结论：**ADEQUATE（8.55/10）**
+  - 安全 30%：9/10（统一安全拦截点，审计日志覆盖）
+  - 正确性 25%：8.5/10（53 测试全部通过，各模块职责清晰）
+  - 文档一致性 20%：8/10（代码注释充分，docstring 完整）
+  - Invariants 15%：9/10（安全链不绕过，独立 orchestrator 模块不侵入）
+  - 代码质量 10%：8/10（装饰器模式清晰，类型提示完整）
+  - 0 CRITICAL, 0 HIGH, 1 MEDIUM（`_shadow_sync_fallback` 跳过影子仿真）
+- [x] Developer 修复 MEDIUM-1：`safety_gate.py` 中 `_shadow_sync_fallback` 添加影子仿真调用
+  - 修复后 53 测试仍全部通过
+
+### 文件变更清单
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `orchestrator/__init__.py` | 新增 | 包初始化 |
+| `orchestrator/core.py` | 新增 | 工作流注册/执行引擎（装饰器 + Context） |
+| `orchestrator/safety_gate.py` | 新增 | 统一安全拦截点（validator + shadow_simulator + audit） |
+| `orchestrator/registry.py` | 新增 | MCP 服务器/工具注册表 |
+| `orchestrator/workflows/__init__.py` | 新增 | workflows 包初始化 |
+| `orchestrator/workflows/tia_download.py` | 新增 | 示例工作流（TIA 生成→导入→编译→下载） |
+| `orchestrator/tests/__init__.py` | 新增 | 测试包初始化 |
+| `orchestrator/tests/test_core.py` | 新增 | 核心引擎测试（工作流注册/执行/上下文） |
+| `orchestrator/tests/test_safety_gate.py` | 新增 | 安全拦截点测试（validator + shadow + audit） |
+
+### 测试结果
+```bash
+pytest orchestrator/tests/ -v
+# 53 passed, 0 failed, 0 skipped
+```
+
+### 阻塞项
+- 无
+
+### 下一步
+- Phase 4：工业机器人 MCP 服务器（mitsubishi-mcp 骨架扩展）
+- Phase 5 后续：将现有 MCP 服务器（plc-mcp-bridge、tia-mcp 等）接入编排层
+
+---
+

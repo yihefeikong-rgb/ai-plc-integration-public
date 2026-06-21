@@ -148,11 +148,14 @@ class LayoutEngine:
             main_elements.append(render_elem)
         rows.append(RenderRow(row_index=0, y_center=main_row_y, elements=main_elements))
 
-        # 分支行 (row 1+)
+        # 分支行 (row 1+) — 修复分支叠加 bug：正确累加 BRANCH_ROW_GAP
+        branch_row_offset = 0  # 累计偏移
         for br_idx, branch_data in enumerate(branches):
             for path_idx, path_items in enumerate(branch_data["paths"]):
-                branch_row_index = 1 + br_idx + path_idx  # TODO: 多分支叠加
-                branch_y = ROW_HEIGHT + (ROW_HEIGHT + BRANCH_ROW_GAP) * path_idx + ROW_HEIGHT / 2
+                branch_row_index = 1 + br_idx + path_idx
+                # 修复：每个分支行累加 ROW_HEIGHT + BRANCH_ROW_GAP
+                branch_y = TOP_MARGIN + (branch_row_offset + 1) * ROW_HEIGHT + branch_row_offset * BRANCH_ROW_GAP + ROW_HEIGHT / 2
+                branch_row_offset += 1
                 br_elements = []
                 for i, (et, elem) in enumerate(path_items):
                     element_col = branch_data["start_col"] + i

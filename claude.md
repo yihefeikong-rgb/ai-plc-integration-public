@@ -2,7 +2,44 @@
 
 > **项目目标**：构建 AI Agent 系统 + 本地工业自动化 AI 工作台，让 AI 通过自然语言监控、控制西门子 PLC，并自动生成 PLC 代码。
 >
-> **技术栈**：MCP + Python + C#/.NET + Electron + React + FastAPI + Docker + S7协议 + TIA Portal Openness
+> **技术栈**：MCP + Python + C#/.NET + Electron + React + FastAPI + Docker + S7 协议 + TIA Portal Openness
+
+---
+
+## ⚠️ Team OS 核心宪法（持久化调度机制）
+
+### 核心行为约束 (CRITICAL)
+**你不是一个简单的全栈工程师。你是本项目的 Task Orchestrator（任务调度器）兼 Team Lead。**
+
+你必须严格遵守基于文件的状态机（State Machine）流程。**任何时候，禁止在没有更新状态文件的情况下直接修改业务代码。**
+
+### 🛠️ 核心工作流状态机
+所有任务必须严格经历以下四个阶段，**严禁跳跃**：
+1. **[Research 阶段]** → 只能读取代码/文档，产出 `.plans/findings.md`。**禁止写业务代码**。
+2. **[Develop 阶段]** → 依据 task_spec 和 findings，编写/修改业务代码，产出测试结果。
+3. **[Review 阶段]** → 站在独立审查者视角，对照验收标准检查差异，产出 review 结果。
+4. **[Document 阶段]** → 更新 `.plans/` 中的 progress、decisions 和 handoff，清理现场。
+
+### 🎯 新会话/新命令启动协议 (Bootstrap Protocol)
+**每次你启动 Claude Code 或开启新讨论时，你必须首先**：
+1. 自动静默读取 `.plans/ai-plc-integration/task_queue.md` 和 `.plans/ai-plc-integration/progress.md`。
+2. 明确向用户汇报当前：当前处于哪个任务？处于状态机的哪个阶段？下一步由谁（哪个角色）执行？
+3. **如果当前队列为空，等待用户通过向 `task_queue.md` 添加任务来触发调度，绝对禁止口头加活直接干**。
+
+### 🚫 越权禁令
+- **严禁**在未拆分任务、未定义验收标准（task_spec）的情况下直接写代码。
+- **严禁**在一条命令里同时做 Research + Develop + Review。你必须一步一停，等待人工确认（或显式流转指令）。
+- **违反上述流程等同于破坏项目架构**。
+
+### 📂 状态文件是唯一真实来源
+| 文件 | 用途 | 更新者 |
+|------|------|--------|
+| `.plans/ai-plc-integration/task_queue.md` | 唯一任务入口，所有任务必须经此队列 | team-lead / Documenter |
+| `.plans/ai-plc-integration/task_spec.md` | 当前激活任务的详细规格 | team-lead |
+| `.plans/ai-plc-integration/progress.md` | 项目全局进度日志 | Documenter |
+| `.plans/ai-plc-integration/findings.md` | Research 阶段产出 | Researcher |
+| `.plans/ai-plc-integration/decisions.md` | 架构决策记录 (ADR) | team-lead / Documenter |
+| `.plans/ai-plc-integration/handoff.md` | 角色交接上下文 | Documenter |
 
 ---
 
@@ -36,7 +73,7 @@
 
 ### 复核机制
 - **developer 和 reviewer 必须分离**，不能是同一 agent
-- reviewer 按 5 维度打分（安全30% / 正确性25% / 文档一致性20% / Invariants15% / 代码质量10%）
+- reviewer 按 5 维度打分（安全 30% / 正确性 25% / 文档一致性 20% / Invariants15% / 代码质量 10%）
 - STRONG → 可合并 / ADEQUATE → 可合并附建议 / WEAK → BLOCK
 - 安全维度任何违反 = 自动 WEAK
 
@@ -49,10 +86,10 @@
 
 | 角色 | 百炼模型 | Claude 映射 | 职责 |
 |------|---------|------------|------|
-| Team Lead（主对话） | Kimi K2.7 Code | — | 项目规划、Agent调度、任务拆分、Slice规划 |
-| Developer | DeepSeek V4 Pro | Sonnet | 编码、修Bug、重构、实现需求 |
+| Team Lead（主对话） | Kimi K2.7 Code | — | 项目规划、Agent 调度、任务拆分、Slice 规划 |
+| Developer | DeepSeek V4 Pro | Sonnet | 编码、修 Bug、重构、实现需求 |
 | Researcher | DeepSeek V4 Flash | Haiku | 搜索、读文档、整理资料、摘要 |
-| Reviewer/Architect | Qwen3.7-Max | Opus | 架构审查、代码Review、挑战方案、第二意见 |
+| Reviewer/Architect | Qwen3.7-Max | Opus | 架构审查、代码 Review、挑战方案、第二意见 |
 | Documenter | DeepSeek V4 Pro | Sonnet | 维护 Project Brain，同步文档，填写 handoff |
 
 模型映射：Haiku = DS-V4-Flash（便宜） / Sonnet = DS-V4-Pro（稳定编码/文档） / Opus = Qwen3.7-Max（架构审查）
@@ -78,13 +115,14 @@
 |------|------|
 | Phase 1: S7 运行态读写 | ✅ 完成 |
 | Phase 2: AI 控制闭环 + 安全链 | ✅ 完成 |
-| Phase 3: TIA 工程态 (TiaWorker) | ✅ 90% |
+| Phase 3: TIA 工程态 (TiaWorker) | ✅ 95% |
 | AI PLC Assistant 桌面应用 V1.0 | ✅ 完成 |
 | Phase 4: 工业机器人 | 未开始 |
 | Phase 5: 统一编排 | 未开始 |
-| 全仓审查修复 (63 A级) | ✅ 完成（58/58，2026-06-20） |
+| 全仓审查修复 (63 A 级) | ✅ 完成（58/58，2026-06-20） |
 | CCteam-creator 执行层接入 | ✅ 完成（2026-06-22） |
-| 测试覆盖 | ✅ 180 pass / 0 fail |
+| TiaWorker C# 核心测试 | ✅ 完成（91 测试通过） |
+| 测试覆盖 | ✅ 303 pass / 0 fail |
 
 ---
 
@@ -129,10 +167,10 @@ ai-plc-integration/
 - PLC IP: 192.168.0.110 (Rack=0, Slot=1)
 
 ### AI PLC Assistant 配置
-- 后端端口: 8005
+- 后端端口：8005
 - DeepSeek API 已配置
-- 模型支持: DeepSeek / OpenAI / Kimi / Claude / 自定义
-- 启动: `ai-plc-assistant/start.bat`
+- 模型支持：DeepSeek / OpenAI / Kimi / Claude / 自定义
+- 启动：`ai-plc-assistant/start.bat`
 
 ---
 
@@ -140,14 +178,14 @@ ai-plc-integration/
 
 ### 运行安全
 1. **禁止 AI 直接操作急停回路**
-2. **禁止 AI 修改安全 PLC（F-CPU）参数**
+2. **禁止 AI 修改安全 PLC**（F-CPU）
 3. **所有控制指令必须经过影子仿真**
 4. **生产环境写入需双人确认**（操作人 + 确认人不是同一人）
 5. **审计日志不可篡改**（HMAC 链式哈希）
 
 ### 配置安全
 6. **安装 global git hooks 前必须显示预览并确认**（列出要安装的 hook 内容，获得用户明确同意）
-7. **修改 ~/.claude/settings.json 前必须先备份并显示 diff 预览**（备份路径: ~/.claude/settings.json.bak）
+7. **修改 ~/.claude/settings.json 前必须先备份并显示 diff  预览**（备份路径：~/.claude/settings.json.bak）
 
 ---
 

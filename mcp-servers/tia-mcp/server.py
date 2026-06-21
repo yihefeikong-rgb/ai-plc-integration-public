@@ -275,6 +275,145 @@ def compile_project(project_path: str = "", auth_token: str = "") -> dict:
     except ValueError as e:
         return {"status": "error", "error": str(e)}
 
+@mcp.tool()
+def list_blocks(
+    block_type: str = "all",
+    project_path: str = "",
+    auth_token: str = "",
+) -> dict:
+    """列出 TIA 项目中的程序块（FB/FC/DB/SFB/SFC）。
+
+    Args:
+        block_type: 块类型 — "all" (全部), "fb", "fc", "db", "udt"
+        project_path: TIA 项目路径，留空使用默认值
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
+    try:
+        path = _resolve_path(project_path)
+        return _run_worker("list-blocks", {"ProjectPath": path, "BlockType": block_type})
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def create_block(
+    block_name: str,
+    block_type: str = "FB",
+    template: str = "general",
+    project_path: str = "",
+    auth_token: str = "",
+) -> dict:
+    """在 TIA 项目中创建空程序块。
+
+    Args:
+        block_name: 块名称（如 "MyFunctionBlock"）
+        block_type: 块类型 — "FB", "FC", "DB", "UDT"
+        template: 模板名称（可选，预留扩展）
+        project_path: TIA 项目路径，留空使用默认值
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
+    gate = _safety_gate("create_block", block_name=block_name)
+    if gate:
+        return gate
+    try:
+        path = _resolve_path(project_path)
+        return _run_worker("create-block", {
+            "ProjectPath": path,
+            "BlockName": block_name,
+            "BlockType": block_type,
+        })
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def export_block(
+    block_name: str,
+    export_path: str = "",
+    project_path: str = "",
+    auth_token: str = "",
+) -> dict:
+    """导出 TIA 项目中的程序块为 SCL/DB 文件。
+
+    Args:
+        block_name: 块名称（如 "FB501"）
+        export_path: 导出路径（可选，留空使用默认输出目录）
+        project_path: TIA 项目路径，留空使用默认值
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
+    try:
+        path = _resolve_path(project_path)
+        return _run_worker("export-block", {
+            "ProjectPath": path,
+            "BlockName": block_name,
+            "ExportPath": export_path,
+        })
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def list_udts(project_path: str = "", auth_token: str = "") -> dict:
+    """列出项目中所有 UDT 数据类型。
+
+    Args:
+        project_path: TIA 项目路径，留空使用默认值
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
+    try:
+        path = _resolve_path(project_path)
+        return _run_worker("list-udts", {"ProjectPath": path})
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def go_online(
+    device_name: str = "PLC_1",
+    project_path: str = "",
+    auth_token: str = "",
+) -> dict:
+    """建立与 PLC 的在线连接。
+
+    Args:
+        device_name: PLC 设备名称
+        project_path: TIA 项目路径，留空使用默认值
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
+    try:
+        path = _resolve_path(project_path)
+        return _run_worker("go-online", {"ProjectPath": path, "DeviceName": device_name})
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def go_offline(
+    device_name: str = "PLC_1",
+    project_path: str = "",
+    auth_token: str = "",
+) -> dict:
+    """断开与 PLC 的在线连接。
+
+    Args:
+        device_name: PLC 设备名称
+        project_path: TIA 项目路径，留空使用默认值
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
+    try:
+        path = _resolve_path(project_path)
+        return _run_worker("go-offline", {"ProjectPath": path, "DeviceName": device_name})
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+
+
+
 
 @mcp.tool()
 def download_to_plcsim(
@@ -567,6 +706,43 @@ def create_ladder_block(
 
 
 @mcp.tool()
+@mcp.tool()
+def call_fb_in_ob1(
+    fb_names: list,
+    project_path: str = "",
+    auth_token: str = "",
+) -> dict:
+    """在 OB1 中自动调用指定的 FB（如 FB501 ConveyorControl）。
+
+    创建 MasterIO FB 聚合所有指定 FB，并在 OB1 中调用。
+    适用于 IO 映射 FB 或任何需要在主循环中周期调用的 FB。
+
+    Args:
+        fb_names: FB 名称列表，如 ["IO_Map_MotorControl", "FB501"]
+        project_path: TIA 项目路径，留空使用默认值
+        auth_token: 认证令牌
+    """
+    _require_auth(auth_token)
+    gate = _safety_gate("call_fb_in_ob1", block_name=str(fb_names))
+    if gate:
+        return gate
+    try:
+        path = _resolve_path(project_path)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
+    
+    try:
+        from call_fb_in_ob1 import insert_fb_calls
+        result = insert_fb_calls(fb_names)
+        return {
+            "status": "ok" if result == 0 else "error",
+            "message": "OB1 调用链创建成功" if result == 0 else f"返回码：{result}",
+            "fb_names": fb_names,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 def full_pipeline(
     description: str,
     block_name: str = "",

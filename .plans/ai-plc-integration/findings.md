@@ -1,136 +1,91 @@
-# 接入报告 — AI 接入 PLC
+# 研究发现 — AI 接入 PLC
 
-> 生成时间：2026-06-22
-> 来源：CCteam-creator 阶段 0 接入盘点
+> 最后更新：2026-06-22
 
 ---
 
-## 1. 项目全景
+## TS005 — Phase 5 统一编排层调研
 
-| 维度 | 现状 |
+> 研究者：Researcher (Haiku)
+> 日期：2026-06-22
+
+### 现有模块清单
+
+| 模块 | 路径 | 功能 | 工具数 | 成熟度 |
+|------|------|------|--------|--------|
+| plc-mcp-bridge | mcp-servers/plc-mcp-bridge/ | S7 运行态 + TIA 工程态 + PLCSIM + FIO 全流水线 | 65 | 高 |
+| tia-mcp | mcp-servers/tia-mcp/ | SCL/LAD 代码生成与导入、TiaWorker C# 调用 | 16 | 高(~98%) |
+| desktop-mcp | mcp-servers/desktop-mcp/ | 桌面控制（鼠标/键盘/截屏），自实现 JSON-RPC | 12 | 中 |
+| robot-mcp | mcp-servers/robot-mcp/ | 工业机器人控制（FIO Pick & Place） | 7 | 中 |
+| opcua-mcp | mcp-servers/opcua-mcp/ | OPC UA 协议读写 | 7 | 中 |
+| modbus-mcp | mcp-servers/modbus-mcp/ | Modbus TCP 协议 | 6 | 低(骨架) |
+| mitsubishi-mcp | mcp-servers/mitsubishi-mcp/ | 三菱 MC 协议 | 3 | 低(骨架) |
+| safety/ | safety/ | 安全层（validator + shadow_sim + audit） | — | 高 |
+| mcp_common/ | mcp_common/ | 公共基础设施（audit/config/deepseek/connection） | — | 高 |
+| edge-gateway | edge-gateway/ | 运行态 AI 控制闭环 | — | 中 |
+
+**MCP 工具总计: ~116**
+
+### 现有接口/协议
+
+- **MCP stdio**: 所有 MCP 服务器统一对外接口（除 desktop-mcp 自实现 JSON-RPC）
+- **FastMCP 框架**: 大部分服务器使用 `@mcp.tool()` 注册
+- **代码级 import 耦合**: `tia-mcp`/`opcua-mcp`/`edge-gateway` 直接 import `safety.validator`
+- **进程级耦合**: `plc-mcp-bridge` 通过 subprocess 调用 `TiaWorker.exe`
+- **无统一消息总线、无服务发现、无健康检查**
+
+### 是否已有编排层代码
+
+**不存在统一编排层。** 现有"管线"代码均为单服务器内硬编码：
+
+| 位置 | 性质 |
 |------|------|
-| 项目名 | ai-plc-integration |
-| 仓库 | `https://github.com/yihefeikong-rgb/ai-plc-integration.git` |
-| 分支 | master |
-| 最新提交 | `fbb1659` fix: 全仓审查修复完成 |
-| 测试数 | 180 tests (1 collection error) |
-| 技术栈 | Python 3.13 + FastAPI + React + Electron + C#/.NET + Docker + S7 + TIA V21 |
-| 开发环境 | Windows 11, PLCSIM Advanced V8.0, PLC IP 192.168.0.110 |
+| `tools_pipeline.py::plc_run_pipeline` | P3 流水线（5步），仅针对 P3 场景 |
+| `tia-mcp/server.py::full_pipeline` | TIA 工程态流水线，仅针对 TIA |
+| `edge-gateway::ai_control_loop` | 运行态控制闭环，仅针对 Phase 2 |
+| `docker-compose.yml` | Docker 基础设施编排，不涉及 MCP |
 
-## 2. 现有文件结构
+### 关键风险
 
-```
-项目根/
-├── CLAUDE.md              ← 项目总纲（进度/结构/安全红线）
-├── AGENTS.md              ← 快速命令 + 已知Bug + 架构补充
-├── AI_CONTEXT.md          ← PLC 领域知识 + 项目经验（新人上手）
-├── ARCHITECTURE.md        ← 4层架构 + 数据流 + 数据库结构
-├── CURRENT_STATUS.md      ← 当前状态（2026-06-18 冻结）
-├── TODO.md                ← 待办清单（高/中/低优先级）
-├── PROJECT_HANDOVER.md    ← 交接文档
-├── README.md              ← 项目说明
-├── ai-plc-assistant/      ← 桌面应用（Electron+React+FastAPI）
-├── mcp-servers/           ← 8 个 MCP 服务器
-├── edge-gateway/          ← 边缘网关
-├── safety/                ← 安全模块（互锁/仿真/审计/熔断）
-├── tests/                 ← 16 个测试文件（180 tests）
-├── docs/                  ← 阶段文档 + 模板规范
-└── scripts/               ← 运维脚本
-```
+1. **跨模块耦合严重** — edge-gateway 直接 import plc-mcp-bridge 的内部模块
+2. **安全链多头治理** — 至少 4 处独立安全实现，规则不一致
+3. **desktop-mcp 协议不统一** — 非 FastMCP，需额外适配
+4. **无服务发现/健康检查** — 所有 MCP 服务器是 stdio 子进程，无优雅重启
 
-## 3. 当前最卡住的 3 个瓶颈
+### Phase 4 骨架状态
 
-## 7. TS002 研究发现 — Phase 3 (TiaWorker) 剩余 10%
+- `mcp-servers/robot-mcp/` 已有骨架代码（7 工具，Pick & Place 场景）
+- robot-mcp 自实现急停检查，未接入统一 `safety/validator.py`
+- 预留 Palletizer 场景但未实现
 
-> 生成时间：2026-06-22 | 研究者：Researcher
+### 设计建议要点
 
-### 关键数据
-- TiaWorker.exe C# 代码：3326 行，40+ 命令全部实现
-- Python MCP 服务 (server.py)：775 行，9 个 MCP 工具
-- TiaWorker C# 测试：36 个（仅覆盖参数解析/DTO/JSON 辅助，核心逻辑零覆盖）
-- Phase 3 Python 模块测试覆盖：~14% 代码行有测试（主要是 download_to_plcsim.py）
-- 已归档测试：7 个 Python 测试文件在 `archived/` 中，不再维护
-
-### 核心发现
-
-| # | 发现 | 严重度 | 文件 | 行号 |
-|---|------|--------|------|------|
-| 1 | TiaWorker 35+ 业务方法零测试覆盖 | Critical | `TiaWorker/TiaWorker.Tests/` | 全局 |
-| 2 | server.py 只映射了 9/40+ TiaWorker 功能到 MCP 工具 | High | `server.py` | Lines 156-580 |
-| 3 | Phase 3 Python 层 3500+ 行无测试 | Critical | `mcp-servers/tia-mcp/*.py` | 全局 |
-| 4 | layout_engine.py 嵌套分支未实现 + TODO | Medium | `layout_engine.py` | Lines 16,97,154 |
-| 5 | UnitTest1.cs 是空壳 | Medium | `TiaWorker.Tests/UnitTest1.cs` | Lines 1-9 |
-| 6 | CreateUdt 仅创建 Placeholder:Bool 伪 UDT | Low | `TiaWorker/Program.cs` | Line 1620 |
-| 7 | ConveyorControl FB501 未在 OB1 自动调用 | High | `tech_debt.md` | T-006 |
-| 8 | p3_flow.py 解析 TiaWorker 编译输出的格式可能不兼容 | Medium | `scripts/p3_flow.py` | Line 118 |
-| 9 | 在线状态功能 (GoOnline/GoOffline) 实现脆弱 | Medium | `TiaWorker/Program.cs` | Lines 2870-2987 |
-| 10 | gen_io_map.py 和 create_plc_tags.py 零测试 | Medium | `tests/` | 无覆盖 |
-| 11 | lad_ast.py / ladder_renderer.py / layout_engine.py 零测试 | Medium | `tests/` | 无覆盖 |
-
-### 建议实施顺序
-1. **P0**: 为 server.py 9 个 MCP 工具加 mock 测试
-2. **P0**: 为 TiaWorker 核心命令（import-scl, compile, download）加 C# 测试
-3. **P1**: 修复 TiaWorker 编译输出格式与 p3_flow.py 的兼容性
-4. **P1**: 为 gen_io_map 和 create_plc_tags 加测试
-5. **P2**: 为阶梯图 AST/渲染器/布局引擎加测试
-6. **P2**: 将更多 TiaWorker 命令映射为 MCP 工具（list-blocks, create-block 等）
-7. **P2**: 修复 ConveyorControl FB501 自动调用问题
-8. **P3**: 修复 layout_engine.py 分支叠加 bug 和 CreateUdt 结构定义
-
-完整报告参见：`.superpowers/sdd/research-ts002-report.md`
+1. 建立统一安全链入口点（解决多头治理）
+2. 统一所有 MCP 服务器为 FastMCP 协议
+3. 将"管线"概念提升到编排层，不在每个服务器重复实现
+4. `mcp_common/` 已就绪，可作为编排层构建基础
 
 ---
 
-### 瓶颈 1：上下文丢失（严重度：HIGH）
-- **现象**：7 个顶层文档（CLAUDE.md / AGENTS.md / AI_CONTEXT.md / ARCHITECTURE.md / CURRENT_STATUS.md / TODO.md / PROJECT_HANDOVER.md）内容重叠、更新不同步
-- **根因**：没有单一真相源（Single Source of Truth），每次会话需要重新加载大量上下文
-- **影响**：新会话/新 agent 无法快速接手，每次都要重新盘点
+## TS004 — Phase 3 剩余任务与 FB501 问题（已完成）
 
-### 瓶颈 2：AI PLC Assistant 后端测试有损坏用例（严重度：CRITICAL）
-- **现象**：`ai-plc-assistant/backend/tests/` 已有 250 个测试，但 6 个失败、7 个 error，无法通过 CI
-- **根因**：部分 fixture 缺失，stream/chat/projects/knowledge 等模块存在测试不稳定或 mock 不完整
-- **影响**：无法安全重构、发布质量不可控
-- **注意**：现有的 180 tests 全部在 MCP 服务器/安全层，桌面应用层测试虽已建立但尚未稳定
-- **数据**：250 collected，237 passed，6 failed，7 errors
+> 研究者：Researcher (Haiku / DS-V4-Flash)
+> 日期：2026-06-22
+> 状态：DONE
 
-### 瓶颈 3：无复核机制（严重度：HIGH）
-- **现象**：developer 和 reviewer 是同一 agent/同一会话，无独立审查
-- **根因**：单 agent 开发模式，没有 generator-evaluator 分离
-- **影响**：代码质量靠自觉，安全红线（互锁/审计/急停）无第二人检查
+### 要点
+1. TIA MCP 工具映射缺口 — 6 个 TiaWorker 命令未映射 → 已修复（新增 7 工具）
+2. FB501 自动调用失效 → 已修复（call_fb_in_ob1 接入 MCP）
+3. layout_engine.py 分支叠加 bug → 已修复
 
-## 4. 现有优势（可复用）
+---
 
-- ✅ 文档基础好：ARCHITECTURE.md 和 AI_CONTEXT.md 质量高，可直接作为 docs/ 基础
-- ✅ 安全层已建立：互锁/影子仿真/审计/熔断四大模块完整
-- ✅ 测试体系已有雏形：180 tests 在 MCP/安全层，可扩展
-- ✅ 安全红线明确：7 条安全红线已写入 CLAUDE.md
-- ✅ 开发流程清晰：start_all.py 一键启动，bat 脚本完善
+## TS002 — Phase 3 Python 层测试（已完成）
 
-## 6. 首个闭环验证发现（2026-06-22）
+> 状态：DONE
 
-### 安全测试现状
-- 55 个安全测试全部通过（audit / validator / interlock / shadow / s7_write）
-- 发现测试缺口：cooldown 过期后允许写入的场景无测试覆盖
-- 已补充 `test_heater_cooldown_expires`，56 tests pass
-
-### 闭环验证结论
-- developer → reviewer → team-lead 闭环可行
-- monkeypatch 在 Python 模块系统中正确影响 validator 的 time.time() 调用
-- reviewer 独立审查有效（5 维度打分机制可操作）
-
-## 5. Project Brain 索引（领域知识入口）
-
-以下文件不在 `.plans/` 内，但任何 agent 涉及相关领域时必须读取：
-
-| 文件 | 内容 | 何时读 |
-|------|------|--------|
-| `AI_CONTEXT.md` | PLC 领域知识、TIA 踩坑、Prompt 经验、已知 Bug | 涉及 PLC 代码、TIA 操作、SCL/LAD 生成时 |
-| `AGENTS.md` | 快速命令、架构事实、已知 Bug、远程仓库 | 需要运行命令、排查 Bug 时 |
-| `ARCHITECTURE.md` | 完整 4 层架构 + 数据流 + 数据库结构 | 需要理解系统全貌时（.plans/docs/architecture.md 是简化版） |
-
-## 6. 接入建议
-
-1. **先建立 .plans/ 骨架**，不急于改业务代码
-2. **将 7 个顶层文档收敛**：CLAUDE.md 保留为运营规则，其他内容迁移到 .plans/docs/
-3. **优先补 AI PLC Assistant 测试**，这是最大的质量债务
-4. **建立 reviewer 独立审查机制**，至少对安全相关代码强制复核
+### 要点
+- server.py 9 个 MCP 工具全部有 mock 测试覆盖（40 测试）
+- p3_flow.py 编译输出 JSON 解析修复
+- gen_io_map.py 15 测试 + create_plc_tags.py 17 测试
+- 新增 83 测试全部通过
