@@ -137,3 +137,21 @@
 - **归档日期**：2026-06-22
 - **状态**：已用自研 TiaWorker 替代，覆盖 90% 功能
 - **结论**：不再作为活跃债务
+
+### T-013：server_configs.py 硬编码绝对路径
+
+- **严重度**：P1
+- **影响**：`orchestrator/server_configs.py` 中 MCP 服务器启动路径硬编码为当前开发环境的绝对路径，换机/换用户后无法使用
+- **临时方案**：当前仅 mock 模式测试通过，实际连接未验证
+- **处理方案**：改为环境变量或配置文件驱动（如 `PLC_MCP_BRIDGE_PATH`、`TIA_MCP_PATH` 等），支持相对路径和 PATH 查找
+- **跟踪**：`orchestrator/server_configs.py`
+- **状态**：待处理
+
+### T-014：mock 模式不经过 SafetyGate
+
+- **严重度**：P2
+- **影响**：`orchestrator/mcp_client.py` 在 mock 模式下跳过 SafetyGate 集成，写入操作不受安全拦截。虽然这是设计预期（mock 模式下无真实 PLC 连接），但需确保生产环境正确激活 SafetyGate
+- **临时方案**：mock 模式为测试专用，生产环境通过 `core.py` 的 `_check_safety()` 方法拦截
+- **处理方案**：在测试中增加 SafetyGate 集成测试（mock SafetyGate 边界验证），确保切换模式时不会遗漏安全拦截
+- **跟踪**：`orchestrator/core.py`、`orchestrator/mcp_client.py`
+- **状态**：待处理

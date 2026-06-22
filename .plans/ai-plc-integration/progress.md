@@ -223,3 +223,52 @@ pytest orchestrator/tests/ -v
 
 ---
 
+## 2026-06-22 (7)：P5 MCP 客户端适配器（完成）
+
+### 已完成
+- [x] Developer 在 Phase 5 编排骨架上新增 MCP 客户端适配功能：
+  - `mcp_client.py` — MCP 客户端适配器（单服务器连接，支持 stdio 子进程启动）
+  - `mcp_pool.py` — 多服务器连接池（并发工具搜索、按服务器/工具名索引）
+  - `server_configs.py` — 预定义服务器配置（plc-mcp-bridge / tia-mcp / opcua-mcp）
+  - `tests/test_mcp_client.py` — 20 个测试（mock 连接/工具列表/调用/生命周期）
+  - `tests/test_mcp_pool.py` — 13 个测试（多服务器连接/工具搜索/并发/异常）
+- [x] `registry.py` 修改：ServerInfo 新增 command/args/cwd 字段
+- [x] `core.py` 修改：支持 MCP 连接池调用 + SafetyGate 集成 + run_async 方法
+- [x] Reviewer 审查发现 2 个 HIGH 问题，已修复：
+  - HIGH-1：MCP 模式绕过 SafetyGate → 已添加安全门集成（写入工具自动拦截 + 审计日志）
+  - HIGH-2：异步/同步桥接在 FastAPI 下失败 → 改为明确错误提示 + `run_async()` 方法
+- [x] Reviewer 最终评分：**ADEQUATE（7.05/10）**
+  - 安全 30%：6.5/10（HIGH-1 修复后评分提升）
+  - 正确性 25%：7.5/10（109 测试全部通过）
+  - 文档一致性 20%：7/10（代码注释充分，docstring 完整）
+  - Invariants 15%：8/10（安全链集成，写入工具受拦截）
+  - 代码质量 10%：7/10（连接池模式清晰，资源管理完整）
+  - 0 CRITICAL, 0 HIGH（修复后）, 0 MEDIUM
+
+### 文件变更清单
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `orchestrator/mcp_client.py` | 新增 | MCP 客户端适配器（单服务器连接） |
+| `orchestrator/mcp_pool.py` | 新增 | 多服务器连接池 |
+| `orchestrator/server_configs.py` | 新增 | 预定义服务器配置 |
+| `orchestrator/tests/test_mcp_client.py` | 新增 | 20 个 MCP 客户端测试 |
+| `orchestrator/tests/test_mcp_pool.py` | 新增 | 13 个连接池测试 |
+| `orchestrator/registry.py` | 修改 | ServerInfo 新增 command/args/cwd 字段 |
+| `orchestrator/core.py` | 修改 | 支持 MCP 连接池调用 + SafetyGate 集成 + run_async 方法 |
+
+### 测试结果
+```bash
+pytest orchestrator/tests/ -v
+# 109 passed, 0 failed, 0 skipped
+# （53 原有 + 33 新增 + 23 修改后保留）
+```
+
+### 阻塞项
+- 无
+
+### 下一步
+- Phase 5 后续：实现具体工作流（将现有 MCP 服务器接入编排层）
+- Phase 4：工业机器人 MCP 服务器（mitsubishi-mcp 骨架扩展）
+
+---
+

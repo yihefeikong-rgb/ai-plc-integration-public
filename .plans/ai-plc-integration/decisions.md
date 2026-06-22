@@ -136,3 +136,34 @@
   - 安全拦截点已统一，但需要在实际接入时验证不绕过安全链
   - 53 个测试全部通过，覆盖核心引擎和安全拦截点
 
+## D-009：Phase 5 MCP 客户端适配器 — 连接池 + 安全门集成
+
+- **日期**：2026-06-22
+- **背景**：
+  - Phase 5 编排骨架（D-008）已实现工作流引擎和统一安全拦截点，但缺少实际的 MCP 服务器连接能力
+  - 需要一套适配器来连接多个 MCP 服务器（plc-mcp-bridge、tia-mcp、opcua-mcp 等），并支持工具发现和调用
+  - 同时需要确保 MCP 服务器调用不绕过安全链（SafetyGate）
+- **选项**：
+  - A. 在 core.py 中直接硬编码 MCP 连接逻辑
+  - B. 创建独立的 `mcp_client.py`（单连接）+ `mcp_pool.py`（连接池）+ `server_configs.py`（配置），集成到现有编排层
+  - C. 使用第三方 MCP 客户端库（如 mcp 官方 SDK）
+- **选择**：B — 独立适配器模块 + 安全门集成
+- **理由**：
+  - 单连接和多连接池分离关注点：`mcp_client.py` 负责单个 MCP 服务器的生命周期管理，`mcp_pool.py` 负责多服务器并发和工具索引
+  - `server_configs.py` 集中管理预定义服务器配置，便于后续添加新服务器
+  - 在 `core.py` 中集成 SafetyGate，确保通过 MCP 通道的写入操作同样经过安全拦截（互锁检查 + 影子仿真 + 审计日志）
+  - 修改 `registry.py` 的 `ServerInfo` 增加 command/args/cwd 字段，使注册表能描述完整的服务器启动参数
+  - 异步/同步桥接问题：`run_async()` 方法在非 async 上下文中提供明确错误提示，避免在 FastAPI 事件循环中产生隐蔽的阻塞
+- **实现**：
+  - `mcp_client.py`：`MCPClient` 类，封装子进程启动、工具列表、工具调用、连接管理（connect/disconnect/list_tools/call_tool）
+  - `mcp_pool.py`：`MCPPool` 类，管理多个 MCPClient 实例，支持并发工具搜索（`find_tool`）、按服务器/工具名索引
+  - `server_configs.py`：`SERVER_CONFIGS` 字典，预定义 plc-mcp-bridge、tia-mcp、opcua-mcp 的启动配置
+  - `registry.py` 修改：`ServerInfo` 新增 `command`、`args`、`cwd` 可选字段
+  - `core.py` 修改：`Context` 新增 `mcp_pool` 属性、`_check_safety()` 安全门调用、`run_async()` 异步执行方法
+- **后果**：
+  - 33 个新测试，orchestrator 总计 109 测试全部通过
+  - 当前仅 mock 模式验证通过，实际 MCP 服务器连接待后续接入验证
+  - `server_configs.py` 中硬编码了绝对路径，仅适用于当前开发环境，需后续参数化
+  - mock 模式下 SafetyGate 不执行（设计预期），生产环境需确保安全门正确激活
+  - Reviewer 发现 2 个 HIGH 问题（MCP 绕过 SafetyGate / 异步桥接失败），已在修复后评分 ADEQUATE（7.05/10）
+
