@@ -11,6 +11,7 @@ TS018 — RobotBackend snap7 回退路径测试
 """
 
 import asyncio
+import types
 import pytest
 import sys
 from pathlib import Path
@@ -19,6 +20,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import server
 from server import RobotBackend, IO_MAP
+
+# 确保 server.snap7 在任何环境下都存在（防止 monkeypatch 在不安装 snap7 时失败）
+if not hasattr(server, "snap7"):
+    server.snap7 = types.ModuleType("snap7")
+    server.snap7.client = types.ModuleType("snap7.client")
 
 
 # ── Mock snap7 Client ──────────────────────────────────────────────
