@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -58,15 +59,23 @@ async def bootstrap(
     # 逐个连接服务器并注册工具
     for info in server_list:
         try:
-            await pool.connect_server(info)
+            await asyncio.wait_for(pool.connect_server(info), timeout=10.0)
             adapter = pool.get_adapter(info.name)
             tools: list = []
             if adapter is not None:
-                tools = await adapter.list_tools()
+                tools = await asyncio.wait_for(adapter.list_tools(), timeout=5.0)
                 for tool in tools:
                     registry.register_tool(info.name, tool)
             result.connected.append(info.name)
             _logger.info(f"服务器 {info.name} 已连接并注册 {len(tools)} 个工具")
+        except asyncio.TimeoutError:
+            _logger.warning(f"服务器 {info.name} 连接超时")
+            result.failed.append((info.name, "连接超时"))
+            # 清理可能残留的子进程
+            try:
+                await pool.disconnect_server(info.name)
+            except Exception:
+                pass
         except Exception as e:
             _logger.warning(f"服务器 {info.name} 连接失败: {e}")
             result.failed.append((info.name, str(e)))

@@ -90,8 +90,8 @@ ALL_SERVERS: list[ServerInfo] = [
     MODBUS_MCP,
     MITSUBISHI_MCP,
     ROBOT_MCP,
-    DESKTOP_MCP,
-    TEST_ECHO,
+    # DESKTOP_MCP — 使用非标准 JSON-RPC，不兼容 MCP 协议，暂不自动连接
+    # TEST_ECHO — 仅用于集成测试，不自动连接
 ]
 
 # 按名称快速查找

@@ -35,24 +35,27 @@ class TestDesktopMcpConfig:
         assert DESKTOP_MCP.args == ["server.py"]
         assert "desktop-mcp" in DESKTOP_MCP.cwd
 
-    def test_desktop_mcp_in_all_servers(self):
-        """DESKTOP_MCP 在 ALL_SERVERS 列表中"""
+    def test_desktop_mcp_not_in_all_servers(self):
+        """DESKTOP_MCP 不在自动连接列表中（使用非标准 JSON-RPC 协议）"""
         names = [s.name for s in ALL_SERVERS]
-        assert "desktop-mcp" in names
+        assert "desktop-mcp" not in names
 
-    def test_desktop_mcp_in_server_map(self):
-        """DESKTOP_MCP 在 SERVER_MAP 字典中"""
-        assert "desktop-mcp" in SERVER_MAP
-        assert SERVER_MAP["desktop-mcp"] is DESKTOP_MCP
+    def test_desktop_mcp_config_exists(self):
+        """DESKTOP_MCP 配置仍存在（可手动使用）"""
+        assert DESKTOP_MCP.name == "desktop-mcp"
+        assert DESKTOP_MCP.command is not None
 
     def test_desktop_mcp_via_get_server_config(self):
-        """通过 get_server_config 可获取 DESKTOP_MCP"""
+        """通过 get_server_config 可获取 DESKTOP_MCP（虽然不在自动连接列表）"""
+        # get_server_config 查的是 SERVER_MAP，而 SERVER_MAP 现在只包含 ALL_SERVERS
+        # 所以这里返回 None 是预期行为
         config = get_server_config("desktop-mcp")
-        assert config is DESKTOP_MCP
+        # desktop-mcp 已移出自动连接列表，不再在 SERVER_MAP 中
+        assert config is None
 
-    def test_desktop_mcp_via_list_server_names(self):
-        """list_server_names 包含 desktop-mcp"""
-        assert "desktop-mcp" in list_server_names()
+    def test_desktop_mcp_not_in_list_server_names(self):
+        """list_server_names 不包含 desktop-mcp（非标准协议，不自动连接）"""
+        assert "desktop-mcp" not in list_server_names()
 
 
 # ============================================================================
