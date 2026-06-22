@@ -90,15 +90,9 @@ class TestConnectionLifecycle:
     def test_connect(self, plcsim_client):
         """验证连接成功返回有效的 client 对象"""
         assert plcsim_client is not None
-        # 验证 client 处于已连接状态（snap7 v3 get_connected 方法）
-        try:
-            connected = plcsim_client.get_connected()
-        except AttributeError:
-            # snap7 v3 可能没有 get_connected，用 read 验证
-            data = plcsim_client.mb_read(0, 1)
-            assert data is not None
-        else:
-            assert connected is True
+        # 验证 client 处于已连接状态（snap7 v3 确认有 get_connected）
+        connected = plcsim_client.get_connected()
+        assert connected is True
 
     def test_connect_with_invalid_ip(self):
         """连接到不可达 IP 应抛出异常而非卡住"""

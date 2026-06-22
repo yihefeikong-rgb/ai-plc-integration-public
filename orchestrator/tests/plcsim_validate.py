@@ -65,7 +65,9 @@ def main():
             ["tasklist", "/FI", "IMAGENAME eq Siemens.Simatic.PlcSim.Advanced.UserInterface.exe"],
             capture_output=True, text=True, timeout=10,
         )
-        if "No tasks" in result.stdout or "INFO:" in result.stdout and "0" in result.stdout:
+        # tasklist returns exit code 0 even when no matching tasks are found.
+        # Check whether stdout contains the process name (absent = not running).
+        if "UserInterface.exe" not in result.stdout:
             print(warn("PLCSIM Advanced UI 未运行"))
             print("  启动方式: D:\\TIA FANG ZHEN\\PLCSIMADV\\bin\\Siemens.Simatic.PlcSim.Advanced.UserInterface.exe")
         else:
