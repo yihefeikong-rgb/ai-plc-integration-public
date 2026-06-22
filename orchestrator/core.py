@@ -257,8 +257,88 @@ class WorkflowContext:
         # 绑定到主事件循环。需要改用异步调用路径。
         raise RuntimeError(
             "在已有事件循环环境中使用 MCP 模式需要异步执行。"
-            "请使用 engine.run_async() 代替 engine.run()。"
+            "请使用 engine.run_async() 并使用 async def 定义工作流。"
         )
+
+    async def call_async(self, tool_full_name: str, **kwargs) -> dict[str, Any]:
+        """异步调用 MCP 工具（用于 async def 工作流）。
+
+        直接 await pool.call_tool()，无需同步桥接。
+        适用于已有事件循环的环境（FastAPI 等）。
+
+        Args:
+            tool_full_name: 工具全名（如 "test-echo.echo"）
+            **kwargs: 工具参数
+
+        Returns:
+            工具返回的字典结果
+        """
+        import time
+
+        start = time.time()
+
+        try:
+            # 检查注册表
+            if self._registry:
+                tool_info = self._registry.get_tool(tool_full_name)
+                if tool_info is None:
+                    _logger.debug(
+                        f"工具 {tool_full_name} 未在注册表中登记"
+                    )
+
+            result = None
+
+            # 优先级 1: mock 工具
+            fn = self._mock_tools.get(tool_full_name)
+            if fn is not None:
+                result = fn(**kwargs)
+
+            # 优先级 2: MCP 连接池
+            elif self._pool is not None:
+                parts = tool_full_name.split(".", 1)
+                if len(parts) != 2:
+                    raise RuntimeError(
+                        f"工具全名格式错误: {tool_full_name}，"
+                        f"应为 'server_name.tool_name'"
+                    )
+
+                # 安全检查: 写入工具必须经过 SafetyGate
+                if self._is_write_tool(tool_full_name):
+                    self._check_safety_gate(tool_full_name, kwargs)
+
+                server_name, tool_name = parts
+                result = await self._pool.call_tool(server_name, tool_name, kwargs)
+
+                # 审计日志
+                self._audit_tool_call(tool_full_name, kwargs, result)
+
+            # 优先级 3: 都没有
+            else:
+                raise RuntimeError(
+                    f"工具 {tool_full_name} 没有 mock 实现，也没有 MCP 连接池。"
+                )
+
+            elapsed = (time.time() - start) * 1000
+
+            step = StepResult(
+                tool=tool_full_name,
+                ok=True,
+                data=result,
+                duration_ms=elapsed,
+            )
+            self._steps.append(step)
+            return result
+
+        except Exception as e:
+            elapsed = (time.time() - start) * 1000
+            step = StepResult(
+                tool=tool_full_name,
+                ok=False,
+                error=str(e),
+                duration_ms=elapsed,
+            )
+            self._steps.append(step)
+            raise
 
 
 class OrchestratorEngine:

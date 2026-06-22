@@ -272,3 +272,43 @@ pytest orchestrator/tests/ -v
 
 ---
 
+## 2026-06-22 (8)：P5 集成测试验证（完成）
+
+### 已完成
+- [x] 创建 `test_echo_server.py` — 最小测试用 MCP 服务器（3 工具：echo/add/get_status）
+- [x] 创建 `test_integration.py` — 11 个集成测试，验证真实 MCP 服务器连接
+- [x] 修复异步工作流支持：
+  - 添加 `WorkflowContext.call_async()` 方法（直接 await pool.call_tool）
+  - 确保 `run_async()` 正确处理 `async def` 工作流
+- [x] 更新 `server_configs.py` — 添加 7 个服务器配置（plc-mcp-bridge/tia-mcp/opcua-mcp/modbus-mcp/mitsubishi-mcp/robot-mcp/test-echo）
+- [x] 端到端验证通过：
+  - MCP 客户端连接 ✅（stdio 子进程启动成功）
+  - 工具发现 ✅（list_tools 返回 3 个工具）
+  - 工具调用 ✅（echo/add/get_status 均返回正确结果）
+  - 异步工作流 ✅（3 步工作流端到端执行成功）
+  - 步骤间数据传递 ✅
+
+### 文件变更清单
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `orchestrator/tests/test_echo_server.py` | 新增 | 最小测试用 MCP 服务器 |
+| `orchestrator/tests/test_integration.py` | 新增 | 11 个集成测试 |
+| `orchestrator/core.py` | 修改 | 添加 call_async() 方法 |
+| `orchestrator/server_configs.py` | 修改 | 添加 7 个服务器配置 |
+
+### 测试结果
+```bash
+pytest orchestrator/tests/ -v
+# 120 passed, 0 failed, 0 skipped
+# （109 原有 + 11 集成测试）
+```
+
+### 阻塞项
+- 无
+
+### 下一步
+- Phase 4：工业机器人 MCP 服务器
+- Phase 5 后续：实现更多业务工作流（S7 读写、安全闭环等）
+
+---
+
