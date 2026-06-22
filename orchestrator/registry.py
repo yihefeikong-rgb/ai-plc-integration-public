@@ -9,6 +9,65 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
+# ============================================================================
+# 工具分类常量
+# ============================================================================
+
+TOOL_CATEGORIES: dict[str, str] = {
+    "s7": "S7 运行态读写",
+    "tia": "TIA 工程态操作",
+    "safety": "安全相关",
+    "monitoring": "监控/采集",
+    "control": "控制指令",
+    "engineering": "工程配置",
+    "desktop": "桌面控制",
+    "pipeline": "流水线",
+    "uncategorized": "未分类",
+}
+
+
+def categorize_tool(server_name: str, tool_name: str) -> str:
+    """根据服务器名和工具名推断工具分类。
+
+    优先按服务器名匹配，再按工具名关键词匹配，
+    都不命中则返回 "uncategorized"。
+    """
+    # 按服务器名直接映射
+    server_map = {
+        "desktop-mcp": "desktop",
+        "plc-mcp-bridge": "s7",
+        "tia-mcp": "tia",
+        "opcua-mcp": "monitoring",
+        "modbus-mcp": "monitoring",
+        "mitsubishi-mcp": "s7",
+        "robot-mcp": "control",
+    }
+    if server_name in server_map:
+        return server_map[server_name]
+
+    # 按工具名关键词匹配
+    name_lower = tool_name.lower()
+    if any(kw in name_lower for kw in ("s7_", "s7read", "s7write")):
+        return "s7"
+    if any(kw in name_lower for kw in ("safety", "interlock", "shadow_sim", "audit", "fuse")):
+        return "safety"
+    if any(kw in name_lower for kw in ("tia_", "compile", "download", "upload")):
+        return "tia"
+    if any(kw in name_lower for kw in ("screenshot", "click", "type_text", "hotkey",
+                                        "scroll", "drag", "press_key", "move_mouse",
+                                        "mouse_position", "screen_size", "locate_on_screen",
+                                        "double_click", "right_click")):
+        return "desktop"
+    if any(kw in name_lower for kw in ("pipeline", "run_pipeline")):
+        return "pipeline"
+    if any(kw in name_lower for kw in ("monitor", "read", "watch", "status", "collect")):
+        return "monitoring"
+    if any(kw in name_lower for kw in ("write", "set", "control", "start", "stop")):
+        return "control"
+
+    return "uncategorized"
+
+
 @dataclass
 class ToolInfo:
     """MCP 工具元数据"""
@@ -16,6 +75,7 @@ class ToolInfo:
     description: str = ""
     server: str = ""  # 所属 MCP 服务器
     parameters: dict[str, Any] = field(default_factory=dict)
+    category: str = "uncategorized"
 
 
 @dataclass
@@ -55,12 +115,16 @@ class Registry:
         self._servers[server.name] = server
         for tool in server.tools:
             tool.server = server.name
+            if tool.category == "uncategorized":
+                tool.category = categorize_tool(server.name, tool.name)
             full_name = f"{server.name}.{tool.name}"
             self._tools[full_name] = tool
 
     def register_tool(self, server_name: str, tool: ToolInfo) -> None:
         """注册单个工具到指定服务器"""
         tool.server = server_name
+        if tool.category == "uncategorized":
+            tool.category = categorize_tool(server_name, tool.name)
         full_name = f"{server_name}.{tool.name}"
         self._tools[full_name] = tool
         if server_name in self._servers:

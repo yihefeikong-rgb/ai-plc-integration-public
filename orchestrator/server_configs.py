@@ -59,6 +59,14 @@ ROBOT_MCP = ServerInfo(
     cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\robot-mcp",
 )
 
+DESKTOP_MCP = ServerInfo(
+    name="desktop-mcp",
+    description="桌面控制 — 鼠标键盘 + 截图（13 工具）",
+    command=r"D:\Python3\python.exe",
+    args=["server.py"],
+    cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\desktop-mcp",
+)
+
 # ============================================================================
 # 集成测试用服务器
 # ============================================================================
@@ -82,6 +90,7 @@ ALL_SERVERS: list[ServerInfo] = [
     MODBUS_MCP,
     MITSUBISHI_MCP,
     ROBOT_MCP,
+    DESKTOP_MCP,
     TEST_ECHO,
 ]
 

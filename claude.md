@@ -117,12 +117,12 @@
 | Phase 2: AI 控制闭环 + 安全链 | ✅ 完成 |
 | Phase 3: TIA 工程态 (TiaWorker) | ✅ 95% |
 | AI PLC Assistant 桌面应用 V1.0 | ✅ 完成 |
-| Phase 4: 工业机器人 | 未开始 |
-| Phase 5: 统一编排 | 未开始 |
+| Phase 4: 工业机器人 | ✅ 完成（2026-06-22 (10)）模拟后端 + Pick&Place 工作流 |
+| Phase 5: 统一编排 | ✅ 完成（2026-06-22 (9)）API 集成桌面应用（2026-06-22 (10)） |
 | 全仓审查修复 (63 A 级) | ✅ 完成（58/58，2026-06-20） |
 | CCteam-creator 执行层接入 | ✅ 完成（2026-06-22） |
 | TiaWorker C# 核心测试 | ✅ 完成（91 测试通过） |
-| 测试覆盖 | ✅ 303 pass / 0 fail |
+| 测试覆盖 | ✅ 617 pass / 0 fail（orchestrator 221 + backend 261 + robot 21 + safety 23 + C# 91） |
 
 ---
 

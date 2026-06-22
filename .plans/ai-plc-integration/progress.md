@@ -312,3 +312,162 @@ pytest orchestrator/tests/ -v
 
 ---
 
+## 2026-06-22 (9)：Phase 5 编排层完整实现（TS006-TS010）
+
+### 已完成
+- [x] **TS006 — Bootstrap 启动引导**
+  - 新建 `orchestrator/bootstrap.py`：`bootstrap()` + `shutdown()`
+  - 自动连接 8 个 MCP 服务器，注册工具到 Registry
+  - 工作流自动注册（`register_all_workflows`）
+  - 单服务器失败不阻塞其他
+  - 5 个测试通过
+- [x] **TS007 — S7 读写安全工作流**
+  - 新建 `orchestrator/workflows/s7_monitor.py`
+  - 采集→变化检测→AI 分析（mock）→SafetyGate→写入
+  - 写入操作自动经 SafetyGate（MCP 模式）
+  - 25 个测试通过
+- [x] **TS008 — TIA 全流水线跨服务器工作流**
+  - 新建 `orchestrator/workflows/tia_full_pipeline.py`
+  - 6 步跨 plc-mcp-bridge + tia-mcp：创建项目→配置硬件→生成 SCL→导入→编译→下载
+  - 步骤间数据传递（scl_path 从步骤 3→4）
+  - 14 个测试通过
+- [x] **TS009 — desktop-mcp 接入 + 工具分类**
+  - `server_configs.py`：添加 DESKTOP_MCP 配置（8 个服务器）
+  - `registry.py`：ToolInfo 新增 category 字段 + `categorize_tool()` 函数
+  - 9 个分类（s7/tia/safety/monitoring/control/engineering/desktop/pipeline/uncategorized）
+  - 25 个测试通过
+- [x] **TS010 — FastAPI 入口点**
+  - 新建 `orchestrator/api.py`：5 个端点（health/workflows/tools/servers/run）
+  - 启动时自动 bootstrap，关闭时 shutdown
+  - 12 个 API 测试通过
+- [x] **Reviewer 审查**：ADEQUATE（7.45/10）
+  - 修复 1 个 HIGH（bootstrap.py UnboundLocalError）
+  - 修复 2 个 MEDIUM（测试命名误导 + 入参校验）
+- [x] **全量测试**：201 passed / 0 failed
+
+### 新增文件清单
+| 文件 | 说明 |
+|------|------|
+| `orchestrator/bootstrap.py` | 启动引导 |
+| `orchestrator/api.py` | FastAPI HTTP API |
+| `orchestrator/workflows/s7_monitor.py` | S7 监控工作流 |
+| `orchestrator/workflows/tia_full_pipeline.py` | TIA 全流水线工作流 |
+| `orchestrator/tests/test_bootstrap.py` | Bootstrap 测试 |
+| `orchestrator/tests/test_api.py` | API 测试 |
+| `orchestrator/tests/test_s7_monitor.py` | S7 工作流测试 |
+| `orchestrator/tests/test_tia_full_pipeline.py` | TIA 流水线测试 |
+| `orchestrator/tests/test_registry_enhanced.py` | Registry 增强测试 |
+
+### 阻塞项
+- 无
+
+### 下一步
+- Phase 4：工业机器人 MCP 服务器
+- Phase 5：接入真实 MCP 服务器端到端验证
+- Phase 5：与 ai-plc-assistant 后端集成
+
+---
+
+## 2026-06-22 (10)：Phase 4 工业机器人 + Phase 5 收尾（TS011-TS014）
+
+### 已完成
+- [x] **TS011 — 编排层 API 集成到桌面应用**
+  - 新建 `ai-plc-assistant/backend/routes/orchestrator.py`：6 个端点 Router
+  - 修改 `ai-plc-assistant/backend/main.py`：lifespan 初始化编排层 + 注册路由 `/api/orchestrator`
+  - 新增 `/api/orchestrator/monitor` 实时状态监控端点
+  - 11 个测试通过
+- [x] **TS012 — 机器人 Pick&Place 编排工作流**
+  - 新建 `orchestrator/workflows/robot_pick_place.py`：7 步工作流（get_status→急停校验→go_home→conveyor→pick→conveyor→place）
+  - 新建 `orchestrator/workflows/robot_monitor.py`：状态监控工作流
+  - 急停检查：estop=True 时立即中止
+  - 13 个测试通过
+- [x] **TS013 — robot-mcp 模拟后端模式**
+  - 修改 `mcp-servers/robot-mcp/server.py`：新增 `simulated` 后端模式
+  - 内存状态存储 + 联动逻辑（grab↔item_detected 等）
+  - 环境变量 `ROBOT_BACKEND=simulated` 控制
+  - 21 个测试通过
+- [x] **TS014 — 机器人安全规则扩展 + SafetyGate 集成**
+  - 扩展 `safety/interlock-rules.yml`：新增 3 条机器人规则（GripperPressure/JointAngle/RobotConveyorSpeed）
+  - 新建 `tests/test_robot_safety_rules.py`：13 个规则验证测试
+  - 新建 `orchestrator/tests/test_safety_gate_robot.py`：7 个 SafetyGate 机器人场景测试
+- [x] **全量测试**：617 passed / 0 failed
+
+### 新增文件清单
+| 文件 | 说明 |
+|------|------|
+| `ai-plc-assistant/backend/routes/orchestrator.py` | 编排层路由（6 端点） |
+| `ai-plc-assistant/backend/tests/test_orchestrator_route.py` | 路由测试 |
+| `orchestrator/workflows/robot_pick_place.py` | 机器人 Pick&Place 工作流 |
+| `orchestrator/workflows/robot_monitor.py` | 机器人监控工作流 |
+| `orchestrator/tests/test_robot_workflows.py` | 机器人工作流测试 |
+| `mcp-servers/robot-mcp/test_simulated_backend.py` | 模拟后端测试 |
+| `tests/test_robot_safety_rules.py` | 机器人安全规则测试 |
+| `orchestrator/tests/test_safety_gate_robot.py` | SafetyGate 机器人场景测试 |
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `ai-plc-assistant/backend/main.py` | 编排层初始化 + 路由注册 |
+| `ai-plc-assistant/backend/tests/conftest.py` | mock orchestrator lifespan |
+| `mcp-servers/robot-mcp/server.py` | 新增 simulated 后端模式 |
+| `safety/interlock-rules.yml` | 新增 3 条机器人安全规则 |
+| `orchestrator/workflows/__init__.py` | 注册 2 个机器人工作流 |
+
+### 阻塞项
+- 无
+
+### 下一步
+- Phase 4：接入真实机器人硬件验证（需要 Factory I/O 3D 场景）
+- Phase 5：端到端集成测试（桌面应用 → 编排层 → MCP 服务器 → PLC）
+
+---
+
+## 2026-06-22 (11)：前端集成编排层 + 机器人控制（TS015-TS017）
+
+### 已完成
+- [x] **TS015 — 前端 API 层 + Dashboard 状态条 + Tab 注册**
+  - `api.js` 新增 6 个编排层 API 函数
+  - `Dashboard.jsx` 新增系统状态条（服务器/工作流/工具数量）
+  - `App.jsx` 注册 orchestrator 和 robot 两个新 Tab
+  - `useTabs.js` 添加中文标签
+- [x] **TS016 — OrchestratorPanel 编排面板**
+  - 264 行完整实现
+  - 3 个状态卡片（服务器/工具/工作流）
+  - 工作流列表 + 运行按钮 + JSON 输入弹窗
+  - 工具列表（按服务器分组，可折叠）
+  - 执行结果展示（步骤列表 + 状态 + 耗时）
+  - 加载骨架屏 + 错误提示
+- [x] **TS017 — RobotPanel 机器人控制面板**
+  - 340 行完整实现
+  - SVG 机械臂可视化（位置动画 + 夹爪状态）
+  - 手动控制：回位/拾取/放置/自动循环
+  - 传送带控制 + 单轴控制
+  - 急停按钮（触发时禁用所有控制）
+  - 状态面板（9 项状态信息）
+  - 操作日志（时间戳 + 结果，自动滚动）
+- [x] **构建验证**：vite build 通过（402KB JS + 20KB CSS）
+
+### 新增文件清单
+| 文件 | 说明 |
+|------|------|
+| `frontend/src/components/OrchestratorPanel.jsx` | 编排面板（264 行） |
+| `frontend/src/components/RobotPanel.jsx` | 机器人控制面板（340 行） |
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `frontend/src/api.js` | 新增 6 个编排层 API 函数 |
+| `frontend/src/Dashboard.jsx` | 新增系统状态条 |
+| `frontend/src/App.jsx` | 注册 orchestrator/robot Tab |
+| `frontend/src/hooks/useTabs.js` | 添加中文标签 |
+
+### 阻塞项
+- 无
+
+### 下一步
+- 真实硬件验证（robot-mcp 连接 Factory I/O）
+- 端到端集成测试
+- 前端 UI 增强（实时数据刷新、WebSocket 推送等）
+
+---
+

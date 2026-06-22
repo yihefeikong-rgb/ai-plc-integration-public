@@ -38,3 +38,24 @@ write_rules:
     min_value: 0
     require_bits: ["DB1.SafetyOK", "DB1.EmergencyStopOff", "DB1.PressGuardClosed"]
     cooldown_seconds: 10
+
+  - target: "DB1.GripperPressure"
+    max_value: 100
+    min_value: 0
+    require_bits: ["DB1.SafetyOK", "DB1.EmergencyStopOff"]
+    cooldown_seconds: 1
+    description: "机器人夹爪压力控制（0-100 bar）"
+
+  - target: "DB1.JointAngle"
+    max_value: 180
+    min_value: -180
+    require_bits: ["DB1.SafetyOK", "DB1.RobotZoneClear"]
+    cooldown_seconds: 3
+    description: "机器人关节角度限制（±180°）"
+
+  - target: "DB1.RobotConveyorSpeed"
+    max_value: 2000
+    min_value: 0
+    require_bits: ["DB1.SafetyOK", "DB1.EmergencyStopOff"]
+    cooldown_seconds: 2
+    description: "机器人传送带速度控制（0-2000 rpm）"

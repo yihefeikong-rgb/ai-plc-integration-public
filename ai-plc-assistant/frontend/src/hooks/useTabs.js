@@ -9,6 +9,8 @@ export const TAB_LABELS = {
   'io-table': 'IO表生成',
   variables: '变量分析',
   settings: '设置',
+  orchestrator: '编排管理',
+  robot: '机器人',
 }
 
 export default function useTabs() {

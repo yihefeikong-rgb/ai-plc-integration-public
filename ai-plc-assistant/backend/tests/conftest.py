@@ -4,7 +4,7 @@ import json
 import tempfile
 import shutil
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -36,6 +36,17 @@ def tmp_data_dir():
     tmp = tempfile.mkdtemp(prefix="ai_plc_test_")
     yield Path(tmp)
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ── Mock 编排层 bootstrap/shutdown ──────────────────────────
+@pytest.fixture(scope="session", autouse=True)
+def mock_orchestrator_lifespan():
+    """全局 mock 编排层启动/关闭，避免测试时连接真实 MCP 服务器。"""
+    mock_bootstrap = AsyncMock(return_value=None)
+    mock_shutdown = AsyncMock(return_value=None)
+    with patch("main.bootstrap", mock_bootstrap), \
+         patch("main.orchestrator_shutdown", mock_shutdown):
+        yield
 
 
 # ── Mock LLM 服务 ──────────────────────────────────────────

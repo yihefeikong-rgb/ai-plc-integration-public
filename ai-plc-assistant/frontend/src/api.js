@@ -176,3 +176,12 @@ export const getLadderTemplate = (name) => request(`/knowledge/ladder-templates/
 // ---- 健康检查 ----
 
 export const healthCheck = () => request('/health')
+
+// ---- 编排层 ----
+
+export const orchestratorHealth = () => request('/orchestrator/health')
+export const listWorkflows = () => request('/orchestrator/workflows')
+export const runWorkflow = (name, input = {}) => request(`/orchestrator/workflows/${name}/run`, { method: 'POST', body: JSON.stringify({ input }) })
+export const listOrchestratorTools = () => request('/orchestrator/tools')
+export const listServers = () => request('/orchestrator/servers')
+export const getMonitor = () => request('/orchestrator/monitor')

@@ -214,3 +214,113 @@ Researcher → Developer → Reviewer → Documenter
 - 更新 `progress.md`：Phase 5 启动。
 - 更新 `handoff.md`。
 - 同步架构文档。
+
+---
+
+## TS006 — P5 编排层启动引导（Bootstrap）
+
+### 目标
+实现编排层启动时自动连接所有配置好的 MCP 服务器，并自动注册所有工作流。
+
+### 范围
+- 新建 `orchestrator/bootstrap.py`，提供 `bootstrap()` 异步函数
+- 读取 `server_configs.ALL_SERVERS`，逐个调用 `pool.connect_server()`
+- 连接成功后注册到 `Registry`
+- 自动调用各工作流模块的 `register_*` 函数
+- 提供 `shutdown()` 清理函数
+- 错误处理：单个服务器连接失败不阻塞其他服务器
+
+### 验收标准
+- [ ] `bootstrap()` 函数存在且可调用
+- [ ] 连接所有 `ALL_SERVERS` 中的服务器
+- [ ] 工作流自动注册（无需手动调用 register 函数）
+- [ ] 单服务器失败不阻塞其他
+- [ ] 有测试覆盖（mock connect）
+- [ ] Reviewer 通过
+
+---
+
+## TS007 — S7 读写安全工作流
+
+### 目标
+在编排层中实现 S7 监控工作流，替代 edge-gateway 的核心功能（采集→变化检测→AI分析→安全写入）。
+
+### 范围
+- 新建 `orchestrator/workflows/s7_monitor.py`
+- 工作流步骤：读取标签 → 变化检测 → AI 分析（mock）→ SafetyGate 检查 → 写入
+- 使用 `ctx.call("plc-mcp-bridge.s7_read")` 和 `ctx.call("plc-mcp-bridge.s7_write")`
+- 内置变化检测逻辑（delta 阈值）
+- 写入操作自动经过 SafetyGate
+
+### 验收标准
+- [ ] 工作流注册为 `s7_monitor`
+- [ ] 读取→分析→写入完整流程可用（mock 模式）
+- [ ] SafetyGate 拦截写入操作
+- [ ] 变化检测逻辑有测试
+- [ ] Reviewer 通过
+
+---
+
+## TS008 — TIA 全流水线跨服务器工作流
+
+### 目标
+实现跨 plc-mcp-bridge + tia-mcp 的端到端 TIA 工程流水线。
+
+### 范围
+- 新建 `orchestrator/workflows/tia_full_pipeline.py`
+- 工作流步骤：创建项目 → 生成 SCL → 导入 → 编译 → 下载到 PLCSIM
+- 跨服务器调用：plc-mcp-bridge（项目操作）+ tia-mcp（代码生成/导入）
+- 每步结果传递给下一步
+- 错误处理：任一步骤失败时中止并返回错误
+
+### 验收标准
+- [ ] 工作流注册为 `tia_full_pipeline`
+- [ ] 跨服务器调用正确路由
+- [ ] 步骤间数据传递正确
+- [ ] 失败中止逻辑有测试
+- [ ] Reviewer 通过
+
+---
+
+## TS009 — desktop-mcp 接入 + 工具分类
+
+### 目标
+将 desktop-mcp 接入编排层，并为所有工具添加分类标签。
+
+### 范围
+- 在 `server_configs.py` 添加 `DESKTOP_MCP` 配置
+- 将 `DESKTOP_MCP` 加入 `ALL_SERVERS` 和 `SERVER_MAP`
+- 在 `registry.py` 中为 `ToolInfo` 添加 `category` 字段（safety/monitoring/control/engineering/desktop）
+- 为已有工具分类提供辅助函数
+
+### 验收标准
+- [ ] `DESKTOP_MCP` 配置存在且格式正确
+- [ ] `ToolInfo` 有 `category` 字段
+- [ ] 分类辅助函数可用
+- [ ] 测试覆盖
+- [ ] Reviewer 通过
+
+---
+
+## TS010 — FastAPI 入口点
+
+### 目标
+为编排层提供 HTTP API，暴露工作流执行、状态查询、工具列表等能力。
+
+### 范围
+- 新建 `orchestrator/api.py`
+- 端点：
+  - `GET /workflows` — 列出所有已注册工作流
+  - `POST /workflows/{name}/run` — 执行指定工作流
+  - `GET /tools` — 列出所有可用工具
+  - `GET /servers` — 列出所有已连接服务器
+  - `GET /health` — 健康检查
+- 启动时调用 `bootstrap()`
+- 与现有 ai-plc-assistant 后端集成（独立路由文件）
+
+### 验收标准
+- [ ] 5 个端点可用
+- [ ] 启动时自动 bootstrap
+- [ ] 工作流执行返回 WorkflowResult
+- [ ] 有测试覆盖（TestClient）
+- [ ] Reviewer 通过

@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react'
 import {
   Code2, FileSearch, Search, FolderInput,
   Clock, ArrowRight, FolderOpen, Plus, MessageSquare,
+  Server,
 } from 'lucide-react'
-import { listProjects, listConversations, getTemplateCategories } from '../api'
+import { listProjects, listConversations, getTemplateCategories, orchestratorHealth } from '../api'
 
 const quickActions = [
   { id: 'ladder', icon: Code2, label: '生成梯形图', desc: '自然语言生成PLC程序' },
@@ -26,6 +27,7 @@ export default function Dashboard({ onOpenTab, onCreateProject }) {
   const [projects, setProjects] = useState([])
   const [conversations, setConversations] = useState([])
   const [templates, setTemplates] = useState([])
+  const [health, setHealth] = useState(null)
 
   useEffect(() => {
     listProjects(5).then(d => setProjects(d.projects || [])).catch(() => {})
@@ -34,6 +36,7 @@ export default function Dashboard({ onOpenTab, onCreateProject }) {
       const cats = (d.categories || []).map(c => c.name)
       setTemplates(cats)
     }).catch(() => setTemplates(['交通灯控制', '电机正反转', 'PID温度调节', 'Modbus通信']))
+    orchestratorHealth().then(setHealth).catch(() => {})
   }, [])
 
   return (
@@ -58,6 +61,24 @@ export default function Dashboard({ onOpenTab, onCreateProject }) {
           </button>
         ))}
       </div>
+
+      {/* System Status */}
+      {health && (
+        <div className="bg-ide-sidebar border border-ide-border rounded p-3 mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Server className="w-4 h-4 text-accent" />
+            <span className="text-sm font-medium text-text-primary">系统状态</span>
+          </div>
+          <div className="flex gap-4 text-xs">
+            <div className="flex items-center gap-1">
+              <div className={`w-2 h-2 rounded-full ${health.servers_connected > 0 ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="text-text-secondary">服务器: {health.servers_connected}</span>
+            </div>
+            <div className="text-text-secondary">工作流: {health.workflows}</div>
+            <div className="text-text-secondary">工具: {health.tools}</div>
+          </div>
+        </div>
+      )}
 
       {/* Recent Projects */}
       <div className="mb-8">

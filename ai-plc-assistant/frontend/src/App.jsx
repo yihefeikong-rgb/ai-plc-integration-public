@@ -17,6 +17,8 @@ import LadderGenerator from './components/LadderGenerator'
 import VariableAnalyzer from './components/VariableAnalyzer'
 import CreateProjectDialog from './components/CreateProjectDialog'
 import ErrorBoundary from './components/ErrorBoundary'
+import OrchestratorPanel from './components/OrchestratorPanel'
+import RobotPanel from './components/RobotPanel'
 import useLogs from './hooks/useLogs'
 import useTabs, { TAB_LABELS } from './hooks/useTabs'
 import useModels from './hooks/useModels'
@@ -90,6 +92,8 @@ export default function App() {
     ladder: <LadderGenerator addLog={addLog} />,
     variables: <VariableAnalyzer addLog={addLog} />,
     settings: <SettingsPanel addLog={addLog} />,
+    orchestrator: <OrchestratorPanel />,
+    robot: <RobotPanel />,
   }
 
   return (

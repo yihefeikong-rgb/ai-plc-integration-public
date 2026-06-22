@@ -1,7 +1,14 @@
 """AI PLC Assistant — FastAPI 后端服务"""
 
 import logging
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# 将项目根目录加入 sys.path，使 orchestrator 等顶层包可导入
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,11 +23,14 @@ logger = logging.getLogger(__name__)
 from config import settings as app_config
 from routes import chat, models, knowledge, search, prompts, generate, conversations, projects
 from routes import settings as settings_route
+from routes import orchestrator as orchestrator_route
 from knowledge.engine import KnowledgeEngine
 from search.indexer import SearchIndex
 from storage.conversations import ConversationStore
 from storage.projects import ProjectStore
 from storage.app_settings import AppSettings, set_settings_store
+from orchestrator.bootstrap import bootstrap, shutdown as orchestrator_shutdown
+from orchestrator.mcp_pool import McpConnectionPool
 
 # 知识库引擎（全局单例）
 knowledge_engine = KnowledgeEngine(db_path=app_config.vector_db_path, embedding_model=app_config.embedding_model)
@@ -52,8 +62,26 @@ async def lifespan(app: FastAPI):
     projects.set_store(project_store)
     app_settings_store.initialize()
     set_settings_store(app_settings_store)
+
+    # 编排层初始化
+    pool = McpConnectionPool()
+    try:
+        await bootstrap(pool=pool)
+        logger.info("编排层初始化完成")
+    except Exception as e:
+        logger.warning(f"编排层初始化失败（非致命）: {e}")
+    app.state.orchestrator_pool = pool
+
     logger.info("所有引擎初始化完成")
     yield
+
+    # 编排层关闭
+    try:
+        await orchestrator_shutdown(pool=app.state.orchestrator_pool)
+        logger.info("编排层已关闭")
+    except Exception as e:
+        logger.warning(f"编排层关闭失败: {e}")
+
     logger.info("后端服务已关闭")
 
 
@@ -98,6 +126,7 @@ app.include_router(generate.router, prefix="/api/generate", tags=["梯形图生�
 app.include_router(conversations.router, prefix="/api/conversations", tags=["对话历史"])
 app.include_router(projects.router, prefix="/api/projects", tags=["项目管理"])
 app.include_router(settings_route.router, prefix="/api/settings", tags=["设置"])
+app.include_router(orchestrator_route.router, prefix="/api/orchestrator", tags=["编排层"])
 
 
 @app.get("/api/health")

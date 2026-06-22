@@ -38,6 +38,7 @@ I/O 映射 (Pick & Place Basic):
 
 from __future__ import annotations
 import asyncio
+import os
 import sys
 import json
 import argparse
@@ -105,12 +106,32 @@ IO_MAP = {
 
 
 class RobotBackend:
-    """机器人 PLC 后端连接管理器（OPC UA + snap7 双协议）"""
+    """机器人 PLC 后端连接管理器（OPC UA + snap7 + simulated 三模式）"""
 
     def __init__(self):
         self._opc_client: Any = None
         self._snap_client: Any = None
         self._backend_type: str | None = None
+        # 模拟状态存储（simulated 后端模式）
+        self._sim_state: dict[str, Any] = {
+            "sensor_estop": False,
+            "sensor_entry": False,
+            "sensor_exit": False,
+            "sensor_moving_x": False,
+            "sensor_moving_z": False,
+            "sensor_item_detected": False,
+            "sensor_start": False,
+            "sensor_reset": False,
+            "sensor_stop": False,
+            "conveyor_entry": False,
+            "conveyor_exit": False,
+            "arm_move_x": False,
+            "arm_move_z": False,
+            "grab": False,
+            "start_light": False,
+            "reset_light": False,
+            "stop_light": False,
+        }
 
     @property
     def backend_type(self) -> str | None:
@@ -142,7 +163,32 @@ class RobotBackend:
         self._snap_client = None
         return False
 
+    async def connect_simulated(self) -> bool:
+        """模拟连接 — 直接标记为已连接，无需硬件"""
+        self._backend_type = "simulated"
+        return True
+
+    def _update_sim_dependencies(self, name: str, value: bool) -> None:
+        """模拟联动逻辑 — 写入执行器时自动更新关联传感器"""
+        if name == "grab" and value:
+            # 夹爪闭合时，模拟检测到物料（前提是有物料在附近）
+            self._sim_state["sensor_item_detected"] = True
+        elif name == "grab" and not value:
+            self._sim_state["sensor_item_detected"] = False
+        elif name == "arm_move_x" and value:
+            self._sim_state["sensor_moving_x"] = True
+        elif name == "arm_move_x" and not value:
+            self._sim_state["sensor_moving_x"] = False
+        elif name == "arm_move_z" and value:
+            self._sim_state["sensor_moving_z"] = True
+        elif name == "arm_move_z" and not value:
+            self._sim_state["sensor_moving_z"] = False
+
     async def ensure_connected(self) -> bool:
+        if BACKEND == "simulated":
+            if self._backend_type == "simulated":
+                return True
+            return await self.connect_simulated()
         if BACKEND == "opcua":
             if self._opc_client is not None:
                 return True
@@ -177,7 +223,9 @@ class RobotBackend:
         try:
             if not await self.ensure_connected():
                 return None
-            if self._backend_type == "opcua" and self._opc_client:
+            if self._backend_type == "simulated":
+                return bool(self._sim_state.get(name, False))
+            elif self._backend_type == "opcua" and self._opc_client:
                 node = self._opc_client.get_node(info["node"])
                 val = await node.read_value()
                 return bool(val)
@@ -201,7 +249,11 @@ class RobotBackend:
         try:
             if not await self.ensure_connected():
                 return {"status": "error", "error": "未连接到 PLC"}
-            if self._backend_type == "opcua" and self._opc_client:
+            if self._backend_type == "simulated":
+                self._sim_state[name] = value
+                self._update_sim_dependencies(name, value)
+                return {"status": "ok", "io": name, "value": value, "backend": "simulated"}
+            elif self._backend_type == "opcua" and self._opc_client:
                 node = self._opc_client.get_node(info["node"])
                 from asyncua import ua
                 await node.write_value(ua.DataValue(ua.Variant(value, ua.VariantType.Boolean)))
@@ -220,6 +272,11 @@ class RobotBackend:
 
     async def read_all_inputs(self) -> dict:
         inputs = {}
+        if self._backend_type == "simulated":
+            for name in IO_MAP:
+                if name.startswith("sensor_"):
+                    inputs[name] = bool(self._sim_state.get(name, False))
+            return inputs
         if self._backend_type == "snap7" and self._snap_client:
             try:
                 data = self._snap_client.read_area(0x81, 0, 0, 2)
@@ -257,6 +314,7 @@ class RobotBackend:
             "backend": self._backend_type or "not connected",
             "has_opcua": HAS_ASYNCUA,
             "has_snap7": HAS_SNAP7,
+            "has_simulated": True,
             "plc_ip": PLC_IP,
             "opcua_endpoint": OPCUA_ENDPOINT,
         }
@@ -270,7 +328,8 @@ backend = RobotBackend()
 # 'auto': 优先 OPC UA, 失败回退 snap7
 # 'opcua': 强制 OPC UA
 # 'snap7': 强制 snap7
-BACKEND = "auto"
+# 'simulated': 内存模拟（无需硬件）
+BACKEND = os.environ.get("ROBOT_BACKEND", "auto")
 
 # ── FastMCP Server ──────────────────────────────────────────────────
 mcp = FastMCP("robot-mcp")
@@ -634,9 +693,9 @@ if __name__ == "__main__":
                         help=f"OPC UA 端点 (默认: {OPCUA_ENDPOINT})")
     parser.add_argument("--ip", default=PLC_IP,
                         help=f"PLC IP 地址 (默认: {PLC_IP})")
-    parser.add_argument("--backend", default="auto",
-                        choices=["auto", "opcua", "snap7"],
-                        help="通信后端 (默认: auto, 自动选择)")
+    parser.add_argument("--backend", default=None,
+                        choices=["auto", "opcua", "snap7", "simulated"],
+                        help="通信后端 (默认: auto, 或从环境变量 ROBOT_BACKEND 读取)")
     parser.add_argument("--scene", default="Pick & Place (Basic)",
                         choices=["Pick & Place (Basic)", "Palletizer"],
                         help="Factory I/O 场景 (默认: Pick & Place (Basic))")
@@ -654,7 +713,8 @@ if __name__ == "__main__":
     if args.ip:
         PLC_IP = args.ip
         OPCUA_ENDPOINT = f"opc.tcp://{PLC_IP}:4840"
-    BACKEND = args.backend
+    if args.backend:
+        BACKEND = args.backend
 
     print(f"  Robot MCP Server starting...")
     print(f"  场景: {args.scene}")
