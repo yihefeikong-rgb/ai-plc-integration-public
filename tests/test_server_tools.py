@@ -287,6 +287,42 @@ class TestImportSclFile:
         assert result["status"] == "error"
         assert "标签创建失败" in result["error"]
 
+    def test_lint_blocks_import_with_errors(self, server):
+        """TS022 MEDIUM: lint 拦截时阻止导入 + 审计日志 + 不调用 worker"""
+        # 确保 scl_lint 模块可导入（使用真实 scl_lint）
+        bad_scl = """
+FUNCTION "FC_LintBlocked" : Void
+   VAR_INPUT
+      Msg : String[80];
+   END_VAR
+BEGIN
+END_FUNCTION
+"""
+        from unittest.mock import patch as upatch
+        # Mock _run_worker 以验证它不会被调用
+        mock_worker = MagicMock(return_value={"ok": True})
+        with upatch.object(server, "_run_worker", mock_worker):
+            result = server.import_scl_file(
+                scl_code=bad_scl,
+                block_name="LintBlocked",
+                project_path="C:\\test\\project.ap21",
+            )
+        # 应该被 lint 拦截
+        assert result["status"] == "error"
+        assert "lint_errors" in result
+        assert len(result["lint_errors"]) >= 1
+        assert "违规" in result["message"]
+        # _run_worker 不应被调用（lint 在写盘前拦截）
+        mock_worker.assert_not_called()
+        # audit_log 应被调用
+        audit_mock = sys.modules["audit"].audit_log
+        # 至少有一个调用包含 lint_blocked
+        lint_blocked_calls = [
+            c for c in audit_mock.call_args_list
+            if c[1].get("result") == "lint_blocked"
+        ]
+        assert len(lint_blocked_calls) >= 1, "audit_log 应在 lint 拦截时被调用"
+
 
 # ═══════════════════════════════════════════════════════════════
 # 测试: create_plc_tags (MCP 工具)
@@ -633,3 +669,152 @@ class TestSafetyGate:
         assert result is not None
         assert result["status"] == "error"
         assert "安全链拒绝" in result["message"]
+
+
+# ═══════════════════════════════════════════════════════════════
+# D-09: 数据契约 — generate_scl_code 返回顶层 scl_code/block_name
+# ═══════════════════════════════════════════════════════════════
+
+class TestGenerateSclCodeContract:
+    """D-09: generate_scl_code 返回值包含顶层 scl_code 和 block_name"""
+
+    def test_top_level_scl_code_and_block_name(self, server):
+        mock_deepseek = {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"scl_code": "FUNCTION_BLOCK Motor...", "block_name": "Motor"}'
+                    }
+                }
+            ]
+        }
+        with patch.object(server, "_deepseek_chat", return_value=mock_deepseek):
+            result = server.generate_scl_code(description="电机控制")
+        assert result["status"] == "ok"
+        # 顶层字段
+        assert result["scl_code"] == "FUNCTION_BLOCK Motor..."
+        assert result["block_name"] == "Motor"
+        # 向后兼容的 data 子字典
+        assert result["data"]["scl_code"] == "FUNCTION_BLOCK Motor..."
+        assert result["data"]["block_name"] == "Motor"
+
+    def test_top_level_fallback_when_data_missing(self, server):
+        """当 data 子字典为空时,顶层字段仍应有值"""
+        mock_deepseek = {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"scl_code": "FUNCTION_BLOCK FB1...", "block_name": "FB1"}'
+                    }
+                }
+            ]
+        }
+        with patch.object(server, "_deepseek_chat", return_value=mock_deepseek):
+            result = server.generate_scl_code(description="测试")
+        assert result["scl_code"] == "FUNCTION_BLOCK FB1..."
+        assert result["block_name"] == "FB1"
+
+
+# ═══════════════════════════════════════════════════════════════
+# D-02: import_scl_file 的 replace 参数
+# ═══════════════════════════════════════════════════════════════
+
+class TestImportSclFileReplace:
+    """D-02: import_scl_file 支持 replace 参数"""
+
+    def test_default_replace_false_uses_import_scl(self, server):
+        """replace=False(默认) 时调用 import-scl 命令"""
+        with patch.object(server, "_run_worker", return_value={"ok": True}) as mock_worker:
+            server.import_scl_file(
+                scl_code="FUNCTION_BLOCK Test ...",
+                block_name="Test",
+                project_path="C:\\test\\project.ap21",
+            )
+        # 验证调用命令为 "import-scl"
+        call_kwargs = mock_worker.call_args[0]
+        assert call_kwargs[0] == "import-scl"
+
+    def test_replace_true_uses_import_scl_replace(self, server):
+        """replace=True 时调用 import-scl-replace 命令"""
+        with patch.object(server, "_run_worker", return_value={"ok": True}) as mock_worker:
+            server.import_scl_file(
+                scl_code="FUNCTION_BLOCK Test ...",
+                block_name="Test",
+                project_path="C:\\test\\project.ap21",
+                replace=True,
+            )
+        call_kwargs = mock_worker.call_args[0]
+        assert call_kwargs[0] == "import-scl-replace"
+
+    def test_replace_passes_same_payload(self, server):
+        """replace=True/False 传入相同的 payload 结构"""
+        with patch.object(server, "_run_worker", return_value={"ok": True}) as mock_worker:
+            server.import_scl_file(
+                scl_code="FUNCTION_BLOCK X ...",
+                block_name="X",
+                project_path="C:\\test\\project.ap21",
+                replace=False,
+            )
+            _, payload_plain = mock_worker.call_args[0]
+            assert "ProjectPath" in payload_plain
+            assert "SclFilePath" in payload_plain
+
+        with patch.object(server, "_run_worker", return_value={"ok": True}) as mock_worker:
+            server.import_scl_file(
+                scl_code="FUNCTION_BLOCK X ...",
+                block_name="X",
+                project_path="C:\\test\\project.ap21",
+                replace=True,
+            )
+            _, payload_replace = mock_worker.call_args[0]
+            assert "ProjectPath" in payload_replace
+            assert "SclFilePath" in payload_replace
+
+
+# ═══════════════════════════════════════════════════════════════
+# D-03: BOM 防御
+# ═══════════════════════════════════════════════════════════════
+
+class TestBomDefense:
+    """D-03: 写 .scl 文件前清除 BOM + UTF-8 无 BOM"""
+
+    def test_bom_stripped_before_write(self, server):
+        """包含 BOM 的 scl_code 写入时 BOM 被清除"""
+        bom_scl = "\ufeffFUNCTION_BLOCK Test ..."
+        with patch.object(server, "_run_worker", return_value={"ok": True}):
+            with patch("pathlib.Path.write_text") as mock_write:
+                server.import_scl_file(
+                    scl_code=bom_scl,
+                    block_name="Test",
+                    project_path="C:\\test\\project.ap21",
+                )
+                # 确保写入的内容没有 BOM
+                written_text = mock_write.call_args[0][0]
+                assert written_text.startswith("FUNCTION_BLOCK"), f"写入内容以 BOM 开头: {written_text[:20]}"
+                assert not written_text.startswith("\ufeff"), "BOM 未被清除"
+
+    def test_no_bom_normal_code_unchanged(self, server):
+        """不含 BOM 的正常 scl_code 不变"""
+        normal_scl = "FUNCTION_BLOCK Normal ..."
+        with patch.object(server, "_run_worker", return_value={"ok": True}):
+            with patch("pathlib.Path.write_text") as mock_write:
+                server.import_scl_file(
+                    scl_code=normal_scl,
+                    block_name="Normal",
+                    project_path="C:\\test\\project.ap21",
+                )
+                written_text = mock_write.call_args[0][0]
+                assert written_text == normal_scl
+
+    def test_write_encoding_is_utf8(self, server):
+        """写入时使用 utf-8 编码（无 BOM）"""
+        with patch.object(server, "_run_worker", return_value={"ok": True}):
+            with patch("pathlib.Path.write_text") as mock_write:
+                server.import_scl_file(
+                    scl_code="FUNCTION_BLOCK EncTest ...",
+                    block_name="EncTest",
+                    project_path="C:\\test\\project.ap21",
+                )
+                # verify encoding="utf-8" is passed
+                _, kwargs = mock_write.call_args
+                assert kwargs.get("encoding") == "utf-8"

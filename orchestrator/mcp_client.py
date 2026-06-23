@@ -156,12 +156,24 @@ class McpClientAdapter:
         # 尝试解析 JSON 文本
         if texts:
             import json
+            import re
 
             combined = "\n".join(texts)
             try:
                 return json.loads(combined)
             except (json.JSONDecodeError, ValueError):
-                return {"text": combined}
+                pass
+
+            # 尝试从 markdown code block 中提取 JSON
+            # MCP 真实模式下某些工具返回格式为 "文字\n```json\n{...}\n```"
+            m = re.search(r'```(?:json)?\s*\n([\s\S]*?)\n\s*```', combined)
+            if m:
+                try:
+                    return json.loads(m.group(1))
+                except json.JSONDecodeError:
+                    pass
+
+            return {"text": combined}
 
         return {"text": ""}
 

@@ -6,10 +6,9 @@
 
 ## 模型
 
-- **主模型**：Sonnet / DeepSeek V4 Pro
-- **辅助模型**：Haiku / DeepSeek V4 Flash（仅格式整理、拼写检查）
-
-> Documenter 不需要最强推理，但需要高准确性和上下文理解。Haiku 容易把发现放错文件，Opus 太贵。Sonnet 是最佳平衡点。
+- **模型**: Haiku = Flash (deepseek-v4-flash)
+- **定位**: 轻量文档同步、格式整理、状态记录
+- **注意**: 仅做格式整理、拼写检查、状态同步。不做架构决策、不做安全审查、不修改 invariant。
 
 ---
 

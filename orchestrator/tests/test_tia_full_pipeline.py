@@ -22,16 +22,20 @@ def _make_engine() -> OrchestratorEngine:
         "plc-mcp-bridge.plc_create_instance": lambda project_path, plc_ip, rack, slot: {
             "instance_id": "inst-001",
         },
-        "tia-mcp.generate_scl_code": lambda prompt: {
-            "scl_path": "/tmp/motor_ctrl.scl",
-            "code": "FUNCTION_BLOCK \"MotorCtrl\"",
+        "tia-mcp.generate_scl_code": lambda description: {
+            "status": "ok",
+            "data": {"scl_code": "FUNCTION_BLOCK \"MotorCtrl\"...", "block_name": "MotorCtrl"},
+            "scl_code": "FUNCTION_BLOCK \"MotorCtrl\"...",
+            "block_name": "MotorCtrl",
         },
-        "tia-mcp.import_scl_file": lambda scl_path, project_path: {
+        "tia-mcp.import_scl_file": lambda scl_code, block_name, project_path, replace=True: {
             "blocks_imported": ["MotorCtrl"],
         },
         "plc-mcp-bridge.plc_compile_project": lambda project_path: {
             "ok": True,
+            "success": True,
             "errors": 0,
+            "error_list": [],
         },
         "plc-mcp-bridge.plc_download_project": lambda project_path, plc_ip: {
             "ok": True,
@@ -143,8 +147,8 @@ class TestPartialFailure:
             "plc-mcp-bridge.plc_create_project": lambda name, path: {"project_id": "p1"},
             "plc-mcp-bridge.plc_create_instance": lambda **kw: {"instance_id": "i1"},
             "tia-mcp.generate_scl_code": failing_generate,
-            "tia-mcp.import_scl_file": lambda **kw: {"blocks_imported": []},
-            "plc-mcp-bridge.plc_compile_project": lambda **kw: {"ok": True},
+            "tia-mcp.import_scl_file": lambda scl_code, block_name, project_path, replace=True: {"blocks_imported": []},
+            "plc-mcp-bridge.plc_compile_project": lambda **kw: {"ok": True, "success": True, "errors": 0, "error_list": []},
             "plc-mcp-bridge.plc_download_project": lambda **kw: {"ok": True},
         })
 
@@ -200,24 +204,26 @@ class TestDataPassing:
     """步骤间数据正确传递"""
 
     @pytest.mark.asyncio
-    async def test_scl_path_passed_to_import_step(self):
-        """步骤 3 生成的 scl_path 应传递给步骤 4"""
+    async def test_scl_code_passed_to_import_step(self):
+        """步骤 3 生成的 scl_code 应传递给步骤 4"""
         engine = OrchestratorEngine()
         register_tia_full_pipeline_workflow(engine)
-
-        received_scl_path = {}
 
         engine.register_mocks({
             "plc-mcp-bridge.plc_create_project": lambda name, path: {"project_id": "p1"},
             "plc-mcp-bridge.plc_create_instance": lambda **kw: {"instance_id": "i1"},
-            "tia-mcp.generate_scl_code": lambda prompt: {
-                "scl_path": "/special/path/custom.scl",
+            "tia-mcp.generate_scl_code": lambda description: {
+                "status": "ok",
+                "data": {"scl_code": "FUNCTION_BLOCK Custom...", "block_name": "CustomBlock"},
+                "scl_code": "FUNCTION_BLOCK Custom...",
+                "block_name": "CustomBlock",
             },
-            "tia-mcp.import_scl_file": lambda scl_path, project_path: {
-                "captured_scl_path": scl_path,
+            "tia-mcp.import_scl_file": lambda scl_code, block_name, project_path, replace=True: {
+                "captured_scl_code": scl_code,
+                "captured_block_name": block_name,
                 "blocks_imported": [],
             },
-            "plc-mcp-bridge.plc_compile_project": lambda project_path: {"ok": True},
+            "plc-mcp-bridge.plc_compile_project": lambda project_path: {"ok": True, "success": True, "errors": 0, "error_list": []},
             "plc-mcp-bridge.plc_download_project": lambda project_path, plc_ip: {"ok": True},
         })
 
@@ -231,9 +237,10 @@ class TestDataPassing:
         )
 
         assert result.ok is True
-        # 步骤 4 (import_scl_file) 的 data 应包含从步骤 3 传递过来的 scl_path
+        # 步骤 4 (import_scl_file) 应收到步骤 3 生成的 scl_code 和 block_name
         step4_data = result.steps[3].data
-        assert step4_data["captured_scl_path"] == "/special/path/custom.scl"
+        assert step4_data["captured_scl_code"] == "FUNCTION_BLOCK Custom..."
+        assert step4_data["captured_block_name"] == "CustomBlock"
 
 
 # ============================================================================
@@ -295,6 +302,29 @@ class TestBuildPipelineSteps:
         assert step2_args["rack"] == 2
         assert step2_args["slot"] == 3
 
+    def test_step3_uses_description_not_prompt(self):
+        steps = build_pipeline_steps(
+            project_name="Test",
+            project_path="C:/Test",
+            scl_prompt="生成 FB",
+        )
+        step3_args = steps[2]["args"]
+        assert "description" in step3_args
+        assert step3_args["description"] == "生成 FB"
+        assert "prompt" not in step3_args
+
+    def test_step4_uses_scl_code_and_block_name(self):
+        steps = build_pipeline_steps(
+            project_name="Test",
+            project_path="C:/Test",
+            scl_prompt="生成 FB",
+        )
+        step4_args = steps[3]["args"]
+        assert "scl_code" in step4_args
+        assert "block_name" in step4_args
+        assert "project_path" in step4_args
+        assert "scl_path" not in step4_args
+
     def test_default_plc_ip(self):
         steps = build_pipeline_steps(
             project_name="Test",
@@ -315,3 +345,169 @@ class TestBuildPipelineSteps:
         )
         step6_args = steps[5]["args"]
         assert step6_args["plc_ip"] == "10.0.0.5"
+
+
+# ============================================================================
+# 编译重试逻辑测试
+# ============================================================================
+
+
+class TestCompileRetry:
+    """步骤 5 编译失败时自动重试（最多 3 次）"""
+
+    def _make_retry_engine(self, compile_results: list[dict]):
+        """创建引擎用于测试重试逻辑。
+
+        compile_results: 依次返回的编译结果列表（第 1 次尝试用 compile_results[0]，以此类推）
+        """
+        engine = OrchestratorEngine()
+        register_tia_full_pipeline_workflow(engine)
+
+        attempt_counter = {"count": 0}
+
+        def compile_with_retry_count(project_path):
+            idx = attempt_counter["count"]
+            attempt_counter["count"] += 1
+            if idx < len(compile_results):
+                return compile_results[idx]
+            # 超出预定义结果数，返回成功
+            return {"ok": True, "errors": 0}
+
+        engine.register_mocks({
+            "plc-mcp-bridge.plc_create_project": lambda name, path: {"project_id": "proj-retry"},
+            "plc-mcp-bridge.plc_create_instance": lambda **kw: {"instance_id": "i1"},
+            "tia-mcp.generate_scl_code": lambda description: {
+                "status": "ok",
+                "data": {"scl_code": f"FB RetryAttempt {attempt_counter['count']}", "block_name": "RetryFB"},
+                "scl_code": f"FB RetryAttempt {attempt_counter['count']}",
+                "block_name": "RetryFB",
+            },
+            "tia-mcp.import_scl_file": lambda scl_code, block_name, project_path, replace=True: {
+                "blocks_imported": ["RetryFB"],
+            },
+            "plc-mcp-bridge.plc_compile_project": compile_with_retry_count,
+            "plc-mcp-bridge.plc_download_project": lambda project_path, plc_ip: {"ok": True},
+        })
+        return engine
+
+    @pytest.mark.asyncio
+    async def test_compile_pass_no_retry(self):
+        """编译一次通过时，不触发重试，只执行一组步骤 3-4-5"""
+        engine = self._make_retry_engine([
+            {"ok": True, "success": True, "errors": 0, "error_list": []},
+        ])
+
+        result = await engine.run_async(
+            "tia_full_pipeline",
+            input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
+        )
+        assert result.ok is True
+        # 步骤: 1-create, 2-instance, 3-gen, 4-import, 5-compile, 6-download = 6 步，无重试
+        assert len(result.steps) == 6
+        data = result.steps[-1].data  # 最终返回的数据
+        assert result.steps[4].ok is True  # compile 成功
+
+    @pytest.mark.asyncio
+    async def test_compile_fail_once_then_pass(self):
+        """第 1 次编译失败，第 2 次通过 — 共执行 3+4+5 两次"""
+        engine = self._make_retry_engine([
+            {"ok": False, "success": False, "errors": 2, "error_list": [
+                {"line": 5, "file": "RetryFB.scl", "text": "语法错误", "severity": "error"},
+                {"line": 12, "file": "RetryFB.scl", "text": "变量未声明", "severity": "error"},
+            ]},
+            {"ok": True, "success": True, "errors": 0, "error_list": []},
+        ])
+
+        result = await engine.run_async(
+            "tia_full_pipeline",
+            input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
+        )
+        assert result.ok is True
+        # 步骤: 1, 2, 3, 4, 5(fail), 3, 4, 5(pass), 6 = 9 步
+        assert len(result.steps) == 9
+
+    @pytest.mark.asyncio
+    async def test_compile_fail_three_times(self):
+        """3 次编译全部失败 — 只有 3 组步骤(3-4-5)，步骤 6 未执行"""
+        error_list = [
+            {"line": 5, "file": "X.scl", "text": "语法错误", "severity": "error"},
+        ]
+        engine = self._make_retry_engine([
+            {"ok": False, "success": False, "errors": 1, "error_list": error_list},
+            {"ok": False, "success": False, "errors": 1, "error_list": error_list},
+            {"ok": False, "success": False, "errors": 1, "error_list": error_list},
+        ])
+
+        result = await engine.run_async(
+            "tia_full_pipeline",
+            input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
+        )
+        # 步骤: 1, 2, 3, 4, 5(fail), 3, 4, 5(fail), 3, 4, 5(fail) = 11 步（无步骤 6）
+        assert len(result.steps) == 11
+        # 验证最后 3 步是 compile 失败（步骤 6 未执行）
+        tools_executed = [s.tool for s in result.steps]
+        assert "plc-mcp-bridge.plc_download_project" not in tools_executed
+
+    @pytest.mark.asyncio
+    async def test_retry_preserves_error_details(self):
+        """重试过程中保留错误明细，步骤数正确反映重试次数"""
+        first_errors = [
+            {"line": 5, "file": "A.scl", "text": "语法错误: 意外的 '}',", "severity": "error"},
+            {"line": 8, "file": "A.scl", "text": "变量未声明", "severity": "error"},
+        ]
+        second_errors = [
+            {"line": 3, "file": "A.scl", "text": "类型不匹配", "severity": "error"},
+        ]
+        engine = self._make_retry_engine([
+            {"ok": False, "success": False, "errors": 2, "error_list": first_errors},
+            {"ok": False, "success": False, "errors": 1, "error_list": second_errors},
+            {"ok": False, "success": False, "errors": 1, "error_list": [
+                {"line": 10, "file": "A.scl", "text": "未知标识符", "severity": "error"},
+            ]},
+        ])
+
+        result = await engine.run_async(
+            "tia_full_pipeline",
+            input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
+        )
+        # 步骤: 1, 2, 3, 4, 5, 3, 4, 5, 3, 4, 5 = 11 步（3 次尝试全部失败）
+        assert len(result.steps) == 11
+        # 未执行下载步骤
+        tools_executed = [s.tool for s in result.steps]
+        assert "plc-mcp-bridge.plc_download_project" not in tools_executed
+
+    @pytest.mark.asyncio
+    async def test_compile_fail_no_error_list_fallback(self):
+        """编译失败但无 error_list — 回退构造基本错误信息，仍正确重试"""
+        engine = self._make_retry_engine([
+            {"ok": False, "success": False, "errors": 5},
+            {"ok": False, "success": False, "errors": 3},
+            {"ok": False, "success": False, "errors": 1},
+        ])
+
+        result = await engine.run_async(
+            "tia_full_pipeline",
+            input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
+        )
+        assert len(result.steps) == 11  # 3 次尝试全部失败
+        # 确认没有执行到步骤 6
+        tools_executed = [s.tool for s in result.steps]
+        assert "plc-mcp-bridge.plc_download_project" not in tools_executed
+
+    @pytest.mark.asyncio
+    async def test_step1_failure_no_retry(self):
+        """步骤 1 失败不触发编译重试"""
+        engine = OrchestratorEngine()
+        register_tia_full_pipeline_workflow(engine)
+
+        def failing_create(**kwargs):
+            raise ValueError("项目路径无效")
+
+        engine.register_mock("plc-mcp-bridge.plc_create_project", failing_create)
+
+        result = await engine.run_async(
+            "tia_full_pipeline",
+            input={"project_name": "Bad", "project_path": "", "scl_prompt": "test"},
+        )
+        assert result.ok is False
+        assert len(result.steps) == 1  # 只有步骤 1 失败，无重试

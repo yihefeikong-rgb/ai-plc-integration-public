@@ -30,6 +30,15 @@
 | T015 | 前端 API 层 + Dashboard 状态条 + Tab 注册 | DONE | developer | api.js 编排层函数 + Dashboard 服务器状态卡片 + App.jsx 注册新 Tab | TS015 |
 | T016 | 编排面板（OrchestratorPanel） | DONE | developer | 工作流列表/执行/结果展示 + 工具/服务器列表 | TS016 |
 | T017 | 机器人控制面板（RobotPanel） | DONE | developer | 模拟 Pick&Place 可视化 + 实时状态 + 手动控制 | TS017 |
+| T018 | robot-mcp snap7 回退路径验证 | DONE | developer | snap7 回退路径实际连接 PLCSIM 验证，测试覆盖 | TS018 |
+| T019 | PLCSIM Advanced 集成验证 | DONE | developer | python-snap7 v3 连接虚拟 PLC，读写全流程验证 | TS019 |
+| T020 | 全仓端到端集成测试 | DONE | developer | 后端 + orchestrator + MCP 服务器 + PLCSIM 全链路验证 | TS020 |
+| T021 | 修复 TIA 流水线 pipeline 阻断 bug | DONE | developer(Sonnet) → reviewer(Opus) | D-09/D-02/D-03 三个 pipeline 阻断 bug 修复 + 3 HIGH 修复，审查 STRONG | TS021 |
+| T022 | SCL 规范注入 AI 提示词 + 静态校验器 | DONE | developer(Sonnet) → reviewer(Opus) | SCL 规范抽取 + scl_lint(6规则) + 规范注入 + lint集成，审查 STRONG | TS022 |
+| T023 | 编译错误结构化 + AI 重试循环 | DONE | developer(Sonnet) → reviewer(Opus) | TiaWorker compile 返回结构化 error_list + pipeline 3 次 AI 重试 + markdown 格式兼容，审查 CONDITIONAL PASS | TS023 |
+| T024 | 多块依赖顺序工作流 | DONE | developer(Sonnet) → reviewer(Opus) | tia_multi_block_pipeline 工作流 + 22 测试，审查 CONDITIONAL PASS → 修复后一致 | TS024 | | — | UDT→变量表→全局DB→FC/FB/OB 依赖顺序导入编译通过 | TS024 |
+| T025 | 真实环境冒烟脚本 | DONE | developer(Sonnet) | e2e_smoke.py + preflight.py + demo.py，需人工在 TIA V21 环境验证 | TS025 |
+| T026 | 一键启动 + Demo 文档 | DONE | developer(Sonnet) | start.bat + quickstart-落地版.md，需人工验证 | TS026 | | — | start.bat + preflight.py + demo.py + quickstart 文档 | TS026 |
 ---
 
 ## TS004 验证记录

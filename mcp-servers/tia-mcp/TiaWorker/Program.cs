@@ -238,6 +238,8 @@ namespace TiaWorker
                         return GetRackSlot(json);
                     case "list-backups":
                         return ListBackups(json);
+                    case "import-scl-replace":
+                        return ImportSclReplace(json);
                     default:
                         Console.WriteLine(JsonError($"Unknown command: {command}"));
                         return 1;
@@ -298,6 +300,65 @@ namespace TiaWorker
             }
         }
 
+        static int ImportSclReplace(string json)
+        {
+            var input = Json.Deserialize<ImportSclInput>(json);
+            if (string.IsNullOrEmpty(input?.ProjectPath) ||
+                string.IsNullOrEmpty(input?.SclFilePath))
+            {
+                Console.WriteLine(JsonError("Missing ProjectPath or SclFilePath"));
+                return 1;
+            }
+
+            var sclFile = new FileInfo(input.SclFilePath);
+            if (!sclFile.Exists)
+            {
+                Console.WriteLine(JsonError($"SCL file not found: {input.SclFilePath}"));
+                return 1;
+            }
+
+            using (var tia = AttachOrCreate())
+            {
+                var project = GetOrOpenProject(tia, input.ProjectPath);
+                var plcSoftware = GetPlcSoftware(project);
+                if (plcSoftware == null)
+                {
+                    Console.WriteLine(JsonError("No PLC device found in project"));
+                    return 1;
+                }
+
+                var extGroup = plcSoftware.ExternalSourceGroup;
+                var extSources = extGroup.ExternalSources;
+                var sourceName = sclFile.Name;
+
+                // 删除同名已有外部源（重导前必须先删旧外部源）
+                try
+                {
+                    var existing = extSources.Find(sourceName);
+                    if (existing != null)
+                    {
+                        existing.Delete();
+                    }
+                }
+                catch { }
+
+                var extSource = extSources.CreateFromFile(sourceName, sclFile.FullName);
+                var generated = extSource.GenerateBlocksFromSource(GenerateBlockOption.None);
+
+                AutoBackupProject(project);
+                project.Save();
+
+                Console.WriteLine(JsonOk(new
+                {
+                    fileName = sclFile.Name,
+                    generated = generated.Count,
+                    blocks = generated.OfType<PlcBlock>().Select(b => b.Name).ToArray(),
+                    replaced = true
+                }));
+                return 0;
+            }
+        }
+
         static int Compile(string json)
         {
             var input = Json.Deserialize<ProjectInput>(json);
@@ -323,11 +384,54 @@ namespace TiaWorker
                 AutoBackupProject(project);
                 project.Save();
 
+                // 提取结构化错误明细
+                var errorList = new List<object>();
+                try
+                {
+                    foreach (var msg in result.Messages)
+                    {
+                        if (msg.ErrorCount > 0)
+                        {
+                            // 尝试从消息路径中提取文件名
+                            var fileName = "";
+                            try
+                            {
+                                var path = msg.Path;
+                                if (!string.IsNullOrEmpty(path))
+                                {
+                                    fileName = System.IO.Path.GetFileName(path);
+                                }
+                            }
+                            catch { }
+
+                            // TIA Openness 的消息描述通常包含行号信息
+                            var desc = msg.Description ?? "";
+                            var line = 0;
+                            int severity = 1;  // 1=error, 2=warning
+                            if (msg.State == CompilerResultMessageState.Error)
+                                severity = 1;
+                            else if (msg.State == CompilerResultMessageState.Warning)
+                                severity = 2;
+
+                            errorList.Add(new
+                            {
+                                line,
+                                file = fileName,
+                                text = desc,
+                                severity = severity == 1 ? "error" : "warning",
+                                state = msg.State.ToString(),
+                            });
+                        }
+                    }
+                }
+                catch { }
+
                 Console.WriteLine(JsonOk(new
                 {
                     success = result.State == CompilerResultState.Success,
                     errors = result.ErrorCount,
-                    warnings = result.WarningCount
+                    warnings = result.WarningCount,
+                    error_list = errorList
                 }));
                 return result.State == CompilerResultState.Success ? 0 : 1;
             }

@@ -32,13 +32,14 @@ def register_tia_download_workflow(engine: OrchestratorEngine) -> None:
         # 步骤 1: 生成 SCL 代码
         step1 = ctx.call(
             "tia-mcp.generate_scl_code",
-            prompt=ctx.input.get("prompt", "生成电机控制 FB"),
+            description=ctx.input.get("prompt", "生成电机控制 FB"),
         )
 
         # 步骤 2: 导入 SCL 文件
         step2 = ctx.call(
             "tia-mcp.import_scl_file",
-            scl_path=step1.get("scl_path", ""),
+            scl_code=step1.get("scl_code", ""),
+            block_name=step1.get("block_name", ""),
             project_path=ctx.input.get("project_path", ""),
         )
 
@@ -57,7 +58,8 @@ def register_tia_download_workflow(engine: OrchestratorEngine) -> None:
 
         return {
             "status": "success",
-            "scl_path": step1.get("scl_path", ""),
+            "scl_code": step1.get("scl_code", ""),
+            "block_name": step1.get("block_name", ""),
             "blocks_imported": step2.get("blocks_imported", 0),
             "compile_ok": step3.get("ok", False),
             "download_ok": step4.get("ok", False),

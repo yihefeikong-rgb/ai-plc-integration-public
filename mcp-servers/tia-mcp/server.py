@@ -7,6 +7,7 @@ TIA MCP Server — 阶段3：西门子工程态
 """
 
 import json
+import logging
 import re
 import subprocess
 import sys
@@ -14,6 +15,8 @@ import argparse
 import tempfile
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # 追加项目根到 sys.path（安全模块依赖）
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -114,6 +117,17 @@ def _gen_scl_via_deepseek(description: str, template: str) -> dict:
     if template_file.exists():
         template_text = template_file.read_text(encoding="utf-8")
 
+    # 加载 SCL 外部源规则（优雅降级：文件不存在时仅 log warning）
+    rules_text = ""
+    rules_file = SCL_TEMPLATES / "_rules.md"
+    if rules_file.exists():
+        try:
+            rules_text = rules_file.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning("读取 SCL 规则文件失败: %s", e)
+    else:
+        logger.warning("SCL 规则文件不存在: %s", rules_file)
+
     prompt = f"""你是西门子 SCL (Structured Control Language) 编程专家。
 
 请根据以下描述生成符合 IEC 61131-3 标准的 SCL 代码。
@@ -126,6 +140,8 @@ def _gen_scl_via_deepseek(description: str, template: str) -> dict:
 - 代码必须有中文注释
 - FUNCTION_BLOCK 名称使用英文，如 "MotorControl"
 
+{rules_text}
+
 {template_text}
 
 ## 功能描述
@@ -136,7 +152,9 @@ def _gen_scl_via_deepseek(description: str, template: str) -> dict:
 ```json
 {{"scl_code": "...", "block_name": "..."}}
 ```
-只返回 JSON，不要其他内容。"""
+只返回 JSON，不要其他内容。
+
+请严格遵守《外部源 SCL 规范》中的全部规则，违反任意一条均会导致 TIA Portal 编译失败。"""
 
     resp = _deepseek_chat([{"role": "user", "content": prompt}])
     content = resp["choices"][0]["message"]["content"]
@@ -147,7 +165,12 @@ def _gen_scl_via_deepseek(description: str, template: str) -> dict:
         content = content.split("```")[1].split("```")[0]
 
     result = json.loads(content.strip())
-    return {"status": "ok", "data": result}
+    return {
+        "status": "ok",
+        "data": result,
+        "scl_code": result.get("scl_code", ""),
+        "block_name": result.get("block_name", ""),
+    }
 
 
 # ─── MCP 工具 ───────────────────────────────────────────
@@ -175,6 +198,7 @@ def import_scl_file(
     block_name: str,
     project_path: str = "",
     tags: str = "",
+    replace: bool = False,
     auth_token: str = "",
 ) -> dict:
     """将 SCL 源代码导入 TIA Portal 项目并生成程序块。
@@ -187,6 +211,7 @@ def import_scl_file(
         project_path: TIA 项目路径，留空使用默认值
         tags: 可选，JSON 格式的标签列表，在导入 SCL 前先创建标签。
               格式: '[{"name":"I0_8","dataType":"Bool","address":"%I0.8","comment":"急停"},...]'
+        replace: 是否覆盖同名外部源（True 则先删旧同名外部源再导入，避免 "name not unique" 错误）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
@@ -211,16 +236,38 @@ def import_scl_file(
         except json.JSONDecodeError as e:
             return {"status": "error", "error": f"tags 参数 JSON 解析失败: {e}"}
 
-    # 写入临时 .scl 文件
+    # SCL 静态校验（写盘前拦截已知编译错误）
+    try:
+        from scl_lint import lint_scl
+        lint_errors = lint_scl(scl_code)
+        if lint_errors:
+            audit_log("import_scl_file", user_input=scl_code[:200], block_name=block_name,
+                      result="lint_blocked", detail=str(lint_errors)[:200])
+            return {"status": "error", "lint_errors": lint_errors,
+                    "message": f"SCL 静态校验发现 {len(lint_errors)} 个违规，已阻止导入"}
+    except ImportError:
+        pass  # scl_lint 模块不可用时跳过校验
+
+    # 写入临时 .scl 文件（去除 BOM，确保 UTF-8 无 BOM）
+    scl_code = scl_code.lstrip("\ufeff")
     scl_dir = Path(tempfile.gettempdir()) / "tia-scl"
     scl_dir.mkdir(exist_ok=True)
     scl_file = scl_dir / f"{block_name}.scl"
     scl_file.write_text(scl_code, encoding="utf-8")
 
-    return _run_worker("import-scl", {
+    command = "import-scl-replace" if replace else "import-scl"
+    result = _run_worker(command, {
         "ProjectPath": path,
         "SclFilePath": str(scl_file),
     })
+
+    success = result.get("status") != "error"
+    audit_log("import_scl_file",
+              user_input=scl_code[:200], block_name=block_name,
+              replace=replace, result="ok" if success else "error",
+              detail=str(result.get("error", ""))[:200],
+              success=success)
+    return result
 
 
 @mcp.tool()

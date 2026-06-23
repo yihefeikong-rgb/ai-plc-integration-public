@@ -411,3 +411,39 @@ class TestExtractResult:
         extracted = adapter._extract_result(result)
         assert extracted["error"] is True
         assert extracted["message"] == "未知错误"
+
+    def test_extract_markdown_code_block_json(self):
+        """MCP 真实模式下 \"✅ 成功\\n```json\\n{...}\\n```\" 应提取 JSON"""
+        from mcp.types import CallToolResult, TextContent
+        result = CallToolResult(
+            content=[TextContent(
+                type="text",
+                text='✅ 成功\n```json\n{"success": true, "errors": 0, "error_list": []}\n```'
+            )],
+        )
+        adapter = McpClientAdapter.__new__(McpClientAdapter)
+        extracted = adapter._extract_result(result)
+        assert extracted == {"success": True, "errors": 0, "error_list": []}
+
+    def test_extract_markdown_code_block_no_lang(self):
+        """无语言标注的 code block 也能提取"""
+        from mcp.types import CallToolResult, TextContent
+        result = CallToolResult(
+            content=[TextContent(
+                type="text",
+                text='Done.\n```\n{"ok": true, "count": 42}\n```'
+            )],
+        )
+        adapter = McpClientAdapter.__new__(McpClientAdapter)
+        extracted = adapter._extract_result(result)
+        assert extracted == {"ok": True, "count": 42}
+
+    def test_extract_markdown_no_code_block_falls_back(self):
+        """无 code block 的纯文本仍走降级路径"""
+        from mcp.types import CallToolResult, TextContent
+        result = CallToolResult(
+            content=[TextContent(type="text", text="操作完成，但这是纯文本")],
+        )
+        adapter = McpClientAdapter.__new__(McpClientAdapter)
+        extracted = adapter._extract_result(result)
+        assert extracted == {"text": "操作完成，但这是纯文本"}

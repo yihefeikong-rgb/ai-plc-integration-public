@@ -47,9 +47,8 @@ logs/
 mcp-servers/tia-mcp/TiaUtilities/
 
 # 大型二进制安装包（不上传 GitHub）
-软件/*.exe
-软件/*.msi
-软件/*.zip
+# 第三方参考资料（含 DeepSeek API Key，禁止提交）
+软件/
 
 # 空/临时文件
 python

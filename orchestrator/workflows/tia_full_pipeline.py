@@ -49,12 +49,13 @@ def build_pipeline_steps(
         },
         {
             "tool": "tia-mcp.generate_scl_code",
-            "args": {"prompt": scl_prompt},
+            "args": {"description": scl_prompt},
         },
         {
             "tool": "tia-mcp.import_scl_file",
             "args": {
-                "scl_path": "",  # 由步骤 3 填充
+                "scl_code": "",  # 由步骤 3 填充
+                "block_name": "",  # 由步骤 3 填充
                 "project_path": project_path,
             },
         },
@@ -113,25 +114,98 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
             slot=slot,
         )
 
-        # 步骤 3: 生成 SCL 代码
-        step3 = await ctx.call_async(
-            "tia-mcp.generate_scl_code",
-            prompt=scl_prompt,
-        )
-        scl_path = step3.get("scl_path", "")
+        # 步骤 3-5: 生成→导入→编译，编译失败时自动重试（最多 3 次）
+        max_retries = 3
+        compile_errors_history: list[dict[str, Any]] = []
+        step5 = None
+        scl_code = ""
+        block_name = ""
 
-        # 步骤 4: 导入 SCL
-        step4 = await ctx.call_async(
-            "tia-mcp.import_scl_file",
-            scl_path=scl_path,
-            project_path=project_path,
-        )
+        for attempt in range(1, max_retries + 1):
+            current_prompt = scl_prompt
+            if attempt > 1:
+                # 构建重试提示词：包含上一次编译错误明细
+                error_lines = []
+                for err in compile_errors_history:
+                    err_line = err.get("line", "?")
+                    err_text = err.get("text", err.get("description", "未知错误"))
+                    err_file = err.get("file", "unknown")
+                    error_lines.append(f"  [第{err_line}行] {err_text}")
+                retry_prompt = (
+                    "你之前生成的 SCL 有以下编译错误：\n"
+                    + "\n".join(error_lines)
+                    + "\n\n请修正后重新生成完整 SCL 代码，确保修复上述所有错误。"
+                )
+                current_prompt = f"{scl_prompt}\n\n{retry_prompt}"
+                _logger.info(f"重试 {attempt}/{max_retries}: 编译失败，重新生成 SCL")
 
-        # 步骤 5: 编译项目
-        step5 = await ctx.call_async(
-            "plc-mcp-bridge.plc_compile_project",
-            project_path=project_path,
-        )
+            # 步骤 3: 生成 SCL 代码
+            step3 = await ctx.call_async(
+                "tia-mcp.generate_scl_code",
+                description=current_prompt,
+            )
+            step3_data = step3.get("data", {})
+            scl_code = step3.get("scl_code") or step3_data.get("scl_code", "")
+            block_name = step3.get("block_name") or step3_data.get("block_name", "")
+
+            # 步骤 4: 导入 SCL
+            step4 = await ctx.call_async(
+                "tia-mcp.import_scl_file",
+                scl_code=scl_code,
+                block_name=block_name,
+                project_path=project_path,
+                replace=True,
+            )
+
+            # 步骤 5: 编译项目
+            step5 = await ctx.call_async(
+                "plc-mcp-bridge.plc_compile_project",
+                project_path=project_path,
+            )
+
+            # 检查编译结果
+            compile_result = step5
+            compile_success = compile_result.get("success")
+            if compile_success is None:
+                compile_success = compile_result.get("ok", False)
+            # MCP 降级: 如果只有 text 字段且无 success/ok，检查文本是否包含成功指示符
+            if not compile_success and "text" in compile_result and "success" not in compile_result and "ok" not in compile_result:
+                text_content = str(compile_result["text"]).lower()
+                if any(kw in text_content for kw in ("success", "ok", "成功", "0 errors", "0 error", "compilation successful")):
+                    compile_success = True
+            compile_errors = compile_result.get("error_list") or compile_result.get("errors_list") or []
+
+            if compile_success:
+                # 编译通过，跳出重试循环
+                _logger.info(f"编译通过（尝试 {attempt}/{max_retries}）")
+                compile_errors_history = []
+                break
+            else:
+                # 编译失败，记录错误信息
+                if compile_errors:
+                    compile_errors_history = compile_errors
+                else:
+                    # 如果没有 error_list，用基本的错误计数构造
+                    compile_errors_history = [
+                        {"line": 0, "file": "", "text": f"编译失败：{compile_result.get('errors', '?')} 个错误", "severity": "error"}
+                    ]
+                _logger.warning(
+                    f"编译失败（尝试 {attempt}/{max_retries}）: "
+                    f"{len(compile_errors_history)} 个错误"
+                )
+
+            if attempt == max_retries:
+                # 最后一次也失败了
+                return {
+                    "status": "error",
+                    "project_id": project_id,
+                    "project_path": project_path,
+                    "scl_code": scl_code,
+                    "block_name": block_name,
+                    "attempts": max_retries,
+                    "all_errors": compile_errors_history,
+                    "final_error": f"编译在 {max_retries} 次重试后仍然失败",
+                }
 
         # 步骤 6: 下载到 PLCSIM
         step6 = await ctx.call_async(
@@ -144,7 +218,8 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
             "status": "success",
             "project_id": project_id,
             "project_path": project_path,
-            "scl_path": scl_path,
-            "compile_ok": step5.get("ok", False),
+            "scl_code": scl_code,
+            "block_name": block_name,
+            "compile_ok": step5.get("ok", step5.get("success", False)) if step5 else False,
             "download_ok": step6.get("ok", False),
         }

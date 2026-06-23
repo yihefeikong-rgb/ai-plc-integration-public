@@ -19,8 +19,10 @@ async def compile_project() -> str:
         data = result.get("data", {})
         return _format_result(True, data={
             "project": os.path.basename(PROJECT_PATH),
+            "success": data.get("success", True),
             "errors": data.get("errors", 0),
             "warnings": data.get("warnings", 0),
+            "error_list": data.get("error_list", []),
         })
     return _format_result(False, error=result.get("error", "编译失败"))
 
