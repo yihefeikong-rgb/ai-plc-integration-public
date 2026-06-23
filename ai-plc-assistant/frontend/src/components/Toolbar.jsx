@@ -103,6 +103,7 @@ const menuConfig = [
   {
     label: '帮助',
     items: [
+      { label: '编排管理教程', action: 'help:orchestrator-tutorial' },
       { label: '关于 AI PLC Assistant', action: 'help:about' },
       { label: 'API 文档', action: 'help:api-docs' },
     ],

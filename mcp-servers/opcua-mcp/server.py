@@ -37,7 +37,7 @@ except ImportError:
 
 # 导入本地安全模块（OPC UA 专用互锁检查）
 sys.path.insert(0, str(Path(__file__).parent))
-import safety
+import opcua_safety as safety
 
 # 导入根安全链（validator + shadow_sim + audit）
 from safety.validator import validator as safety_validator

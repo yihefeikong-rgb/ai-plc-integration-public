@@ -3,7 +3,7 @@ import {
   FolderOpen, ChevronRight, ChevronDown, Plus, Upload,
   BookOpen, FileText, LayoutTemplate, Code as CodeIcon,
   Zap, Code2, AlertTriangle, Table2, Variable,
-  Settings, Trash2, MessageSquare, PlusCircle,
+  Settings, Trash2, MessageSquare, PlusCircle, Cpu,
 } from 'lucide-react'
 import { listProjects, uploadDocument, listDocuments, deleteDocument, listConversations } from '../api'
 
@@ -84,6 +84,8 @@ const aiTools = [
   { id: 'diagnose', label: '故障诊断', icon: AlertTriangle },
   { id: 'io-table', label: 'IO表生成', icon: Table2 },
   { id: 'variables', label: '变量分析', icon: Variable },
+  { id: 'orchestrator', label: '编排管理', icon: Zap },
+  { id: 'robot', label: '机器人', icon: Cpu },
 ]
 
 export default function Sidebar({

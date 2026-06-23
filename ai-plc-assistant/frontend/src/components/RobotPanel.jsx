@@ -297,119 +297,119 @@ export default function RobotPanel() {
 // ================================================================
 
 function RobotVisualization({ robot }) {
-  const { armPosition, grabClosed, conveyorEntry, conveyorExit, xRetracted, zUp } = robot
+  const { armPosition, grabClosed, conveyorEntry, conveyorExit, xRetracted, zUp, itemDetected } = robot
 
-  // 根据 armPosition 计算末端执行器坐标
-  const endX = xRetracted
-    ? 100
-    : (armPosition === 'extend' || armPosition === 'raise' || armPosition === 'lower')
-      ? 145
-      : 75
-  const endY = zUp
-    ? 40
-    : (armPosition === 'lower')
-      ? 85
-      : 40
+  const endX = xRetracted ? 100 : (armPosition === 'extend' || armPosition === 'raise' || armPosition === 'lower') ? 145 : 75
+  const endY = zUp ? 40 : (armPosition === 'lower') ? 85 : 40
 
   return (
-    <div className="relative h-44 bg-ide-panel rounded overflow-hidden">
-      {/* 网格背景 */}
-      <svg className="absolute inset-0 w-full h-full opacity-10" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#666" strokeWidth="0.5" />
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#grid)" />
-      </svg>
+    <div className="relative h-56 bg-ide-panel rounded overflow-hidden border border-ide-border">
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 140" preserveAspectRatio="xMidYMid meet">
+        {/* 背景 */}
+        <rect x="0" y="0" width="400" height="140" fill="#1a1a2e" />
 
-      {/* 内容层 */}
-      <div className="relative w-full h-full">
-        {/* 机械臂 SVG */}
-        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 200 120" preserveAspectRatio="xMidYMid meet">
-          {/* 底座 */}
-          <rect x="88" y="102" width="24" height="6" rx="1" fill="#6A6A6A" />
+        {/* 地面 */}
+        <rect x="0" y="100" width="400" height="40" fill="#252535" />
 
-          {/* 底座支柱 */}
-          <line x1="100" y1="102" x2="100" y2="70" stroke="#007ACC" strokeWidth="3" strokeLinecap="round" />
+        {/* 传送带主体 */}
+        <rect x="10" y="72" width="250" height="14" rx="2" fill="#3a3a4a" stroke="#4a4a5a" strokeWidth="0.5" />
+        {/* 传送带表面 */}
+        <g clipPath="url(#beltClip)">
+          <rect x="10" y="72" width="250" height="14" fill="#444458" />
+          {/* 滚动条纹 */}
+          <g className={conveyorEntry ? 'animate-conveyor' : ''}>
+            {Array.from({ length: 12 }, (_, i) => (
+              <line key={i} x1={15 + i * 22} y1="74" x2={15 + i * 22} y2="84" stroke="#555568" strokeWidth="1.5" />
+            ))}
+          </g>
+          {/* 物料 */}
+          {itemDetected && (
+            <rect x="120" y="67" width="22" height="16" rx="2" fill="#CCA700" opacity="0.9" className="transition-all duration-500">
+              <animate attributeName="x" values="120;180;120" dur="4s" repeatCount="indefinite" />
+            </rect>
+          )}
+        </g>
+        <clipPath id="beltClip">
+          <rect x="12" y="73" width="246" height="12" />
+        </clipPath>
+        {/* 传送带滚轮 */}
+        <circle cx="22" cy="79" r="4" fill="#555" />
+        <circle cx="248" cy="79" r="4" fill="#555" />
 
-          {/* 臂身 */}
-          <line
-            x1="100" y1="70"
-            x2={endX} y2={endY}
-            stroke="#007ACC" strokeWidth="2.5" strokeLinecap="round"
-            style={{ transition: 'all 0.4s ease' }}
-          />
+        {/* 入口传感器 */}
+        <circle cx="50" cy="68" r="2.5" fill={conveyorEntry ? '#4EC9B0' : '#555'} className="transition-colors" />
+        <text x="50" y="62" textAnchor="middle" fill="#666" fontSize="4">入口</text>
 
-          {/* 关节圆 */}
-          <circle cx="100" cy="70" r="3.5" fill="#007ACC" />
-          <circle
-            cx={endX} cy={endY} r="2.5" fill="#4EC9B0"
-            style={{ transition: 'all 0.4s ease' }}
-          />
+        {/* 取料区传感器 */}
+        <circle cx="150" cy="68" r="2.5" fill={itemDetected ? '#CCA700' : '#555'} className="transition-colors" />
+        <text x="150" y="62" textAnchor="middle" fill="#666" fontSize="4">检测</text>
 
-          {/* 夹爪 */}
+        {/* 出口传感器 */}
+        <circle cx="230" cy="68" r="2.5" fill={conveyorExit ? '#4EC9B0' : '#555'} className="transition-colors" />
+        <text x="230" y="62" textAnchor="middle" fill="#666" fontSize="4">出口</text>
+
+        {/* 放置区 */}
+        <rect x="270" y="70" width="40" height="30" rx="3" fill="#252535" stroke="#3a3a4a" strokeWidth="0.5" strokeDasharray="2,2" />
+        <text x="290" y="88" textAnchor="middle" fill="#444" fontSize="4">放置区</text>
+
+        {/* 物料箱 */}
+        <rect x="275" y="76" width="12" height="10" rx="1" fill="#3a3a4a" stroke="#4a4a5a" strokeWidth="0.3" />
+        <rect x="292" y="76" width="12" height="10" rx="1" fill="#3a3a4a" stroke="#4a4a5a" strokeWidth="0.3" />
+
+        {/* 出口传送带 */}
+        <rect x="320" y="72" width="70" height="14" rx="2" fill="#3a3a4a" stroke="#4a4a5a" strokeWidth="0.5" />
+        <g className={conveyorExit ? 'animate-conveyor' : ''}>
+          {Array.from({ length: 4 }, (_, i) => (
+            <line key={i} x1={325 + i * 22} y1="74" x2={325 + i * 22} y2="84" stroke="#555568" strokeWidth="1.5" />
+          ))}
+        </g>
+        <circle cx="332" cy="79" r="4" fill="#555" />
+        <circle cx="378" cy="79" r="4" fill="#555" />
+
+        {/* 机械臂底座 */}
+        <rect x="170" y="85" width="30" height="15" rx="2" fill="#4a4a5a" />
+        <rect x="178" y="78" width="14" height="10" rx="2" fill="#007ACC" />
+
+        {/* 机械臂大臂 */}
+        <line x1="185" y1="78" x2={endX} y2={endY} stroke="#007ACC" strokeWidth="4" strokeLinecap="round"
+          style={{ transition: 'all 0.4s ease' }} />
+
+        {/* 关节 */}
+        <circle cx="185" cy="78" r="4.5" fill="#007ACC" stroke="#1a1a2e" strokeWidth="0.5" />
+        <circle cx={endX} cy={endY} r="3.5" fill="#4EC9B0" stroke="#1a1a2e" strokeWidth="0.5"
+          style={{ transition: 'all 0.4s ease' }} />
+
+        {/* 夹爪 */}
+        <g style={{ transition: 'all 0.4s ease' }}>
           {grabClosed ? (
-            <line
-              x1={endX} y1={endY}
-              x2={endX + 5} y2={endY + 8}
-              stroke="#CCA700" strokeWidth="2" strokeLinecap="round"
-              style={{ transition: 'all 0.4s ease' }}
-            />
+            <line x1={endX} y1={endY} x2={endX + 6} y2={endY + 10} stroke="#CCA700" strokeWidth="2.5" strokeLinecap="round" />
           ) : (
             <>
-              <line
-                x1={endX} y1={endY}
-                x2={endX - 4} y2={endY + 10}
-                stroke="#CCA700" strokeWidth="1.5" strokeLinecap="round"
-                style={{ transition: 'all 0.4s ease' }}
-              />
-              <line
-                x1={endX} y1={endY}
-                x2={endX + 4} y2={endY + 10}
-                stroke="#CCA700" strokeWidth="1.5" strokeLinecap="round"
-                style={{ transition: 'all 0.4s ease' }}
-              />
+              <line x1={endX} y1={endY} x2={endX - 5} y2={endY + 12} stroke="#CCA700" strokeWidth="2" strokeLinecap="round" />
+              <line x1={endX} y1={endY} x2={endX + 5} y2={endY + 12} stroke="#CCA700" strokeWidth="2" strokeLinecap="round" />
             </>
           )}
-        </svg>
+        </g>
 
-        {/* 左上角位置标签 */}
-        <div className="absolute top-2 left-3 text-2xs text-text-dim">
-          位置: <span className="text-accent">{armPosition}</span>
-        </div>
+        {/* 标签 */}
+        <text x="185" y="112" textAnchor="middle" fill="#888" fontSize="5" fontFamily="monospace">位置: {armPosition}</text>
+        <text x="185" y="120" textAnchor="middle" fill="#888" fontSize="5" fontFamily="monospace">夹爪: {grabClosed ? '闭合' : '张开'}</text>
 
-        {/* 右上角夹爪状态 */}
-        <div className="absolute top-2 right-3 flex items-center gap-1 text-2xs">
-          <span className="text-text-dim">夹爪:</span>
-          <Grip size={12} className={grabClosed ? 'text-status-warn' : 'text-text-dim'} />
-          <span className={grabClosed ? 'text-status-warn' : 'text-text-dim'}>{grabClosed ? '闭合' : '张开'}</span>
-        </div>
+        {/* 急停指示灯 */}
+        <circle cx="385" cy="15" r="6" fill={robot.emergencyStop ? '#ef4444' : '#333'} className="transition-colors" />
+        <text x="385" y="27" textAnchor="middle" fill={robot.emergencyStop ? '#ef4444' : '#555'} fontSize="5">急停</text>
+      </svg>
 
-        {/* 物料 */}
-        <div className="absolute bottom-6 right-8 flex flex-col items-center gap-0.5">
-          <div className={`w-6 h-6 rounded-sm border-2 flex items-center justify-center transition-all ${
-            robot.itemDetected ? 'border-status-ok bg-status-ok/20' : 'border-text-dim/40 bg-transparent'
-          }`}>
-            <Package size={12} className={robot.itemDetected ? 'text-status-ok' : 'text-text-dim/40'} />
-          </div>
-          <span className="text-2xs text-text-dim">物料</span>
-        </div>
-
-        {/* 传送带指示 */}
-        <div className="absolute bottom-1.5 left-4 right-4 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <div className={`w-2 h-2 rounded-full ${conveyorEntry ? 'bg-status-ok animate-pulse' : 'bg-text-dim/30'}`} />
-            <span className="text-2xs text-text-dim">入口</span>
-            {conveyorEntry && <span className="text-2xs text-status-ok">&rarr;</span>}
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-2xs text-text-dim">出口</span>
-            <div className={`w-2 h-2 rounded-full ${conveyorExit ? 'bg-status-ok animate-pulse' : 'bg-text-dim/30'}`} />
-            {conveyorExit && <span className="text-2xs text-status-ok">&rarr;</span>}
-          </div>
-        </div>
-      </div>
+      {/* CSS 动画 */}
+      <style>{`
+        @keyframes conveyorScroll {
+          from { transform: translateX(0); }
+          to { transform: translateX(22px); }
+        }
+        .animate-conveyor line {
+          animation: conveyorScroll 0.5s linear infinite;
+        }
+      `}</style>
     </div>
   )
 }

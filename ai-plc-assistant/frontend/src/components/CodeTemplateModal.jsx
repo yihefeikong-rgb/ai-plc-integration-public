@@ -47,7 +47,7 @@ export default function CodeTemplateModal({ onClose }) {
   const docTemplates = templates.filter(t => t.type === 'md')
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
       <div className="bg-surface w-[800px] max-h-[85vh] rounded-xl border border-surface-border shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-surface-border">

@@ -96,6 +96,30 @@ class MonitorResponse(BaseModel):
     uptime_seconds: float
 
 
+class DynamicWorkflowCreate(BaseModel):
+    name: str
+    steps: list[dict[str, Any]]
+
+
+class AdhocRunRequest(BaseModel):
+    steps: list[dict[str, Any]]
+    input: dict[str, Any] = {}
+
+
+class DynamicWorkflowItem(BaseModel):
+    name: str
+    steps: int
+
+
+class DynamicWorkflowListResponse(BaseModel):
+    workflows: list[DynamicWorkflowItem]
+
+
+class DynamicWorkflowDetailResponse(BaseModel):
+    name: str
+    steps: list[dict[str, Any]]
+
+
 # ============================================================================
 # 辅助
 # ============================================================================
@@ -210,3 +234,54 @@ async def monitor() -> MonitorResponse:
         tool_call_counts=dict(_tool_call_counts),
         uptime_seconds=round(time.time() - _start_time, 2),
     )
+
+
+# ============================================================================
+# 动态工作流
+# ============================================================================
+
+@router.get("/workflows/dynamic", response_model=DynamicWorkflowListResponse)
+async def list_dynamic_workflows() -> DynamicWorkflowListResponse:
+    """列出所有动态工作流"""
+    engine = get_engine()
+    items = engine.list_dynamic_workflows()
+    return DynamicWorkflowListResponse(
+        workflows=[DynamicWorkflowItem(**item) for item in items]
+    )
+
+
+@router.get("/workflows/dynamic/{name}", response_model=DynamicWorkflowDetailResponse)
+async def get_dynamic_workflow(name: str) -> DynamicWorkflowDetailResponse:
+    """获取动态工作流详情"""
+    engine = get_engine()
+    steps = engine.get_dynamic_workflow(name)
+    if steps is None:
+        raise HTTPException(status_code=404, detail=f"未找到动态工作流: {name}")
+    return DynamicWorkflowDetailResponse(name=name, steps=steps)
+
+
+@router.post("/workflows/dynamic")
+async def save_dynamic_workflow(body: DynamicWorkflowCreate) -> dict[str, str]:
+    """创建或更新动态工作流"""
+    engine = get_engine()
+    engine.save_dynamic_workflow(body.name, body.steps)
+    return {"status": "ok", "name": body.name}
+
+
+@router.delete("/workflows/dynamic/{name}")
+async def delete_dynamic_workflow(name: str) -> dict[str, str]:
+    """删除动态工作流"""
+    engine = get_engine()
+    if not engine.delete_dynamic_workflow(name):
+        raise HTTPException(status_code=404, detail=f"未找到动态工作流: {name}")
+    return {"status": "ok", "name": name}
+
+
+@router.post("/workflows/adhoc", response_model=WorkflowResultResponse)
+async def run_adhoc(body: AdhocRunRequest) -> WorkflowResultResponse:
+    """执行临时工作流（不保存）"""
+    engine = get_engine()
+    result = await engine.run_adhoc(body.steps, input=body.input)
+    for step in result.steps:
+        _record_tool_call(step.tool)
+    return _serialize_workflow_result(result)

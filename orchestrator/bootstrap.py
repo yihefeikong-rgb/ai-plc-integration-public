@@ -64,6 +64,8 @@ async def bootstrap(
             tools: list = []
             if adapter is not None:
                 tools = await asyncio.wait_for(adapter.list_tools(), timeout=5.0)
+                # 先注册服务器，再注册工具
+                registry.register_server(info)
                 for tool in tools:
                     registry.register_tool(info.name, tool)
             result.connected.append(info.name)

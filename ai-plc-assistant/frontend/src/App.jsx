@@ -37,6 +37,7 @@ export default function App() {
   const [showLadderTemplate, setShowLadderTemplate] = useState(false)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
+  const [showOrchTutorial, setShowOrchTutorial] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
   const [showContext, setShowContext] = useState(true)
   const [showBottom, setShowBottom] = useState(true)
@@ -79,6 +80,7 @@ export default function App() {
       case 'view:bottom': setShowBottom(v => !v); break
       case 'help:about': setShowAbout(true); break
       case 'help:api-docs': window.open('http://127.0.0.1:8005/docs', '_blank'); break
+      case 'help:orchestrator-tutorial': openTab('orchestrator'); setShowOrchTutorial(true); break
     }
   }
 
@@ -92,7 +94,7 @@ export default function App() {
     ladder: <LadderGenerator addLog={addLog} />,
     variables: <VariableAnalyzer addLog={addLog} />,
     settings: <SettingsPanel addLog={addLog} />,
-    orchestrator: <OrchestratorPanel />,
+    orchestrator: <OrchestratorPanel showTutorial={showOrchTutorial} onCloseTutorial={() => setShowOrchTutorial(false)} />,
     robot: <RobotPanel />,
   }
 

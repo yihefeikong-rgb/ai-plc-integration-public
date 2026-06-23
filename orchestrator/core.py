@@ -374,6 +374,7 @@ class OrchestratorEngine:
 
     def __init__(self, registry: Registry | None = None):
         self._workflows: dict[str, Callable] = {}
+        self._dynamic_workflows: dict[str, list[dict[str, Any]]] = {}
         self._mock_tools: dict[str, Callable] = {}
         self._registry = registry or get_registry()
         self._pool: Any = None  # McpConnectionPool | None
@@ -425,12 +426,81 @@ class OrchestratorEngine:
         self._safety_gate = gate
 
     def list_workflows(self) -> list[str]:
-        """列出所有已注册的工作流"""
-        return list(self._workflows.keys())
+        """列出所有已注册工作流（含动态工作流）"""
+        builtin = list(self._workflows.keys())
+        dynamic = list(self._dynamic_workflows.keys())
+        return builtin + dynamic
 
     def get_workflow(self, name: str) -> Callable | None:
         """按名称获取工作流函数"""
         return self._workflows.get(name)
+
+    # ── 动态工作流 ──
+
+    def list_dynamic_workflows(self) -> list[dict[str, Any]]:
+        """列出所有动态工作流"""
+        return [
+            {"name": name, "steps": len(steps)}
+            for name, steps in self._dynamic_workflows.items()
+        ]
+
+    def get_dynamic_workflow(self, name: str) -> list[dict[str, Any]] | None:
+        """获取动态工作流的步骤定义"""
+        return self._dynamic_workflows.get(name)
+
+    def save_dynamic_workflow(self, name: str, steps: list[dict[str, Any]]) -> None:
+        """保存或更新动态工作流"""
+        self._dynamic_workflows[name] = steps
+
+    def delete_dynamic_workflow(self, name: str) -> bool:
+        """删除动态工作流，返回是否成功"""
+        if name in self._dynamic_workflows:
+            del self._dynamic_workflows[name]
+            return True
+        return False
+
+    async def run_adhoc(
+        self,
+        steps: list[dict[str, Any]],
+        *,
+        input: dict[str, Any] | None = None,
+    ) -> WorkflowResult:
+        """执行一个临时工作流（步骤序列）。
+
+        每个步骤格式: {"server": "plc-mcp-bridge", "tool": "s7_read", "params": {...}}
+
+        Args:
+            steps: 步骤列表
+            input: 输入参数
+
+        Returns:
+            WorkflowResult 包含执行结果和步骤详情
+        """
+        import time
+
+        context = self._build_context(input)
+        start = time.time()
+
+        for step in steps:
+            server = step.get("server", "")
+            tool = step.get("tool", "")
+            params = step.get("params", {})
+            tool_full = f"{server}.{tool}" if server else tool
+
+            try:
+                await context.call_async(tool_full, **params)
+            except Exception:
+                pass  # 错误已记录在 context._steps 中
+
+        elapsed = (time.time() - start) * 1000
+        all_ok = all(s.ok for s in context._steps) if context._steps else True
+
+        return WorkflowResult(
+            workflow_name="adhoc",
+            ok=all_ok,
+            steps=list(context._steps),
+            total_duration_ms=elapsed,
+        )
 
     def _build_context(self, input: dict[str, Any] | None) -> WorkflowContext:
         """构建工作流执行上下文。"""
@@ -466,6 +536,30 @@ class OrchestratorEngine:
 
         wf_fn = self._workflows.get(workflow_name)
         if wf_fn is None:
+            # 检查动态工作流
+            dyn_steps = self._dynamic_workflows.get(workflow_name)
+            if dyn_steps is not None:
+                # 同步执行动态工作流各步骤
+                if context is None:
+                    context = self._build_context(input)
+                start = time.time()
+                for step in dyn_steps:
+                    server = step.get("server", "")
+                    tool = step.get("tool", "")
+                    params = step.get("params", {})
+                    tool_full = f"{server}.{tool}" if server else tool
+                    try:
+                        context.call(tool_full, **params)
+                    except Exception:
+                        pass
+                elapsed = (time.time() - start) * 1000
+                all_ok = all(s.ok for s in context._steps) if context._steps else True
+                return WorkflowResult(
+                    workflow_name=workflow_name,
+                    ok=all_ok,
+                    steps=list(context._steps),
+                    total_duration_ms=elapsed,
+                )
             return WorkflowResult(
                 workflow_name=workflow_name,
                 ok=False,
@@ -525,6 +619,10 @@ class OrchestratorEngine:
 
         wf_fn = self._workflows.get(workflow_name)
         if wf_fn is None:
+            # 检查动态工作流
+            dyn_steps = self._dynamic_workflows.get(workflow_name)
+            if dyn_steps is not None:
+                return await self._run_dynamic(dyn_steps, workflow_name, input)
             return WorkflowResult(
                 workflow_name=workflow_name,
                 ok=False,
@@ -563,6 +661,39 @@ class OrchestratorEngine:
                 error=str(e),
                 total_duration_ms=elapsed,
             )
+
+    async def _run_dynamic(
+        self,
+        steps: list[dict[str, Any]],
+        workflow_name: str,
+        input: dict[str, Any] | None = None,
+    ) -> WorkflowResult:
+        """执行动态工作流的步骤序列"""
+        import time
+
+        context = self._build_context(input)
+        start = time.time()
+
+        for step in steps:
+            server = step.get("server", "")
+            tool = step.get("tool", "")
+            params = step.get("params", {})
+            tool_full = f"{server}.{tool}" if server else tool
+
+            try:
+                await context.call_async(tool_full, **params)
+            except Exception:
+                pass
+
+        elapsed = (time.time() - start) * 1000
+        all_ok = all(s.ok for s in context._steps) if context._steps else True
+
+        return WorkflowResult(
+            workflow_name=workflow_name,
+            ok=all_ok,
+            steps=list(context._steps),
+            total_duration_ms=elapsed,
+        )
 
 
 # 全局单例
