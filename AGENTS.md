@@ -2,6 +2,17 @@
 
 首要指令文件是 **`OpenCode.md`**（项目根），包含完整的路径表、操作规则、模板库、安全红线。本文件仅补充 `OpenCode.md` 未覆盖的高频操作和架构细节。
 
+## 第一阶段协作层边界
+
+当前只落地 **CCB + Codex + Claude Code 协作层 Phase 1**。
+
+- 允许改动：`AGENTS.md`、`claude.md`、`.ccb/`、`.plans/ai-plc-integration/`、`.plans/ai-plc-integration/agents/`、`.plans/ai-plc-integration/bridge/`
+- 禁止改动：`backend`、`frontend`、`docs`、`mcp-servers`、`edge-gateway`、`orchestrator`、`scripts`、`tests`
+- 禁止触碰：业务代码、PLC 控制逻辑、S7 通信、TIA Openness、MCP 服务、前后端接口、前端页面
+- 禁止行为：重构现有项目结构、移动/删除/重命名现有核心文件、启用 hooks、orchestrator、无人值守、自动轮询
+
+本阶段只搭建规则文件、状态模板、Agent 协议和人工闭环文件。
+
 ## 快速命令
 
 | 命令 | 操作 |
@@ -65,8 +76,10 @@
 ## 已有指令文件（优先级从上到下）
 
 - **`OpenCode.md`** — 完整项目规则（路径、操作指南、模板库、安全红线）
-- **`claude.md`** — 项目总纲（五阶段计划、技术规范）
+- **`CLAUDE.md`**（当前文件名为 `claude.md`）— 项目总纲（五阶段计划、技术规范）
 - **`AGENTS.md`** — 本文件，补充性快速参考
+
+> 说明：当前仓库未确认 `OpenCode.md` 是否存在。第一阶段不补建该文件，只在协作层显式记录此事实。
 
 ---
 
@@ -86,4 +99,3 @@
 10. `docs/invariants.md` — 不可破坏约束
 
 > 每次会话结束时，Documenter 负责更新 `handoff.md`。
-

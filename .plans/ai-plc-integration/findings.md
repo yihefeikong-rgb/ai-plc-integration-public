@@ -1,6 +1,6 @@
 # 研究发现 — AI 接入 PLC
 
-> 最后更新：2026-06-22
+> 最后更新：2026-06-23
 
 ---
 
@@ -89,3 +89,32 @@
 - p3_flow.py 编译输出 JSON 解析修复
 - gen_io_map.py 15 测试 + create_plc_tags.py 17 测试
 - 新增 83 测试全部通过
+
+---
+
+## Phase 6B — cc-haha 自动化接入调研
+
+> 研究者：Claude Code (Flash)
+> 日期：2026-06-23
+
+### cc-haha 架构发现
+
+1. **三层架构**：CLI（Commander.js + Ink） / Desktop（Electron + React/Vite） / Sidecar（统一二进制）
+2. **Sidecar 三种模式**：
+   - `server` 模式：启动 Bun HTTP/WS 服务器（默认 `127.0.0.1:3456`），28 条 REST API 路由
+   - `cli` 模式：运行 CLI 入口
+   - `adapters` 模式：IM 机器人（飞书/微信/Telegram/钉钉/WhatsApp）
+3. **API 路由覆盖**：sessions、conversations、tasks、agents、settings、status、scheduled-tasks 等
+4. **WebSocket**：`/ws/{sessionId}` 客户端镜像，`/sdk/{sessionId}` SDK 内部
+
+### 自动化路线排序
+
+1. **A：Sidecar API 自动化**（推荐）— HTTP REST API，精细控制，低实现成本
+2. **B：CLI 子进程**（可行但不优先）— 进程管理复杂，无持久状态
+3. **C：GUI 桌面自动化**（不推荐）— 脆性、慢、cc-haha 已有 API
+
+### 关键结论
+
+- cc-haha 的设计意图就是 API 优先（sidecar server 模式专为此设计）
+- 最小 MVP 不需要 GUI 自动化，纯 API 调用即可
+- 可在一阶段约束下实现受控自动化（停在 Review 前）

@@ -1,0 +1,4 @@
+# C-19 supervised low-risk queue example
+# One task per line. Blank lines and comments are ignored.
+读取 .plans/ai-plc-integration/bridge/README.md 并总结 C-18 Stop Rule
+读取 .plans/ai-plc-integration/progress.md 并总结当前边界

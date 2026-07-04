@@ -94,3 +94,6 @@ mcp-servers/tiacommander-mcp/
 
 # OpenCode AI 工具缓存
 .opencode/
+
+# Bridge 运行态产物（每次闭环生成，不纳入版本控制）
+.plans/ai-plc-integration/bridge/runs/

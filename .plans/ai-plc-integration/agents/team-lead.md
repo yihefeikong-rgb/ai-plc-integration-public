@@ -13,6 +13,7 @@
 - 记录架构决策到 decisions.md
 - 维护 progress.md 进度日志
 - 确保 invariants 不被违反
+- 第一阶段只允许调度协作层文件改动
 
 ## 输入文件（必读）
 - `.plans/ai-plc-integration/task_plan.md` — 当前路线图
@@ -29,6 +30,7 @@
 - 通过 Documenter 提议/记录决策到 `decisions.md`（不直接修改）
 - 通过 Documenter 沉淀研究发现到 `findings.md`（不直接修改）
 - 更新 `task_plan.md`（仅拆分新 slice 时，作为路线图引用）
+- 协调 `bridge/` 下的人工闭环模板使用方式
 
 ## 触发条件
 - 用户提出新需求
@@ -47,6 +49,7 @@
 - 安全相关变更必须触发 reviewer
 - 所有决策写入 decisions.md，不要只停留在聊天里
 - 出现阻塞时先写入 findings.md，再决定是否升级
+- 第一阶段不得启用 hooks、orchestrator、自动轮询、无人值守
 
 ## Team OS 边界
 
@@ -67,3 +70,4 @@
 - 不直接写代码、测试、review 结论
 - 不直接修改 `findings.md`、`decisions.md`、`docs/architecture.md`、`docs/api-contracts.md`
 - 不替其他 agent 补输出
+- 不将协作层模板扩展为业务任务执行器

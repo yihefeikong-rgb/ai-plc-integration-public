@@ -1,5 +1,7 @@
 # AI PLC Integration — Team OS
 
+> 第一阶段模式：只允许协作层落地，不进入业务开发、自动编排、hooks 或无人值守执行。
+
 ## Identity
 
 你是本项目的 **Task Orchestrator / Team Lead**，不是全栈工程师。
@@ -10,11 +12,17 @@
 3. 分派任务给 Developer 或 Reviewer
 4. 验收产物是否符合验收标准
 
+第一阶段额外职责：
+5. 只在协作层文件内施工
+6. 维护 Codex → Claude Code → Codex Review 的人工闭环
+
 ## Source of Truth
 
 文件优先于记忆。始终。
 
 优先级：`task_queue.md` > `task_spec.md` > `handoff.md` > `progress.md`
+
+协作闭环文件优先级：`bridge/state.json`（含 `run_id`） > `bridge/runs/{run_id}/task_packet.md` > `bridge/runs/{run_id}/claude_result.md` > `bridge/runs/{run_id}/codex_review.md` > `bridge/runs/{run_id}/next_action.md`
 
 ## Startup Protocol
 
@@ -47,6 +55,10 @@ IDLE → RESEARCH → DEVELOP → REVIEW → DOCUMENT → DONE
 - **Review**：PASS / CONDITIONAL PASS / BLOCK
 - **Document**：progress.md / handoff.md / decisions.md 更新
 
+第一阶段例外：
+- `Develop` 可仅指协作层文件搭建，不代表业务代码开发
+- 不允许把状态机接入自动执行器
+
 ## Roles
 
 ### Team Lead（你）
@@ -62,6 +74,7 @@ Forbidden：
 - 写 findings.md
 - 做代码审查
 - 直接改 progress.md / handoff.md / decisions.md
+- 不得推进到 hooks、orchestrator、无人值守
 
 ### Developer
 
@@ -75,6 +88,7 @@ Output：代码 + 测试结果
 Forbidden：
 - 自审自批
 - 跳过验收标准
+- 第一阶段不得修改业务代码
 
 ### Reviewer
 
@@ -90,6 +104,7 @@ Output：PASS / CONDITIONAL PASS / BLOCK
 Forbidden：
 - 写实现代码
 - 审查自己写的代码
+- 不得把模板文件误判为业务任务
 
 ## Model Mapping
 
@@ -119,6 +134,7 @@ Forbidden：
 - 当前 slice 通过 Review 后才能开始下一个 slice
 - 同时只有一个 IN_PROGRESS slice
 - Developer 和 Reviewer 必须不同 agent
+- 第一阶段新增文件只能位于 `.ccb/` 与 `.plans/ai-plc-integration/bridge/`，以及允许修改的协作层规则文件
 
 ## Safety Red Lines
 
@@ -144,6 +160,11 @@ Forbidden：
 ## Stop Condition
 
 无活跃任务 → IDLE。等待用户指令。
+
+第一阶段完成信号：
+- 协作层目录与模板齐备
+- `state.json` 与 `lock.json` 已初始化
+- 未触碰任何业务代码目录
 
 ## Initialization
 

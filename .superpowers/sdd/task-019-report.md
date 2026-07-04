@@ -98,3 +98,58 @@ To get PLCSIM Advanced running for actual S7 verification:
 - No regression: all 41 existing mock/integration tests pass (plus 1 pre-existing safety_gate import failure)
 - Coverage: 22 tests covering connection lifecycle, M-area read/write (bit/byte/word/dword), DB area read/write, and S7Adapter wrapper
 - Security: no hardcoded IPs in production paths (test-only configuration), no credentials stored
+
+## Reviewer Fixes (2026-06-22)
+
+### Fix 1: Connection verification fallback removed (test_plcsim_integration.py lines 93-101)
+
+**Problem:** `test_connect` had a try/except AttributeError fallback using `mb_read(0, 1)` to verify connection if `get_connected()` didn't exist. Since python-snap7 v3 does have `get_connected()`, this fallback was misleading and the `mb_read` call didn't properly verify connection state.
+
+**Fix:** Removed the try/except entirely. Now calls `get_connected()` directly and asserts it returns True. If `get_connected()` doesn't exist (version mismatch), the AttributeError propagates naturally rather than being silently caught.
+
+```python
+# Before (lines 93-101):
+try:
+    connected = plcsim_client.get_connected()
+except AttributeError:
+    data = plcsim_client.mb_read(0, 1)
+    assert data is not None
+else:
+    assert connected is True
+
+# After:
+connected = plcsim_client.get_connected()
+assert connected is True
+```
+
+### Fix 2: Process detection logic made robust (plcsim_validate.py line 68)
+
+**Problem:** The process detection used string matching on `tasklist` output:
+```python
+if "No tasks" in result.stdout or "INFO:" in result.stdout and "0" in result.stdout:
+```
+This is fragile across Windows versions, locales, and tasklist output formats.
+
+**Fix:** Replaced with a simple substring check for the process name:
+```python
+if "UserInterface.exe" not in result.stdout:
+```
+This correctly detects whether the PLCSIM Advanced UI process is present in the tasklist output, regardless of locale or tasklist formatting differences.
+
+### Issue 3 (Acknowledged, Not Fixed): Private attribute access in test_adapter fixture
+
+The `adapter` fixture at line 275-281 sets `a._client = plcsim_client` and `a._connected = True`. This is accessing private attributes of S7Adapter. The reviewer acknowledged there is no clean fix since S7Adapter doesn't expose a public API for client injection. This is left as-is.
+
+### Re-Run Test Results (After Fixes)
+
+**test_plcsim_integration.py:**
+```
+2 passed, 20 skipped in 20.12s
+```
+Same result as before -- no PLCSIM instance running, so all PLCSIM-dependent tests skip. The 2 non-connection tests (invalid_ip, wrong_rack_slot) continue to pass. The fix to `test_connect` is correct but can only be verified when a real PLCSIM instance is available.
+
+**test_s7.py (mock tests):**
+```
+30 passed in 0.10s
+```
+No regression in existing mock tests.

@@ -14,6 +14,7 @@
 - 打分使用 STRONG / ADEQUATE / WEAK 三级
 - 发现 CRITICAL 问题时 BLOCK 合并
 - 审查完成后更新 findings.md（如有新发现）
+- 第一阶段重点审查范围边界，而不是业务功能正确性
 
 ## 输入文件（必读）
 - `.plans/ai-plc-integration/task_plan.md` — 当前 slice 的目标和验收标准
@@ -23,6 +24,7 @@
 - `CLAUDE.md` — 安全红线
 - `AGENTS.md` — 已知 Bug（确认没有引入回归）
 - developer 的 git diff
+- `bridge/` 下的状态与模板文件（第一阶段）
 
 ## 输出文件
 - 审查结论（在对话中输出，team-lead 记录到 progress.md）
@@ -64,6 +66,7 @@
 - 不审查自己写的代码（这是 team-lead 的职责来确保分离）
 - 安全维度权重最高，任何安全红线违反 = 自动 BLOCK
 - 文档不一致 = 至少 ADEQUATE（不能是 STRONG）
+- 第一阶段如发现触碰业务目录，直接 BLOCK
 
 ## Team OS 边界
 
@@ -83,3 +86,4 @@
 - 不修改代码、测试、业务文件
 - 不审查自己的代码
 - 不输出无依据的 PASS
+- 不把空模板文件当成已完成的业务交付

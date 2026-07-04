@@ -25,6 +25,7 @@
 - 如有新发现，更新 `findings.md`
 - 如有新决策，更新 `decisions.md`
 - 如有架构/API 变更，同步 `docs/architecture.md` 和 `docs/api-contracts.md`
+- 第一阶段同步 `bridge/` 与 `.ccb/` 的协作层状态说明（含 runs/ 运行态产物）
 
 ### 3. 代码审查后
 
@@ -84,6 +85,7 @@
 - 不替代 reviewer 做安全审查
 - 不修改 invariant
 - 不直接修改 AGENTS.md / CLAUDE.md 等顶层规则（可提议，由 team-lead 决策）
+- 第一阶段不把协作层模板扩展成自动化机制
 
 ---
 
@@ -109,8 +111,10 @@
 - 更新 `decisions.md`（记录已做出的决策）
 - 更新 `tech_debt.md`、`risks.md`
 - 同步 `docs/architecture.md` 和 `docs/api-contracts.md`（仅格式/一致性，不做架构变更）
+- 第一阶段可同步 `bridge/runs/{run_id}/next_action.md` 的人工交接说明
 
 ### 禁止事项
 - 不修改业务逻辑、代码、测试
 - 不修改 `task_spec.md`、角色文件
 - 不做架构或安全决策
+- 不在第一阶段写入 hooks、orchestrator、无人值守说明

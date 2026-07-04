@@ -167,3 +167,26 @@
   - mock 模式下 SafetyGate 不执行（设计预期），生产环境需确保安全门正确激活
   - Reviewer 发现 2 个 HIGH 问题（MCP 绕过 SafetyGate / 异步桥接失败），已在修复后评分 ADEQUATE（7.05/10）
 
+## D-010：cc-haha 自动化优先走 Sidecar API 路线
+
+- **日期**：2026-06-23
+- **背景**：Phase 6B 调研 cc-haha 自动化入口，发现三层架构中 sidecar server 模式提供完整 REST API
+- **选项**：
+  - A. Sidecar API 自动化（HTTP REST 调用）
+  - B. CLI 子进程（spawn ./bin/claude-haha）
+  - C. GUI 桌面自动化（computer-use 截图+键鼠）
+- **选择**：A — Sidecar API 自动化作为首选路线
+- **理由**：
+  - cc-haha 已有完整 HTTP/WS API（28 路由），不需要走 GUI
+  - API 返回结构化 JSON，比 GUI 截图稳定一个数量级
+  - 实现成本最低（requests 调用），安全边界清晰（127.0.0.1 本地）
+  - cc-haha 设计意图就是 API 优先（sidecar server 模式专为此设计）
+- **受控自动化边界**：
+  - 自动：创建任务 → 投递 Claude → 等待结果 → 回填 → 切 NEED_CODEX_REVIEW
+  - 不自动：Codex Review、git commit、下一轮启动、重试循环
+  - 刹车点：NEED_CODEX_REVIEW 必须人工确认才能继续
+- **后果**：
+  - 下一阶段实施切片：Slice 1（sidecar 探测）→ Slice 2（API 投递 MVP）
+  - 所有失败路径回退到人工 runner，不引入自动化循环
+  - 符合 Phase 1 约束（无 hooks、无自动循环、无无人值守）
+

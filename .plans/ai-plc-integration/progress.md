@@ -1,7 +1,142 @@
 # 进度日志 — AI 接入 PLC
 
-> 最后更新：2026-06-22
+> 最后更新：2026-06-23
 > 原则：记录阶段进度、已完成事项、阻塞项。过长时归档。
+
+---
+
+## 2026-06-24：C-14.2 cc-haha session 工作目录绑定（进行中）
+
+### 已完成
+- [x] 确认 cc-haha `POST /api/sessions` 的会话目录字段为 `workDir`
+- [x] 为 `bridge/ws_task_runner.py` 新增局部回归测试：创建 session 时必须发送项目根 `workDir`
+- [x] 修复 `ws_task_runner.py`：`create_session()` 默认发送 `{"workDir": PROJECT_ROOT}`
+- [x] 单元验证通过：`D:/Python3/python.exe .plans/ai-plc-integration/bridge/test_ws_task_runner.py`
+- [x] sidecar 可达性验证通过：`check_sidecar.py` 发现 `http://127.0.0.1:11313`
+- [x] 真实 sidecar 最小 session 验证：返回 `workDir = D:\claude code xiangmu\AI 接入PLC` 且 `workDirExists = true`
+- [x] 源码链路确认：cc-haha `ConversationService` 使用 `workDir` 作为 CLI 子进程 `cwd`，并覆盖 `CALLER_DIR` / `PWD`
+- [x] 2026-07-04 再验证：session 级 `workDir` 回归测试仍通过
+- [x] 2026-07-04 真实低风险只读验证通过：session 返回 `workDir = D:\claude code xiangmu\AI 接入PLC`，两次 `Read` 都命中项目内绝对路径
+- [x] C-15 并发验证中发现 `run_id` 缺陷：秒级时间戳会让同秒调用写入同一 `runs/{run_id}/` 目录并互相覆盖
+- [x] 为 `generate_run_id()` 新增失败测试，复现同秒双调用冲突
+- [x] 修复 `generate_run_id()`：`run_id` 从 `{YYYYMMDD}_{HHMMSS}_{task_slug}` 升级为 `{YYYYMMDD}_{HHMMSS}_{ffffff}_{task_slug}`
+- [x] 修复后回归测试通过：`D:/Python3/python.exe .plans/ai-plc-integration/bridge/test_ws_task_runner.py`
+- [x] 修复后两条并发低风险任务验证通过：生成不同 `run_id`、不同 `runs/` 子目录，且各自独立回填 `claude_result.md`
+- [x] 为 2026-07-04 的验证轮次补齐 `codex_review.md`，审查路径已实际走通
+- [x] C-15 最小批次完成：3 轮低风险协作层任务已验证 `run_id`、`runs/{run_id}/`、回填、审查路径一致性
+- [x] C-16 前置采样发现根因：sidecar 当前全局权限模式是 `bypassPermissions`，而 runner 建 session 时未显式传 `permissionMode`
+- [x] 修复 `ws_task_runner.py`：创建 session 时显式发送 `permissionMode = default`
+- [x] C-16 复验通过：写文件探针任务重新进入 `permission_request -> DENY`，`c16_permission_probe.txt` 最终不存在
+- [x] C-16 只读白名单单元测试补齐：项目根内 `Read` 允许，项目根外 `Read`、缺失路径、`Write`、`Bash` 均拒绝
+- [x] C-16 权限决策畸形输入防护：`tool_input` 非对象时保守拒绝，避免权限处理异常退出
+- [x] C-16 权限策略文档同步：`bridge/README.md` 从“全部拒绝”更新为“项目根内只读白名单，其余拒绝”
+- [x] C-16 真实 sidecar 验证刷新：`check_sidecar.py` 命中 `http://127.0.0.1:8889`
+- [x] C-16 真实只读任务完成：项目根 `AGENTS.md` 可读，但本次 `Read` 未触发 `permission_request`，因此真实 ALLOW 分支仍以单元测试为主证据
+- [x] C-16 真实写入探针验证：`Bash` 权限请求被拒绝 2 次，`c16_permission_probe_after_summary_fix.txt` 未创建
+- [x] C-16 结果摘要修复：权限被拒绝但会话完成时，`claude_result.md` Summary 记录为 `completed with N permission(s) denied`
+- [x] C-15 扩展稳定化完成：第 4 轮 `20260704_150514_165006_c-14-cc-haha-ws-task-runner-mv` 成功读取 `bridge/README.md`，独立回填 `claude_result.md`
+- [x] C-15 扩展稳定化完成：第 5 轮 `20260704_150544_963490_c-14-cc-haha-ws-task-runner-mv` 成功读取 `progress.md`，独立回填 `claude_result.md`
+- [x] C-15 完整批次完成：5 轮低风险协作层任务均验证 `run_id`、`runs/{run_id}/`、回填、审查路径一致性
+- [x] C-17 最小草案生成器落地：新增 `codex_review_draft.py`，在 `NEED_CODEX_REVIEW` 下生成 `codex_review.md` 草案
+- [x] C-17 覆盖保护：已有 `codex_review.md` 时默认停止，避免覆盖人工审查或已有结论
+- [x] C-17 单元验证通过：`D:/Python3/python.exe .plans/ai-plc-integration/bridge/test_codex_review_draft.py`
+- [x] C-14.3 会话复用修复：`ws_task_runner.py` 默认复用 `state.json.session_id`，显式 `--new-session` 时才新建 cc-haha 对话
+- [x] C-14.3 单元验证通过：指定 `reuse_session_id` 时不调用 `POST /api/sessions`
+- [x] C-14.3 真实验证通过：复用 `sessionId=f2d515a0-74b6-44c2-8337-13d6faae4214` 完成 run `20260704_151320_514926_c-14-cc-haha-ws-task-runner-mv`
+- [x] C-17 真实草案验证通过：对复用 session 的最新 run 生成 `codex_review.md` 草案，`state.json` 仍停在 `NEED_CODEX_REVIEW`
+- [x] C-18 统一 stop rule 分类落地：覆盖 `SIDECAR_UNAVAILABLE`、`SESSION_CREATE_FAILED`、`CWD_DRIFT`、`WS_TIMEOUT`、`PERMISSION_DENIED`、`SESSION_FAILED`、`SESSION_INCOMPLETE`、`NONE`
+- [x] C-18 结果回填：`claude_result.md` 增加 `## Stop Rule`，`state.json` 增加 `stop_rule` / `blocked_reason`
+- [x] C-18 单元验证通过：`D:/Python3/python.exe .plans/ai-plc-integration/bridge/test_ws_task_runner.py`
+- [x] C-18 真实正常路径验证通过：复用同一 `sessionId=f2d515a0-74b6-44c2-8337-13d6faae4214` 完成 run `20260704_151943_022091_c-14-cc-haha-ws-task-runner-mv`，`Stop Rule = NONE`
+- [x] C-17/C-18 组合验证通过：对 C-18 最新 run 生成 `codex_review.md` 草案，`state.json` 未推进 `DONE`
+- [x] C-18 真实权限拒绝路径验证通过：复用同一 `sessionId=f2d515a0-74b6-44c2-8337-13d6faae4214` 完成 run `20260704_152151_720808_c-14-cc-haha-ws-task-runner-mv`，`Write` / `Bash` 均 DENY，探针文件未创建
+- [x] C-18 非 `NONE` stop rule 端到端落盘：`claude_result.md` 与 `state.json` 均记录 `PERMISSION_DENIED`，`blocked_reason = 2 permission request(s) denied`
+- [x] C-17/C-18 条件草案验证通过：对权限拒绝 run 生成 `CONDITIONAL PASS DRAFT`，仍保留人工最终裁决
+- [x] C-19 监督式连续运行门控落地：新增 `supervised_batch.py`，只做 dry-run 门控和下一条命令建议
+- [x] C-19 安全边界验证：当前 `state.json.stop_rule = PERMISSION_DENIED` 时，监督门返回 `STOP_RULE_ACTIVE` 并拒绝继续
+- [x] C-19 允许路径验证：临时 PASS 状态下只输出 `ws_task_runner.py --session-id ...` 命令，不自动执行、不循环、不改状态
+- [x] C-19 示例队列落地：新增 `templates/supervised-tasks.example.txt`
+- [x] 人工审查确认记录器落地：新增 `ack_review.py`，只记录当前 run 的 PASS/BLOCK 裁决和 `next_action.md`
+- [x] 当前权限拒绝 run 已人工确认 PASS：`20260704_152151_720808_c-14-cc-haha-ws-task-runner-mv` 的 `PERMISSION_DENIED` 属于 C-18 预期探针，探针文件未创建
+- [x] C-19 门控恢复 READY：确认 PASS 后 `state.json.stop_rule = NONE`，`supervised_batch.py` 输出下一条复用 session 的低风险任务命令
+- [x] C-19 第一条低风险队列任务完成：复用同一 session 完成 `读取 .plans/ai-plc-integration/bridge/README.md 并总结 C-18 Stop Rule`，`Stop Rule = NONE`
+- [x] C-19 队列推进修复：`ack_review.py` 记录 `supervised_completed_tasks`，`supervised_batch.py` 跳过已完成任务，下一条变为 `读取 .plans/ai-plc-integration/progress.md 并总结当前边界`
+- [x] C-19 第二条低风险队列任务完成：复用同一 session 完成 `读取 .plans/ai-plc-integration/progress.md 并总结当前边界`，`Stop Rule = NONE`
+- [x] C-19 队列完成态修复：当示例队列全部任务都在 `supervised_completed_tasks` 中时，`supervised_batch.py` 返回 `ALL_TASKS_DONE` 且不输出下一条命令
+
+### 当前边界
+- C-14.2 只修复 session 级目录绑定
+- 权限策略已升级为项目根内只读白名单，其余权限请求默认拒绝
+- C-15 已完成 5 轮低风险稳定化验证
+- C-17 已有草案生成器，但仍不自动裁决、不改 `state.json`、不推进 `DONE`
+- 后续真实推进默认复用同一个 cc-haha `session_id`；除非人工显式要求，否则不再每轮新开 Claude 对话
+- C-18 已统一失败/风险停止原因，但不自动重试、不自动推进 `DONE`
+- C-18 已完成 `NONE` 和 `PERMISSION_DENIED` 两条真实路径验证；其他失败类型由单元测试覆盖，等待自然失败或人工模拟时再补真实证据
+- C-19 只提供监督式 dry-run 门控；当前示例队列 2 条任务均已确认完成，返回 `ALL_TASKS_DONE`
+- 未启用自动审查、自动重试、自动轮询或无人值守
+- 2026-07-04 当前外部状态可用：`check_sidecar.py` 读取到 `lastPort=8889`，`/health` 返回 OK
+
+### 下一步
+- 寻找能真实触发只读 `permission_request` 的 sidecar/Claude Code 场景；当前 `Read` 会直接完成，白名单 ALLOW 分支由单元测试覆盖
+- 继续 C-17：人工复核草案格式是否适合作为默认 Codex Review 初稿
+- 若继续 C-19，需要人工新增低风险任务到队列；执行时必须继续复用同一个 `session_id`
+
+---
+
+## 2026-06-23：Bridge 协作层 v1 落地（Phase 1 ~ Phase 5.1B）
+
+### 已完成
+- [x] **Phase 1：协作层基础结构**
+  - 创建 `.ccb/` 最小规则文件
+  - 创建 `.plans/ai-plc-integration/bridge/` 状态文件、模板、协议文件
+  - 收紧 `AGENTS.md`、`claude.md`、`agents/*.md` 的第一阶段边界
+- [x] **手动闭环演示**
+  - 跑通 `task_packet.md → claude_result.md → codex_review.md → next_action.md → DONE`
+- [x] **Phase 2A：纳管建议检查**
+  - 确认 `.ccb/` 与 `bridge/` 文件建议纳入 Git
+  - 验证 `.gitignore` 不误忽略 `.ccb/` 和 `bridge/`
+- [x] **Phase 2B：纳管说明固化**
+  - 在 `bridge/README.md` 固化“协作层文件纳入 Git 的说明”
+- [x] **Phase 3A：dry-run runner**
+  - 新增 `bridge/runner_dry_run.py`
+  - 新增 `bridge/runner_readme.md`
+  - 支持 `NEED_CODEX_PLAN` / `NEED_CLAUDE` / `NEED_CODEX_REVIEW` / `DONE` / `BLOCKED` / `SAFETY_BLOCK`
+- [x] **Phase 4：真实低风险闭环验证**
+  - 基于真实文档任务验证 `Codex → Claude Code → Codex Review → DONE`
+- [x] **Phase 5：受控单步自动化 MVP**
+  - 新增 `bridge/runner_step.py`
+  - 默认 dry-run
+  - `--execute` 需 `YES` 人工确认
+  - 停止态拒绝执行
+- [x] **Phase 5 安全返工**
+  - 移除 `shell=True`
+  - 改为 `shlex.split(cmd)` + `subprocess.run(argv, shell=False)`
+- [x] **Phase 5.1B：cc-haha GUI 兼容模式**
+  - 为 `runner_step.py` 新增 `--copy`
+  - 使用 Windows `clip.exe` + `shell=False`
+  - 不打开 GUI、不模拟输入、不自动发送消息
+
+### 当前协作层能力
+- `runner_dry_run.py`
+  - 只读 `state.json`
+  - 只输出下一步建议与 prompt
+- `runner_step.py --execute`
+  - 受控单步 CLI 调用
+  - `--execute` + `YES`
+  - 停止态前置拦截
+- `runner_step.py --copy`
+  - 适配 cc-haha 桌面版
+  - 只复制 prompt 到剪贴板
+  - 不控制 GUI
+
+### 当前风险/限制
+- `cc-haha` 当前不是源码版 CLI 形态，真实 CLI 路线不能强依赖 `CLAUDE_CODE_CMD`
+- `bridge/` 中运行态文件目前仍纳入版本控制，后续可能需要 `templates/` / `runs/` 拆分
+- 不允许自动进入 Phase 3B、hooks、orchestrator、无人值守
+
+### 下一步建议
+- 人工决定是否继续推进 Bridge v2
+- 如继续，先从新的 `task_packet.md` 开始，不自动续跑
 
 ---
 
@@ -470,4 +605,3 @@ pytest orchestrator/tests/ -v
 - 前端 UI 增强（实时数据刷新、WebSocket 推送等）
 
 ---
-

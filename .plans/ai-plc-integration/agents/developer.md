@@ -11,6 +11,7 @@
 - 遵循 TDD：先写测试，再实现
 - 代码改动后同步更新 docs/ 和 decisions.md
 - 遇到模糊需求时向 team-lead 提出选项，不自己猜
+- 第一阶段仅可修改协作层文件，不得进入业务目录
 
 ## 输入文件（必读）
 - `.plans/ai-plc-integration/task_plan.md` — 当前 slice
@@ -27,6 +28,7 @@
 - 更新 `docs/architecture.md`（架构变更时）
 - 更新 `docs/api-contracts.md`（API 变更时）
 - 更新 `decisions.md`（新的实现决策时）
+- 第一阶段可改为输出协作层模板与状态文件，不要求业务代码与测试
 
 ## 触发条件
 - team-lead 分派了 slice
@@ -48,6 +50,7 @@
 - 不要硬编码密钥或凭证
 - 安全相关代码（safety/、写入操作）必须额外小心
 - 文档同步不是可选的：API 变更 → 必须更新 api-contracts.md
+- 第一阶段禁止修改 `backend`、`frontend`、`docs`、`mcp-servers`、`edge-gateway`、`orchestrator`、`scripts`、`tests`
 
 ## Team OS 边界
 
@@ -71,3 +74,4 @@
 - 不修改 `task_queue.md`、`task_spec.md`、角色文件
 - 不做需求范围外的重构
 - 不修改 `progress.md`、`handoff.md`
+- 不在第一阶段编写任何业务实现
