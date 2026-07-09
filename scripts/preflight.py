@@ -64,6 +64,21 @@ def _print_result(r: CheckResult) -> None:
         print(f"         {_YELLOW}建议: {r.suggestion}{_RESET}")
 
 
+def _read_dotenv_value(key: str) -> str:
+    """读取项目根 .env 中的单个键，避免 preflight 依赖后端包导入路径。"""
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        return ""
+    for raw in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        if name.strip() == key:
+            return value.strip()
+    return ""
+
+
 # ═══════════════════════════════════════════════════════
 #  检查函数
 # ═══════════════════════════════════════════════════════
@@ -153,18 +168,12 @@ def check_deepseek_api_key() -> CheckResult:
         r.detail = f"已从环境变量加载: {masked}"
         return r
 
-    # 检查 backend config
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-        from ai_plc_assistant.backend.config import settings
-        deepseek_key = settings.deepseek_api_key
-        if deepseek_key:
-            masked = deepseek_key[:6] + "****" + deepseek_key[-4:] if len(deepseek_key) > 10 else "****"
-            r.passed = True
-            r.detail = f"已从 .env 加载: {masked}"
-            return r
-    except Exception:
-        pass
+    deepseek_key = _read_dotenv_value("DEEPSEEK_API_KEY")
+    if deepseek_key:
+        masked = deepseek_key[:6] + "****" + deepseek_key[-4:] if len(deepseek_key) > 10 else "****"
+        r.passed = True
+        r.detail = f"已从 .env 加载: {masked}"
+        return r
 
     # 检查 config.yaml
     try:
@@ -190,20 +199,20 @@ def check_python_dependencies() -> CheckResult:
     """检查 Python 依赖是否完整。"""
     r = CheckResult("Python 依赖")
 
-    required = [
-        "fastapi",
-        "uvicorn",
-        "pydantic",
-        "pydantic_settings",
-        "requests",
-        "python-snap7",
-        "pyyaml",
-    ]
+    required = {
+        "fastapi": "fastapi",
+        "uvicorn": "uvicorn",
+        "pydantic": "pydantic",
+        "pydantic-settings": "pydantic_settings",
+        "requests": "requests",
+        "python-snap7": "snap7",
+        "pyyaml": "yaml",
+    }
     missing = []
 
-    for pkg in required:
+    for pkg, import_name in required.items():
         try:
-            __import__(pkg.replace("-", "_"))
+            __import__(import_name)
         except ImportError:
             missing.append(pkg)
 
@@ -214,6 +223,27 @@ def check_python_dependencies() -> CheckResult:
         r.detail = f"缺少 {len(missing)} 个包: {', '.join(missing)}"
         r.suggestion = f"pip install {' '.join(missing)}"
 
+    return r
+
+
+def check_factory_io() -> CheckResult:
+    """检查 Factory I/O 安装路径是否可用。"""
+    r = CheckResult("Factory I/O")
+    candidates = [
+        os.getenv("FACTORY_IO_DIR", ""),
+        r"D:\Factory IO",
+        r"C:\Program Files (x86)\Real Games\Factory IO",
+    ]
+    for base in candidates:
+        if not base:
+            continue
+        exe = os.path.join(base, "Factory IO.exe")
+        if os.path.exists(exe):
+            r.passed = True
+            r.detail = f"找到可执行文件: {exe}"
+            return r
+    r.detail = "未找到 Factory IO.exe"
+    r.suggestion = "设置 FACTORY_IO_DIR，或确认 Factory I/O 已安装"
     return r
 
 
@@ -274,6 +304,7 @@ def run_preflight(json_output: bool = False) -> bool:
     checks.append(check_plcsim_api())
     checks.append(check_deepseek_api_key())
     checks.append(check_python_dependencies())
+    checks.append(check_factory_io())
     checks.append(check_ports())
 
     all_pass = all(c.passed for c in checks)

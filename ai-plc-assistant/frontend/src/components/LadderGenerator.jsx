@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Play, Loader2, Code2, Download, FileCode, FileText as FileXml, Table2, Eye, FileText, Send } from 'lucide-react'
-import { generateLadder, exportCode } from '../api'
+import { generateLadder, exportCode, runNlToSim } from '../api'
 import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
 import LadderVisualizer from './LadderVisualizer'
 
@@ -28,6 +28,8 @@ export default function LadderGenerator({ addLog }) {
   const [description, setDescription] = useState('')
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [pipelineLoading, setPipelineLoading] = useState(false)
+  const [pipelineResult, setPipelineResult] = useState(null)
   const [displayMode, setDisplayMode] = useState('graph')
   const { history, save } = useWorkbenchHistory('ladder-generator')
   const resultRef = useRef(null)
@@ -37,6 +39,7 @@ export default function LadderGenerator({ addLog }) {
     if (!description.trim() || loading) return
     setLoading(true)
     setResult(null)
+    setPipelineResult(null)
     addLog?.('info', `[梯形图] 生成: ${description.slice(0, 50)}...`)
 
     try {
@@ -48,6 +51,24 @@ export default function LadderGenerator({ addLog }) {
       addLog?.('error', `[梯形图] ${err.message}`)
     }
     setLoading(false)
+  }
+
+  const handleRunPipeline = async () => {
+    if (!description.trim() || loading || pipelineLoading) return
+    setPipelineLoading(true)
+    setPipelineResult(null)
+    addLog?.('info', `[全链路] 生成并仿真: ${description.slice(0, 50)}...`)
+
+    try {
+      const data = await runNlToSim({ description, launch_fio: false })
+      setPipelineResult(data)
+      addLog?.(data.ok ? 'info' : 'error', `[全链路] ${data.ok ? 'PASS' : 'FAIL'}${data.error ? `: ${data.error}` : ''}`)
+    } catch (err) {
+      const failed = { ok: false, error: err.message, steps: [], snap7: { verified: false, readback: '' }, generation: {} }
+      setPipelineResult(failed)
+      addLog?.('error', `[全链路] ${err.message}`)
+    }
+    setPipelineLoading(false)
   }
 
   // 生成结果后自动滚到顶部
@@ -191,10 +212,16 @@ export default function LadderGenerator({ addLog }) {
                 ))}
               </div>
             )}
+
+            {pipelineResult && <PipelinePanel result={pipelineResult} />}
+          </div>
+        ) : pipelineResult ? (
+          <div className="max-w-4xl mx-auto">
+            <PipelinePanel result={pipelineResult} />
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-text-dim text-xs">
-            {loading ? <><Loader2 size={16} className="animate-spin mr-2" /> 生成中...</> : '输入控制需求描述，点击发送生成梯形图'}
+            {loading || pipelineLoading ? <><Loader2 size={16} className="animate-spin mr-2" /> {pipelineLoading ? '全链路执行中...' : '生成中...'}</> : '输入控制需求描述，点击发送生成梯形图'}
           </div>
         )}
       </div>
@@ -209,11 +236,20 @@ export default function LadderGenerator({ addLog }) {
             placeholder="描述控制需求...&#10;例如: 电机正反转控制，带互锁和过载保护&#10;Shift+Enter 换行"
             rows={3}
             className="flex-1 bg-ide-bg border border-ide-border rounded px-3 py-2 text-xs text-text-primary placeholder-text-dim outline-none focus:border-accent resize-none"
-            disabled={loading}
+            disabled={loading || pipelineLoading}
           />
           <button
+            type="button"
+            onClick={handleRunPipeline}
+            disabled={loading || pipelineLoading || !description.trim()}
+            className="flex items-center gap-1.5 px-4 py-2 bg-ide-panel border border-accent/50 text-accent rounded text-xs font-medium hover:bg-accent/10 disabled:opacity-30 transition-colors"
+          >
+            {pipelineLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+            {pipelineLoading ? '仿真中' : '生成并仿真'}
+          </button>
+          <button
             type="submit"
-            disabled={loading || !description.trim()}
+            disabled={loading || pipelineLoading || !description.trim()}
             className="flex items-center gap-1.5 px-4 py-2 bg-accent text-white rounded text-xs font-medium hover:bg-accent-hover disabled:opacity-30 transition-colors"
           >
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -223,4 +259,61 @@ export default function LadderGenerator({ addLog }) {
       </div>
     </div>
   )
+}
+
+function PipelinePanel({ result }) {
+  const steps = result.steps || []
+  const statusClass = result.ok ? 'text-green-400' : 'text-red-400'
+
+  return (
+    <div className="border border-ide-border rounded bg-ide-panel overflow-hidden">
+      <div className="px-3 py-2 border-b border-ide-border flex items-center gap-2">
+        <Play size={13} className={statusClass} />
+        <span className="text-xs font-medium text-text-primary">全链路验证</span>
+        <span className={`text-2xs ml-auto ${statusClass}`}>{result.ok ? 'PASS' : 'FAIL'}</span>
+      </div>
+      <div className="p-3 space-y-3">
+        {result.error && (
+          <div className="text-xs text-red-300 bg-red-950/30 border border-red-900/40 rounded px-3 py-2">
+            {result.error}
+          </div>
+        )}
+
+        {result.generation?.block_name && (
+          <div className="text-2xs text-text-secondary">
+            生成块: <span className="font-mono text-accent">{result.generation.block_name}</span>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          {steps.map((step, index) => (
+            <div key={`${step.name}-${index}`} className="flex items-start gap-2 text-xs border border-ide-border rounded px-2 py-1.5 bg-ide-bg">
+              <span className={step.status === 'PASS' ? 'text-green-400' : step.status === 'FAIL' ? 'text-red-400' : 'text-text-dim'}>
+                {step.status || 'PENDING'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-text-primary">{step.name}</div>
+                {step.detail && <div className="text-2xs text-text-dim mt-0.5 break-words">{formatDetail(step.detail)}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {result.snap7?.readback && (
+          <div className="text-2xs text-text-secondary">
+            snap7 回读: <span className="font-mono text-accent">{result.snap7.readback}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function formatDetail(detail) {
+  if (typeof detail === 'string') return detail
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return String(detail)
+  }
 }

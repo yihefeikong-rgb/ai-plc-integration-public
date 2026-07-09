@@ -21,7 +21,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 from config import settings as app_config
-from routes import chat, models, knowledge, search, prompts, generate, conversations, projects
+from routes import chat, models, knowledge, search, prompts, generate, conversations, projects, pipeline
 from routes import settings as settings_route
 from routes import orchestrator as orchestrator_route
 from knowledge.engine import KnowledgeEngine
@@ -127,6 +127,7 @@ app.include_router(conversations.router, prefix="/api/conversations", tags=["对
 app.include_router(projects.router, prefix="/api/projects", tags=["项目管理"])
 app.include_router(settings_route.router, prefix="/api/settings", tags=["设置"])
 app.include_router(orchestrator_route.router, prefix="/api/orchestrator", tags=["编排层"])
+app.include_router(pipeline.router, prefix="/api/pipeline", tags=["全链路 Pipeline"])
 
 
 @app.get("/api/health")

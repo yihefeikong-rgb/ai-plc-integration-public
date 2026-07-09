@@ -15,6 +15,7 @@ def register_all_workflows(engine: Any) -> None:
     from orchestrator.workflows.s7_monitor import register_s7_monitor_workflow
     from orchestrator.workflows.tia_full_pipeline import register_tia_full_pipeline_workflow
     from orchestrator.workflows.tia_multi_block_pipeline import register_tia_multi_block_pipeline_workflow
+    from orchestrator.workflows.nl_to_plcsim_pipeline import register_nl_to_plcsim_pipeline_workflow
     from orchestrator.workflows.robot_pick_place import register_robot_pick_place_workflow
     from orchestrator.workflows.robot_monitor import register_robot_monitor_workflow
 
@@ -22,5 +23,6 @@ def register_all_workflows(engine: Any) -> None:
     register_s7_monitor_workflow(engine)
     register_tia_full_pipeline_workflow(engine)
     register_tia_multi_block_pipeline_workflow(engine)
+    register_nl_to_plcsim_pipeline_workflow(engine)
     register_robot_pick_place_workflow(engine)
     register_robot_monitor_workflow(engine)

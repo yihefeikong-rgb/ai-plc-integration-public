@@ -95,6 +95,14 @@ export const exportCode = (data) =>
     body: JSON.stringify(data),
   }).then(r => r.json())
 
+// ---- 全链路 Pipeline ----
+
+export const runNlToSim = (payload) =>
+  request('/pipeline/nl-to-sim', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
 // ---- Prompt 模板 ----
 
 export const listTemplates = (category = '') => {

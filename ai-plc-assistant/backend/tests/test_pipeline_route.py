@@ -1,0 +1,52 @@
+"""Pipeline API 测试 — /api/pipeline/nl-to-sim。"""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+class TestNlToSimPipeline:
+    def test_nl_to_sim_route_runs_unified_workflow(self, client):
+        from orchestrator.core import StepResult, WorkflowResult
+
+        mock_result = WorkflowResult(
+            workflow_name="nl_to_plcsim_pipeline",
+            ok=True,
+            steps=[
+                StepResult(
+                    tool="tia-mcp.create_ladder_block",
+                    ok=True,
+                    data={"blockName": "MotorFwdRev", "networks": 3},
+                    duration_ms=12.0,
+                ),
+                StepResult(
+                    tool="plc-mcp-bridge.s7_read",
+                    ok=True,
+                    data="M0.0 = False",
+                    duration_ms=3.0,
+                ),
+            ],
+            total_duration_ms=20.0,
+        )
+        mock_engine = MagicMock()
+        mock_engine.run_async = AsyncMock(return_value=mock_result)
+
+        with patch("routes.pipeline.get_engine", return_value=mock_engine):
+            res = client.post("/api/pipeline/nl-to-sim", json={
+                "description": "三相异步电机正反转带急停和过载保护",
+                "project_path": "D:/PLC/demo.ap21",
+                "plc_ip": "192.168.0.110",
+                "block_name": "MotorFwdRev",
+                "launch_fio": False,
+            })
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ok"] is True
+        assert data["workflow_name"] == "nl_to_plcsim_pipeline"
+        assert data["steps"][0]["name"] == "生成梯形图块"
+        assert data["snap7"]["verified"] is True
+        mock_engine.run_async.assert_awaited_once()
+
+    def test_nl_to_sim_rejects_empty_description(self, client):
+        res = client.post("/api/pipeline/nl-to-sim", json={"description": ""})
+
+        assert res.status_code == 400
