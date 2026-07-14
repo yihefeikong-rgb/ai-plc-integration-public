@@ -405,10 +405,10 @@ class TestImportFailure:
         # 前 3 步 import 成功
         for s in result.steps[:3]:
             assert s.ok is True
-        # compile 步骤 ok=True（工具没抛异常），但 data 里 ok=False
+        # 显式失败载荷必须记录为失败步骤，不能被误报为成功。
         compile_step = result.steps[3]
-        assert compile_step.ok is True  # ctx.call_async 没抛异常
-        assert compile_step.data["ok"] is False  # 编译本身失败了
+        assert compile_step.ok is False
+        assert "失败" in compile_step.error
 
     @pytest.mark.asyncio
     async def test_compile_throws_returns_error(self):
@@ -468,10 +468,9 @@ class TestEmptyInput:
             },
         )
         # 工作流直接 return error，没调任何工具，步骤为空
-        # WorkflowResult 无 .data 字段：验证通过 result.ok + 0 steps 确认提前返回
-        assert result.ok is True  # 没抛异常
-        assert len(result.steps) == 0  # 没有调用任何工具 = 提前返回了 error
-        assert result.error == ""  # 没有 engine 层异常（不是 ValueError 之类的）
+        assert result.ok is False
+        assert len(result.steps) == 0
+        assert "缺少 name" in result.error
 
     @pytest.mark.asyncio
     async def test_missing_scl_code_returns_error(self):
@@ -486,6 +485,6 @@ class TestEmptyInput:
             },
         )
         # 工作流直接 return error，没调任何工具，步骤为空
-        assert result.ok is True  # 没抛异常
-        assert len(result.steps) == 0  # 没有调用任何工具 = 提前返回了 error
-        assert result.error == ""  # 没有 engine 层异常（不是 ValueError 之类的）
+        assert result.ok is False
+        assert len(result.steps) == 0
+        assert "缺少 name 或 scl_code" in result.error

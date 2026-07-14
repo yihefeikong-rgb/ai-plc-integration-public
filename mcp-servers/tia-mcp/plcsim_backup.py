@@ -18,7 +18,7 @@ from plcsim_common import (
     _ensure_off,
     STATE_NAMES,
 )
-from plcsim_instance import _ensure_runtime_manager, stop_instance
+from plcsim_instance import _ensure_runtime_manager, _require_isolated_target, stop_instance
 
 
 def archive_instance(name: str, zip_path: str, storage_path: Optional[str] = None) -> str:
@@ -37,6 +37,7 @@ def archive_instance(name: str, zip_path: str, storage_path: Optional[str] = Non
     Raises:
         RuntimeError: 归档失败
     """
+    _require_isolated_target(name)
     instance = _get_instance(name)
     if instance is None:
         raise RuntimeError(f"实例 '{name}' 不存在")
@@ -70,7 +71,7 @@ def restore_instance(
     name: str,
     golden_zip: str,
     storage_path: str,
-    ip: str = "192.168.0.1",
+    ip: str = "",
     subnet: str = "255.255.255.0",
     cpu_type: str = "1511",
     interface: str = "tcpip",
@@ -78,7 +79,7 @@ def restore_instance(
 ) -> IInstance:
     """从黄金备份恢复实例（替代 TIA Portal 手动下载）。
 
-    默认为 TCP/IP 模式 + 192.168.0.1，适用于 Factory I/O S7-1200/1500 驱动连接。
+    TCP/IP 地址始终取自唯一隔离目标配置。
 
     流程:
         RegisterInstance → StoragePath → RetrieveStorage
@@ -99,6 +100,9 @@ def restore_instance(
     Raises:
         RuntimeError: 恢复失败
     """
+    target = _require_isolated_target(name, ip)
+    ip = target.plc_ip
+
     if not os.path.exists(golden_zip):
         raise RuntimeError(f"黄金备份文件不存在: {golden_zip}")
 

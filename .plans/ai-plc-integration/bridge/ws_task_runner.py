@@ -44,12 +44,26 @@ BRIDGE_DIR = Path(__file__).parent
 STATE_FILE = BRIDGE_DIR / "state.json"
 RUNS_DIR = BRIDGE_DIR / "runs"
 PROJECT_ROOT = BRIDGE_DIR.resolve().parents[2]
+if str(BRIDGE_DIR) not in sys.path:
+    sys.path.insert(0, str(BRIDGE_DIR))
+
+from bridge_state import (
+    BridgeStateError,
+    artifact_sha256,
+    locked_state,
+    read_state,
+    write_text_atomic,
+)
 
 # ── 默认配置 ─────────────────────────────────────────────
 DEFAULT_TIMEOUT = 180        # 总超时（秒）
 WS_MSG_TIMEOUT = 15          # 单条 WS 消息超时（秒）
 SESSION_CREATE_TIMEOUT = 10  # REST 建会话超时
 SESSION_PERMISSION_MODE = "default"
+MAX_RETAINED_OUTPUT_CHARS = 20_000
+_SENSITIVE_OUTPUT_VALUE = re.compile(
+    r"(?i)\b(api[_-]?key|token|password|secret|authorization)\b(\s*[:=]\s*)([^\s`'\"|,;]+)"
+)
 
 # ── 高危工具名/关键词（触发自动拒绝）─────────────────────
 HIGH_RISK_TOOL_PATTERNS = [
@@ -66,6 +80,21 @@ READ_ONLY_TOOL_PATH_FIELDS = {
     "glob": ("path",),
     "grep": ("path",),
 }
+
+
+def _retain_safe_output(value: object) -> str:
+    """保留有限、可审查的 Claude 正文，同时去除明显密钥值。"""
+    if isinstance(value, list):
+        text = "".join(str(item) for item in value)
+    elif value is None:
+        text = ""
+    else:
+        text = str(value)
+    text = "".join(char if char.isprintable() or char in "\n\r\t" else "?" for char in text)
+    text = _SENSITIVE_OUTPUT_VALUE.sub(r"\1\2[REDACTED]", text)
+    if len(text) > MAX_RETAINED_OUTPUT_CHARS:
+        return text[:MAX_RETAINED_OUTPUT_CHARS] + "\n\n[TRUNCATED: retained output limit reached]"
+    return text
 
 
 def _log(msg: str):
@@ -272,24 +301,66 @@ def create_session(
         return {"ok": False, "error": f"异常: {e}"}
 
 
+def get_session_metadata(base_url: str, session_id: str, timeout: int = SESSION_CREATE_TIMEOUT) -> dict:
+    """回读 sidecar 会话元数据；无法证明 CWD/权限模式时禁止复用。"""
+    if not session_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session_id):
+        return {"ok": False, "error": "session_id 格式无效"}
+    url = f"{base_url}/api/sessions/{session_id}"
+    try:
+        with urlopen(Request(url, method="GET"), timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        return {"ok": False, "error": f"session metadata HTTP {exc.code}"}
+    except (URLError, OSError, json.JSONDecodeError) as exc:
+        return {"ok": False, "error": f"session metadata unavailable: {exc}"}
+
+    work_dir = data.get("workDir") or data.get("work_dir") or data.get("cwd")
+    permission_mode = data.get("permissionMode") or data.get("permission_mode")
+    if not isinstance(work_dir, str) or not work_dir:
+        return {"ok": False, "error": "session metadata 缺少 workDir", "raw": data}
+    if not isinstance(permission_mode, str) or not permission_mode:
+        return {"ok": False, "error": "session metadata 缺少 permissionMode", "raw": data}
+    if not _is_project_root(work_dir):
+        return {"ok": False, "error": f"session CWD 漂移: {work_dir}", "raw": data}
+    if permission_mode != SESSION_PERMISSION_MODE:
+        return {
+            "ok": False,
+            "error": f"session permissionMode 不符合受控策略: {permission_mode}",
+            "raw": data,
+        }
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "work_dir": str(Path(work_dir).resolve(strict=False)),
+        "permission_mode": permission_mode,
+        "verified": True,
+        "raw": data,
+    }
+
+
 def resolve_session(
     base_url: str,
     reuse_session_id: str = "",
     timeout: int = SESSION_CREATE_TIMEOUT,
 ) -> dict:
-    """复用已有 session；没有可复用 session 时才创建新 session。"""
+    """创建或复用 session 后必须回读并核验其 CWD 与权限模式。"""
     if reuse_session_id:
-        return {
-            "ok": True,
-            "session_id": reuse_session_id,
-            "reused": True,
-            "work_dir": str(PROJECT_ROOT),
-            "permission_mode": SESSION_PERMISSION_MODE,
-        }
+        session = get_session_metadata(base_url, reuse_session_id, timeout=timeout)
+        session["reused"] = True
+        session["metadata_checked"] = True
+        return session
 
-    session = create_session(base_url, timeout=timeout)
-    if session.get("ok"):
-        session["reused"] = False
+    created = create_session(base_url, timeout=timeout)
+    if not created.get("ok"):
+        created["reused"] = False
+        return created
+
+    session_id = created.get("session_id", "")
+    session = get_session_metadata(base_url, session_id, timeout=timeout)
+    session["reused"] = False
+    session["metadata_checked"] = True
+    if not session.get("ok"):
+        session["error"] = f"created session metadata was not verified: {session.get('error', '?')}"
     return session
 
 
@@ -314,6 +385,12 @@ def classify_stop_rule(sidecar_info: dict, session_info: dict | None, session_re
         return _stop_rule(
             "SIDECAR_UNAVAILABLE",
             f"sidecar unavailable: {sidecar_info.get('error', '?')}",
+        )
+
+    if session_info and session_info.get("metadata_checked") and not session_info.get("verified"):
+        return _stop_rule(
+            "SESSION_METADATA_UNVERIFIED",
+            f"session metadata was not verified: {session_info.get('error', '?')}",
         )
 
     if not session_info or not session_info.get("ok"):
@@ -582,6 +659,15 @@ def write_claude_result(sidecar_info: dict, session_result: dict, task_text: str
         lines.append(f"- **tokens**: in={in_t}, out={out_t}")
     lines.append("")
 
+    retained_output = _retain_safe_output(session_result.get("output_text", ""))
+    if retained_output:
+        lines.append("## Claude Output (retained)")
+        lines.append("")
+        lines.append("~~~~text")
+        lines.append(retained_output)
+        lines.append("~~~~")
+        lines.append("")
+
     lines.append("## Stop Rule")
     lines.append("")
     lines.append(f"- **code**: {stop_rule['code']}")
@@ -639,8 +725,9 @@ def write_claude_result(sidecar_info: dict, session_result: dict, task_text: str
 
     content = "\n".join(lines)
     result_file = (run_dir / "claude_result.md") if run_dir else (BRIDGE_DIR / "claude_result.md")
-    result_file.write_text(content, encoding="utf-8")
+    write_text_atomic(result_file, content)
     _log(f"[FILE] claude_result.md written ({len(content)} chars)")
+    return result_file
 
 
 def update_state_json(
@@ -649,42 +736,42 @@ def update_state_json(
     session_id: str = "",
     session_reused: bool = False,
     stop_rule: dict | None = None,
+    result_file: Path | None = None,
 ):
-    """\u66f4\u65b0 state.json \u4e3a NEED_CODEX_REVIEW"""
-    previous_state = {}
-    try:
-        previous_state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        previous_state = {}
-
+    """原子更新 state.json 为 NEED_CODEX_REVIEW。"""
     blocked_reason = (stop_rule or {}).get("reason", "") if (stop_rule or {}).get("stop") else ""
-    state = {
-        "current_task": task_name,
-        "stage": "NEED_CODEX_REVIEW",
-        "owner": "codex",
-        "last_actor": "claude_code",
-        "run_id": run_id,
-        "session_id": session_id,
-        "session_reused": session_reused,
-        "stop_rule": (stop_rule or {}).get("code", ""),
-        "review_status": "",
-        "retry_count": 0,
-        "max_retry": 2,
-        "updated_at": datetime.now().strftime("%Y-%m-%d"),
-        "blocked_reason": blocked_reason,
-    }
-    completed_tasks = previous_state.get("supervised_completed_tasks")
-    if isinstance(completed_tasks, list):
-        state["supervised_completed_tasks"] = completed_tasks
-    STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    with locked_state(STATE_FILE, default={}) as previous_state:
+        completed_tasks = previous_state.get("supervised_completed_tasks")
+        state = {
+            "current_task": task_name,
+            "stage": "NEED_CODEX_REVIEW",
+            "owner": "codex",
+            "last_actor": "claude_code",
+            "run_id": run_id,
+            "session_id": session_id,
+            "session_reused": session_reused,
+            "stop_rule": (stop_rule or {}).get("code", ""),
+            "review_status": "",
+            "retry_count": 0,
+            "max_retry": 2,
+            "updated_at": datetime.now().strftime("%Y-%m-%d"),
+            "blocked_reason": blocked_reason,
+        }
+        if result_file is not None:
+            state["claude_result_sha256"] = artifact_sha256(result_file)
+            state["claude_result_file"] = result_file.name
+        if isinstance(completed_tasks, list):
+            state["supervised_completed_tasks"] = completed_tasks
+        previous_state.clear()
+        previous_state.update(state)
     _log(f"[FILE] state.json \u5df2\u66f4\u65b0\u4e3a NEED_CODEX_REVIEW")
 
 
 def load_state_session_id(state_file: Path = STATE_FILE) -> str:
     """读取上一次记录的 cc-haha session_id；没有则返回空字符串。"""
     try:
-        state = json.loads(state_file.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        state = read_state(state_file)
+    except BridgeStateError:
         return ""
     session_id = state.get("session_id", "")
     return session_id if isinstance(session_id, str) else ""
@@ -781,7 +868,7 @@ def main():
 
     # ── Phase 5: always write bridge files (success or failure) ──
     _log("[5/5] writing bridge files...")
-    write_claude_result(sidecar, ws_result, task_text, session, elapsed, run_dir=run_dir)
+    result_file = write_claude_result(sidecar, ws_result, task_text, session, elapsed, run_dir=run_dir)
     stop_rule = classify_stop_rule(sidecar, session, ws_result)
     update_state_json(
         task_name,
@@ -789,6 +876,7 @@ def main():
         session_id=session_id,
         session_reused=bool(session.get("reused")),
         stop_rule=stop_rule,
+        result_file=result_file,
     )
 
     # summary

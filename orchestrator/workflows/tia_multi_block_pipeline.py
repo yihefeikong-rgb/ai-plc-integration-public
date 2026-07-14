@@ -57,7 +57,7 @@ def register_tia_multi_block_pipeline_workflow(engine: OrchestratorEngine) -> No
             1. 按依赖顺序排序 (UDT -> DB -> FC/FB/OB)
             2. 逐个调用 import_scl_file 导入
             3. 全部导入完成后编译
-            4. 任一步失败时中止并返回错误信息
+            4. 任一步失败时中止并抛出可审计错误
         """
         blocks: list[dict[str, Any]] = ctx.input.get("blocks", [])
         if not blocks:
@@ -77,11 +77,10 @@ def register_tia_multi_block_pipeline_workflow(engine: OrchestratorEngine) -> No
             scl_code: str = block.get("scl_code", "")
 
             if not block_name or not scl_code:
-                return {
-                    "status": "error",
-                    "step": step_index,
-                    "detail": f"块 {i} 缺少 name 或 scl_code: name={block_name!r}, scl_code={'<空>' if not scl_code else '<有内容>'}",
-                }
+                raise ValueError(
+                    f"块 {i} 缺少 name 或 scl_code: "
+                    f"name={block_name!r}, scl_code={'<空>' if not scl_code else '<有内容>'}"
+                )
 
             try:
                 await ctx.call_async(
@@ -93,11 +92,7 @@ def register_tia_multi_block_pipeline_workflow(engine: OrchestratorEngine) -> No
                 imported_names.append(block_name)
             except Exception as e:
                 _logger.error(f"步骤 {step_index}: 导入块 {block_name} 失败: {e}")
-                return {
-                    "status": "error",
-                    "step": step_index,
-                    "detail": f"导入块 {block_name!r} ({block_type}) 失败: {e}",
-                }
+                raise RuntimeError(f"导入块 {block_name!r} ({block_type}) 失败: {e}") from e
 
         # 全部导入完成后编译
         step_index = len(sorted_blocks) + 1
@@ -107,19 +102,11 @@ def register_tia_multi_block_pipeline_workflow(engine: OrchestratorEngine) -> No
             )
         except Exception as e:
             _logger.error(f"步骤 {step_index}: 编译失败: {e}")
-            return {
-                "status": "error",
-                "step": step_index,
-                "detail": f"编译失败: {e}",
-            }
+            raise RuntimeError(f"编译失败: {e}") from e
 
         compile_ok = compile_result.get("ok", compile_result.get("success", False))
         if not compile_ok:
-            return {
-                "status": "error",
-                "step": step_index,
-                "detail": f"编译失败: {compile_result.get('errors', '未知错误')}",
-            }
+            raise RuntimeError(f"编译失败: {compile_result.get('errors', '未知错误')}")
 
         return {
             "status": "ok",

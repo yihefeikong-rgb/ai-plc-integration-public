@@ -3,10 +3,13 @@
 import re
 from typing import Optional
 
-from generator import LadderProgram as LegacyProgram, build_demo_program
 from generator.ascii_parser import parse_ascii_lad
 from generator.ladder_model import program_to_dict
 from llm.service import chat
+
+
+class GenerationError(RuntimeError):
+    """模型或解析失败时，禁止返回可被误当作真实程序的替代样例。"""
 
 
 # ═══════════════════════════════════════════════════════════
@@ -130,70 +133,28 @@ def generate_ladder(
     """自然语言 → 梯形图程序
 
     流程：LLM → ASCII-LAD-V2 文本 → ascii_parser → LadderModel → dict
-    失败时回退到内置 demo。
+    任一环节失败即明确失败，绝不自动返回可导出/导入的演示程序。
     """
-    # 尝试 LLM 生成
     try:
         prompt = build_prompt(user_input, context)
-        raw = chat(model_id=model_id, messages=[{"role": "user", "content": prompt}], temperature=0.3, max_tokens=8192)
-
-        # 提取 ASCII-LAD-V2 内容
+        raw = chat(model_id=model_id, messages=[{"role": "user", "content": prompt}], temperature=0.3, max_tokens=4096)
         ascii_text = _extract_ascii_lad(raw)
-
-        # 解析
         program = parse_ascii_lad(ascii_text)
-
-        if program.networks:
-            structured = program_to_dict(program)
-            return {
-                "title": structured.get("title") or user_input[:50],
-                "description": structured.get("description", ""),
-                "input": user_input,
-                "text": ascii_text,
-                "structured": structured,
-                "mode": "llm",
-            }
-    except Exception:
-        pass  # LLM 调用或解析失败，回退 demo
-
-    # 回退：内置 demo
-    demo_keywords = {
-        "电机": "motor-start-stop",
-        "启动": "motor-start-stop",
-        "停止": "motor-start-stop",
-        "交通灯": "traffic-light",
-        "红绿灯": "traffic-light",
-        "传送带": "conveyor",
-        "输送带": "conveyor",
-    }
-
-    matched = template_id
-    if not matched:
-        for kw, demo_id in demo_keywords.items():
-            if kw in user_input:
-                matched = demo_id
-                break
-
-    if matched and matched in ("motor-start-stop", "traffic-light", "conveyor"):
-        program = build_demo_program(matched, variables or {})
-        mode = "demo"
-    else:
-        program = LegacyProgram(user_input[:50], f"根据描述生成: {user_input[:100]}")
-        program.add_variable("I0.0", "bInput1", "Bool", "输入信号1")
-        program.add_variable("Q0.0", "qOutput1", "Bool", "输出信号1")
-        program.add_network(1, "主逻辑",
-            "|----[ bInput1 ]----( qOutput1 )",
-            "LLM 不可用，请检查 API Key 配置")
-        mode = "placeholder"
-
-    return {
-        "title": program.title,
-        "description": program.description,
-        "input": user_input,
-        "text": program.to_text(),
-        "structured": program.to_dict(),
-        "mode": mode,
-    }
+        if not program.networks:
+            raise GenerationError("模型输出未包含可验证的梯形图网络")
+        structured = program_to_dict(program)
+        return {
+            "title": structured.get("title") or user_input[:50],
+            "description": structured.get("description", ""),
+            "input": user_input,
+            "text": ascii_text,
+            "structured": structured,
+            "mode": "llm",
+        }
+    except GenerationError:
+        raise
+    except Exception as exc:
+        raise GenerationError("模型生成或梯形图解析失败") from exc
 
 
 def build_prompt(user_input: str, context: Optional[dict] = None) -> str:

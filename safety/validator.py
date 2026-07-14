@@ -1,5 +1,6 @@
 """写入安全校验器 — 加载互锁规则并强制执行"""
 
+import math
 import re
 import time
 import logging
@@ -39,6 +40,7 @@ class WriteValidator:
     def __init__(self):
         self.consecutive_errors = 0
         self._rules: list[dict] = []
+        self._s7_write_addresses: dict[str, dict[str, str]] = {}
         self._last_write_time: dict[str, float] = {}
         self._bit_reader = None
         self._load_interlock_rules()
@@ -63,11 +65,47 @@ class WriteValidator:
             _logger.warning(f"互锁规则文件不存在: {RULES_FILE}")
             return
         try:
-            data = yaml.safe_load(RULES_FILE.read_text(encoding="utf-8"))
+            data = yaml.safe_load(RULES_FILE.read_text(encoding="utf-8")) or {}
             self._rules = data.get("write_rules", [])
+            raw_addresses = data.get("s7_write_addresses", {})
+            if not isinstance(raw_addresses, dict):
+                raise ValueError("s7_write_addresses 必须是映射")
+            self._s7_write_addresses = {}
+            for address, mapping in raw_addresses.items():
+                if not isinstance(mapping, dict):
+                    raise ValueError(f"S7 地址映射格式无效: {address}")
+                target = mapping.get("target")
+                value_type = mapping.get("type")
+                if not isinstance(target, str) or not target:
+                    raise ValueError(f"S7 地址映射缺少 target: {address}")
+                if value_type not in {"bool", "uint8", "int16", "float32"}:
+                    raise ValueError(f"S7 地址映射类型无效: {address}")
+                normalized = self._normalize_s7_address(address)
+                self._s7_write_addresses[normalized] = {
+                    "target": target,
+                    "type": value_type,
+                }
             _logger.info(f"已加载 {len(self._rules)} 条互锁规则")
         except Exception as e:
             _logger.error(f"加载互锁规则失败: {e}")
+
+    @staticmethod
+    def _normalize_s7_address(address: str) -> str:
+        if not isinstance(address, str):
+            raise ValueError("S7 地址必须是字符串")
+        normalized = "".join(address.upper().split())
+        if not normalized:
+            raise ValueError("S7 地址不能为空")
+        return normalized
+
+    def resolve_s7_write_address(self, address: str) -> dict[str, str] | None:
+        """返回原始地址对应的安全语义；未显式配置时拒绝写入。"""
+        try:
+            normalized = self._normalize_s7_address(address)
+        except ValueError:
+            return None
+        mapping = self._s7_write_addresses.get(normalized)
+        return dict(mapping) if mapping else None
 
     def _check_interlock_rules(self, tag_name: str, value: Any) -> ValidationResult | None:
         """检查互锁规则（require_bits, max_value, min_value, cooldown）"""
@@ -103,6 +141,9 @@ class WriteValidator:
                     num_value = float(value)
                 except (ValueError, TypeError):
                     return None
+                if not math.isfinite(num_value):
+                    self.consecutive_errors += 1
+                    return ValidationResult(False, f"值必须是有限数值: {value}")
 
                 max_val = rule.get("max_value")
                 if max_val is not None and num_value > max_val:
@@ -149,9 +190,14 @@ class WriteValidator:
             return rule_result
 
         # 4. 全局合理范围检查
-        if isinstance(value, (int, float)) and abs(value) > 1_000_000:
-            self.consecutive_errors += 1
-            return ValidationResult(False, f"值 {value} 超出合理范围")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            numeric_value = float(value)
+            if not math.isfinite(numeric_value):
+                self.consecutive_errors += 1
+                return ValidationResult(False, f"值必须是有限数值: {value}")
+            if abs(numeric_value) > 1_000_000:
+                self.consecutive_errors += 1
+                return ValidationResult(False, f"值 {value} 超出合理范围")
 
         # 5. 值跳变检测
         if (current_value is not None

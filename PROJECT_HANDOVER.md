@@ -1,9 +1,11 @@
-# PROJECT HANDOVER — AI 接入 PLC
+# PROJECT HANDOVER — AI 接入 PLC（历史快照）
 
 > **交接时间**: 2026-06-18
 > **交接人**: Claude Code
 > **接收方**: Reasonix（新 AI 工程师）
-> **项目状态**: V1.0 功能基本完成，知识库生态持续扩展中
+> **历史项目状态**: 本文记录 2026-06-18 的交接判断，已不代表当前完成度或安全验收。
+>
+> 当前操作前必须核对代码、`mcp-servers/tia-mcp/config.yaml` 的唯一 `target` 配置、离线测试和 2026-07-13 审计整改报告；不得依据本文连接或写入 PLC、PLCSIM、TIA Portal 或 Factory I/O。
 
 ---
 

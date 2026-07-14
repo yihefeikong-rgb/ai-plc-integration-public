@@ -16,6 +16,9 @@ from orchestrator.mcp_client import McpClientAdapter
 from orchestrator.registry import ServerInfo, ToolInfo
 
 
+pytestmark = pytest.mark.integration
+
+
 # 测试服务器配置
 ECHO_SERVER = ServerInfo(
     name="test-echo",
@@ -49,21 +52,24 @@ class TestMcpClientIntegration:
     async def test_call_echo(self, adapter):
         """验证 echo 工具调用"""
         result = await adapter.call_tool("echo", {"message": "hello integration"})
-        assert result == {"result": "hello integration"}
+        assert result.ok is True
+        assert result.data == {"result": "hello integration"}
 
     @pytest.mark.asyncio
     async def test_call_add(self, adapter):
         """验证 add 工具调用"""
         result = await adapter.call_tool("add", {"a": 42, "b": 58})
-        assert result == {"result": 100}
+        assert result.ok is True
+        assert result.data == {"result": 100}
 
     @pytest.mark.asyncio
     async def test_call_get_status(self, adapter):
         """验证 get_status 工具调用"""
         result = await adapter.call_tool("get_status", {})
-        assert result["status"] == "ok"
-        assert result["server"] == "test-echo"
-        assert result["tools_count"] == 3
+        assert result.ok is True
+        assert result.data["status"] == "ok"
+        assert result.data["server"] == "test-echo"
+        assert result.data["tools_count"] == 3
 
 
 class TestMcpPoolIntegration:
@@ -87,7 +93,8 @@ class TestMcpPoolIntegration:
     async def test_pool_call_tool(self, pool):
         """验证通过连接池调用工具"""
         result = await pool.call_tool("test-echo", "echo", {"message": "pool test"})
-        assert result == {"result": "pool test"}
+        assert result.ok is True
+        assert result.data == {"result": "pool test"}
 
     @pytest.mark.asyncio
     async def test_pool_get_adapter(self, pool):

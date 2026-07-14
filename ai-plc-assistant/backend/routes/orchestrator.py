@@ -14,15 +14,33 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from orchestrator.core import WorkflowResult, get_engine
 from orchestrator.registry import get_registry
+from security import require_local_session
+from safety.confirmation import ConfirmationError, ConfirmationService
+from orchestrator.safety_gate import get_safety_gate
 
 _logger = logging.getLogger(__name__)
 
 router = APIRouter()
+confirmation_service = ConfirmationService()
+_CONFIRMABLE_DEVICE_PREFIXES = ("s7:", "modbus:", "melsec:", "opcua:")
+_CLIENT_WORKFLOW_TOOL_ALLOWLIST = frozenset({
+    "plc-mcp-bridge.s7_read",
+    "plc-mcp-bridge.s7_status",
+    "opcua-mcp.opcua_read",
+    "opcua-mcp.opcua_browse",
+    "opcua-mcp.opcua_get_status",
+    "modbus-mcp.read_coil",
+    "modbus-mcp.read_register",
+    "modbus-mcp.read_discrete_input",
+    "mitsubishi-mcp.read_device",
+    "mitsubishi-mcp.read_devices",
+    "robot-mcp.get_status",
+})
 
 # 工具调用计数器（模块级，进程内有效）
 _tool_call_counts: dict[str, int] = {}
@@ -106,6 +124,14 @@ class AdhocRunRequest(BaseModel):
     input: dict[str, Any] = {}
 
 
+class ConfirmationRequest(BaseModel):
+    operator: str
+    target: str
+    value: Any
+    device_id: str
+    ttl_seconds: int = 60
+
+
 class DynamicWorkflowItem(BaseModel):
     name: str
     steps: int
@@ -125,6 +151,28 @@ class DynamicWorkflowDetailResponse(BaseModel):
 # ============================================================================
 
 _start_time: float = time.time()
+
+
+def _with_authenticated_operator(input_data: dict[str, Any], actor: str) -> dict[str, Any]:
+    """服务端覆盖客户端自报身份，只向编排层传入已认证会话主体。"""
+    sanitized = dict(input_data)
+    sanitized["authenticated_operator"] = actor
+    return sanitized
+
+
+def _validate_client_steps(steps: list[dict[str, Any]]) -> None:
+    """只允许客户端定义明确列出的只读工具，拒绝任意 MCP 工具名。"""
+    if not steps or len(steps) > 20:
+        raise HTTPException(status_code=422, detail="工作流步骤数必须在 1 到 20 之间")
+    for step in steps:
+        server = step.get("server")
+        tool = step.get("tool")
+        params = step.get("params", {})
+        if not isinstance(server, str) or not isinstance(tool, str) or not isinstance(params, dict):
+            raise HTTPException(status_code=422, detail="工作流步骤格式无效")
+        tool_full_name = f"{server}.{tool}"
+        if tool_full_name not in _CLIENT_WORKFLOW_TOOL_ALLOWLIST:
+            raise HTTPException(status_code=403, detail=f"工具不在客户端工作流白名单中: {tool_full_name}")
 
 
 def _serialize_workflow_result(result: WorkflowResult) -> WorkflowResultResponse:
@@ -172,13 +220,13 @@ async def list_workflows() -> WorkflowListResponse:
 
 
 @router.post("/workflows/{name}/run", response_model=WorkflowResultResponse)
-async def run_workflow(name: str, body: RunWorkflowRequest) -> WorkflowResultResponse:
+async def run_workflow(name: str, body: RunWorkflowRequest, actor: str = Depends(require_local_session)) -> WorkflowResultResponse:
     """执行指定工作流"""
     engine = get_engine()
     if name not in engine.list_workflows():
         raise HTTPException(status_code=404, detail=f"未找到工作流: {name}")
 
-    result = await engine.run_async(name, input=body.input)
+    result = await engine.run_async(name, input=_with_authenticated_operator(body.input, actor))
 
     # 记录工具调用
     for step in result.steps:
@@ -261,15 +309,16 @@ async def get_dynamic_workflow(name: str) -> DynamicWorkflowDetailResponse:
 
 
 @router.post("/workflows/dynamic")
-async def save_dynamic_workflow(body: DynamicWorkflowCreate) -> dict[str, str]:
+async def save_dynamic_workflow(body: DynamicWorkflowCreate, _: None = Depends(require_local_session)) -> dict[str, str]:
     """创建或更新动态工作流"""
+    _validate_client_steps(body.steps)
     engine = get_engine()
     engine.save_dynamic_workflow(body.name, body.steps)
     return {"status": "ok", "name": body.name}
 
 
 @router.delete("/workflows/dynamic/{name}")
-async def delete_dynamic_workflow(name: str) -> dict[str, str]:
+async def delete_dynamic_workflow(name: str, _: None = Depends(require_local_session)) -> dict[str, str]:
     """删除动态工作流"""
     engine = get_engine()
     if not engine.delete_dynamic_workflow(name):
@@ -278,10 +327,46 @@ async def delete_dynamic_workflow(name: str) -> dict[str, str]:
 
 
 @router.post("/workflows/adhoc", response_model=WorkflowResultResponse)
-async def run_adhoc(body: AdhocRunRequest) -> WorkflowResultResponse:
+async def run_adhoc(body: AdhocRunRequest, actor: str = Depends(require_local_session)) -> WorkflowResultResponse:
     """执行临时工作流（不保存）"""
+    _validate_client_steps(body.steps)
     engine = get_engine()
-    result = await engine.run_adhoc(body.steps, input=body.input)
+    result = await engine.run_adhoc(body.steps, input=_with_authenticated_operator(body.input, actor))
     for step in result.steps:
         _record_tool_call(step.tool)
     return _serialize_workflow_result(result)
+
+
+@router.post("/confirmations")
+async def issue_confirmation(
+    body: ConfirmationRequest,
+    actor: str = Depends(require_local_session),
+) -> dict[str, str]:
+    """由已鉴权的本地人工会话签发一次性写入确认令牌。"""
+    if not body.operator or body.operator in {"human", "local-human", "local-session"}:
+        raise HTTPException(status_code=422, detail="确认令牌必须绑定非人工操作者")
+    if not body.target or not body.device_id.startswith(_CONFIRMABLE_DEVICE_PREFIXES):
+        raise HTTPException(status_code=422, detail="确认令牌目标或设备身份无效")
+    if not 1 <= body.ttl_seconds <= 300:
+        raise HTTPException(status_code=422, detail="确认令牌有效期必须在 1 到 300 秒之间")
+
+    result = get_safety_gate().check_write(body.target, body.value, operator=body.operator)
+    if not result.allowed:
+        raise HTTPException(status_code=409, detail=f"安全检查拒绝: {result.reason}")
+    if not result.needs_confirmation:
+        raise HTTPException(status_code=422, detail="该写入不需要人工确认，不能签发令牌")
+    if not result.audit_id:
+        raise HTTPException(status_code=503, detail="确认审计记录不可用，拒绝签发令牌")
+    try:
+        token = confirmation_service.issue(
+            operator=body.operator,
+            approver=actor,
+            target=body.target,
+            value=body.value,
+            device_id=body.device_id,
+            audit_id=result.audit_id,
+            ttl_seconds=body.ttl_seconds,
+        )
+    except ConfirmationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"confirmation_token": token, "audit_id": result.audit_id}

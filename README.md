@@ -7,6 +7,8 @@
 
 **版本：** TIA Portal V21 / PLCSIM Advanced V8.0
 
+> **当前状态说明（2026-07-13）**：本仓库尚未在本次整改中完成真实 TIA、PLCSIM、PLC 或 Factory I/O 动态验收。所有控制目标必须由 `mcp-servers/tia-mcp/config.yaml` 的 `target` 节校验为 V21、`demo_V21.ap21`、`factoryio`、`192.168.0.110`；下方历史描述不能替代代码、配置和离线测试证据。
+
 ---
 
 ## AI PLC Assistant（桌面应用）
@@ -21,7 +23,18 @@
 
 ---
 
-## 📦 实际项目结构
+## 当前可验证入口
+
+| 入口 | 边界 |
+|---|---|
+| `D:/Python3/python.exe -m pytest` | 默认离线测试；不包含硬件、桌面或网络标记。 |
+| `D:/Python3/python.exe scripts/preflight.py --json` | 只读环境检查，不证明下载成功或 PLC 可读。 |
+| `start.bat` | 启动后端；其内嵌 orchestrator 是 MCP stdio 子进程的唯一生命周期所有者。 |
+| `D:/Python3/python.exe scripts/p3_flow.py` | 可能改变仿真环境；仅在隔离目标和人工确认后使用。 |
+
+## 历史结构草图（非命令来源）
+
+> 本节保留为历史索引，部分文件名和完成度已过期；不存在的文件不能按此创建或执行。
 
 ```
 ai-plc-integration/
@@ -57,14 +70,13 @@ ai-plc-integration/
 ├── tools/                          # 诊断工具（IO 标签诊断）
 ├── tests/                          # 测试套件（pytest）
 ├── 环境/                           # 仿真环境（Python venv）
-├── p3_flow.py                      # ⭐ P3 端到端：编译 + 下载 + FIO（TCP/IP）
-├── plc-mcp-bridge/                 # ⭐ MCP 桥接服务器（59 工具，模块化架构）
+├── scripts/p3_flow.py              # P3 编排脚本（隔离目标下人工使用）
+├── mcp-servers/plc-mcp-bridge/     # MCP 桥接服务器
 ├── docker-compose.yml              # InfluxDB + OpenPLC + Grafana
 ├── Makefile                        # 常用命令
 ├── .env                            # 环境变量（DEEPSEEK_API_KEY, TIA 路径等）
-├── AGENTS.md                       # Agent 指令（补充 OpenCode.md）
+├── AGENTS.md                       # Agent 指令
 ├── claude.md                       # 项目总纲
-└── OpenCode.md                     # 完整项目规则
 ```
 
 ## 🚀 快速开始
@@ -94,25 +106,18 @@ cp .env.example .env
 # 3. 安装依赖
 pip install -r requirements.txt
 
-# 4. 启动 PLC MCP Bridge（Claude Code 插件模式）
-cd mcp-servers/plc-mcp-bridge
-python server.py
+# 4. 启动本地服务（backend 内嵌 orchestrator 独占管理 stdio MCP 子进程）
+start.bat
 ```
 
-### PLCSIM 全自动化
+### 历史 PLCSIM 示例（禁止直接执行）
 
 ```python
 from plcsim_api import restore_instance
 
 # 从黄金备份恢复（无需 TIA Portal GUI）
-instance = restore_instance(
-    name="factoryio",
-    golden_zip="D:\\backup\\factory_io1_golden.zip",
-    storage_path="D:\\persist\\factoryio",
-    ip="192.168.0.1",
-    interface="tcpip",   # TCP/IP 模式（Factory I/O 要求）
-)
-# 实例已 RUN ✅
+# 历史示例已移除：旧的 IP/实例状态不能作为当前目标或已验收结论。
+# 下载、恢复和 RUN 状态均需独立的隔离验收与回读证据。
 ```
 
 ### MCP 工具调用（通过 Claude Code）
@@ -124,11 +129,11 @@ PLC MCP Bridge 已作为 Claude Code 插件安装，AI 可直接调用 59 个工
 - `plc_run_pipeline` — 端到端流水线
 - `s7_read` / `s7_write` — 实时读写 PLC 变量
 
-### 端到端下载
+### 端到端下载（受控、非默认）
 
 ```bash
-python p3_flow.py                 # 完整流程：PLCSIM → 编译 → 下载 → FIO
-python p3_flow.py --download-only # 仅编译 + 下载
+D:/Python3/python.exe scripts/p3_flow.py                 # 可能恢复、下载、启动仿真
+D:/Python3/python.exe scripts/p3_flow.py --download-only # 仍可能下载；需人工确认
 ```
 
 ### 清理残留实例
@@ -137,7 +142,7 @@ python p3_flow.py --download-only # 仅编译 + 下载
 python plcsim_api.py purge factoryio   # 强制清理残留实例数据
 ```
 
-## 📊 当前进度
+## 📊 历史进度快照（非当前验收结论）
 
 | 阶段 | 内容 | 状态 |
 |------|------|:----:|
@@ -199,7 +204,7 @@ TIA Portal 项目 → 编译 → PLCSIM 仿真 → Factory I/O 可视化
 
 - **TCP/IP 模式**: 需先安装 PLCSIM 虚拟网卡（VirtualSwitchMisconfigured）
 - **ConveyorControl FB501**: 已在 TIA 项目中但未在 OB1 中调用
-- **`start_all.py`** 中实例名 `factory io1` 与 Factory I/O 要求的 `factoryio` 不同
+- `start_all.py` 不存在；请使用“当前可验证入口”而非历史脚本名
 - **CartGen**: 不支持并联分支（parallelElements），自保持用 Set/Reset 模式
 - **三菱 MCP**: 无硬件测试环境
 - **Pick & Place (Basic)**: 机械臂 I/O 时序需根据实际场景微调（延迟等待时间）

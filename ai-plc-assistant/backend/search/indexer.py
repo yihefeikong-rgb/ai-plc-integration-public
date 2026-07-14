@@ -61,7 +61,7 @@ class SearchIndex:
 
     # ---- Indexing ----
 
-    def index_projects(self, project_dirs: List[str], progress=None) -> dict:
+    def index_projects(self, project_dirs: List[str], progress=None, *, allowed_root: str | None = None) -> dict:
         """扫描并索引多个项目目录
 
         Args:
@@ -71,7 +71,7 @@ class SearchIndex:
         Returns:
             {"files_scanned": int, "entries_indexed": int, "projects": int}
         """
-        files = scan_projects(project_dirs)
+        files = scan_projects(project_dirs, allowed_root=allowed_root)
 
         total = len(files)
         indexed = 0
@@ -264,8 +264,10 @@ class SearchIndex:
 
     def clear(self):
         """清空索引"""
+        # entries_fts 使用 external-content 表；普通 DELETE 只会清空影子内容，
+        # 不会移除倒排词项，导致 total 与实际结果不一致。
+        self.conn.execute("INSERT INTO entries_fts(entries_fts) VALUES('delete-all')")
         self.conn.execute("DELETE FROM entries")
-        self.conn.execute("DELETE FROM entries_fts")
         self.conn.commit()
 
     def close(self):

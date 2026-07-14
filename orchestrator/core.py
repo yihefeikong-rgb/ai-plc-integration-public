@@ -12,21 +12,27 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from orchestrator.mcp_client import ToolResult
 from orchestrator.registry import Registry, get_registry
 
 _logger = logging.getLogger(__name__)
 
-# 写入工具名模式 — 匹配这些关键词的工具名被视为写入操作
-WRITE_TOOL_PATTERNS = [
-    "write",    # s7_write, write_tag, plc_write
-    "apply",    # plc_apply, apply_config
-    "download", # plc_download_project, download_to_plcsim
-    "compile",  # plc_compile_project, plc_compile_block
-    "create",   # plc_create_block, plc_create_db, plc_create_tag_table
-    "delete",   # plc_delete_block, plc_delete_tag
-    "import",   # plc_import_block
-    "restore",  # plc_golden_restore
-]
+# 只有最终变量写入工具会走运行态 SafetyGate。TIA 工程变更、下载等操作
+# 由各自的目标身份、审计和幂等性控制处理，不能用原始地址联锁代替。
+FINAL_WRITE_TOOLS = frozenset({
+    "plc-mcp-bridge.s7_write",
+    "opcua-mcp.opcua_write",
+    "modbus-mcp.write_coil",
+    "modbus-mcp.write_register",
+    "mitsubishi-mcp.write_device",
+})
+
+# 除最终变量写入外，工程导入、删除、下载等同样会改变受控系统状态。
+# 这里仅用于审计 fail-closed，不把工程对象误送入运行态变量安全门。
+CONTROL_OPERATION_MARKERS = (
+    "write", "download", "import", "delete", "create", "compile",
+    "save", "archive", "plc_apply", "go_online", "go_offline", "reset",
+)
 
 
 @dataclass
@@ -73,14 +79,75 @@ class WorkflowContext:
 
     @staticmethod
     def _is_write_tool(tool_full_name: str) -> bool:
-        """检查工具名是否匹配写入操作模式。
+        """仅识别具有最终变量写入能力的显式工具。"""
+        return tool_full_name.lower() in FINAL_WRITE_TOOLS
 
-        通过工具全名（含 server_name.tool_name）匹配写入关键词。
-        示例: "plc-mcp-bridge.s7_write" → True
-              "plc-mcp-bridge.s7_read" → False
-        """
-        name_lower = tool_full_name.lower()
-        return any(pattern in name_lower for pattern in WRITE_TOOL_PATTERNS)
+    @staticmethod
+    def _is_control_tool(tool_full_name: str) -> bool:
+        """识别会改变 PLC、TIA 工程或连接状态的工具。"""
+        normalized = tool_full_name.lower()
+        return normalized in FINAL_WRITE_TOOLS or any(
+            marker in normalized for marker in CONTROL_OPERATION_MARKERS
+        )
+
+    def _authenticated_actor(self) -> str:
+        """只使用 API 鉴权层注入的操作者标识，绝不信任工具请求自报的 operator。"""
+        actor = self.input.get("authenticated_operator", "")
+        return actor.strip() if isinstance(actor, str) else ""
+
+    @staticmethod
+    def _audit_target(tool_full_name: str, arguments: dict[str, Any]) -> str:
+        return str(arguments.get(
+            "tag_name",
+            arguments.get("address", arguments.get("block_name", tool_full_name)),
+        ))
+
+    def _audit_control_intent(
+        self,
+        tool_full_name: str,
+        arguments: dict[str, Any],
+    ) -> None:
+        """在控制动作抵达 MCP 前写入可审计意图；失败时必须阻断。"""
+        if not self._is_control_tool(tool_full_name):
+            return
+        from mcp_common.audit import get_audit_logger
+
+        audit = get_audit_logger()
+        actor = self._authenticated_actor()
+        audit.begin_control_operation(
+            tool_full_name,
+            self._audit_target(tool_full_name, arguments),
+            actor,
+            arguments,
+        )
+
+    @staticmethod
+    def _unwrap_tool_result(result: Any) -> Any:
+        """拒绝失败的 MCP 结果，避免错误内容被记录为成功步骤。"""
+        if isinstance(result, ToolResult):
+            if not result.ok:
+                raise RuntimeError(f"MCP {result.kind}: {result.error}")
+            return result.data
+
+        # 兼容仅用于单元测试的旧 mock，但仍拒绝常见的显式失败载荷。
+        if isinstance(result, dict):
+            error = result.get("error")
+            if error not in (None, "", False, 0, [], {}):
+                raise RuntimeError(str(result.get("message") or error))
+            if result.get("ok") is False or result.get("success") is False:
+                raise RuntimeError(str(result.get("message") or result.get("reason") or "工具报告执行失败"))
+            if str(result.get("status", "")).lower() in {"error", "failed", "fail", "rejected"}:
+                raise RuntimeError(str(result.get("message") or result.get("reason") or result.get("status")))
+            if not result:
+                raise RuntimeError("工具返回空对象，无法确认成功")
+        elif result is None or (isinstance(result, str) and not result.strip()):
+            raise RuntimeError("工具返回为空，无法确认成功")
+        elif isinstance(result, str) and (
+            result.startswith("!") or any(marker in result for marker in ("❌", "🚫", "失败", "错误", "被拒绝"))
+        ):
+            raise RuntimeError(result)
+
+        return result
 
     def call(self, tool_full_name: str, **kwargs) -> dict[str, Any]:
         """调用 MCP 工具（同步接口）。
@@ -140,8 +207,11 @@ class WorkflowContext:
                 if self._is_write_tool(tool_full_name):
                     self._check_safety_gate(tool_full_name, kwargs)
 
+                self._audit_control_intent(tool_full_name, kwargs)
+
                 server_name, tool_name = parts
                 result = self._call_mcp_sync(server_name, tool_name, kwargs)
+                result = self._unwrap_tool_result(result)
 
                 # 审计日志: 记录 MCP 工具调用
                 self._audit_tool_call(tool_full_name, kwargs, result)
@@ -152,6 +222,8 @@ class WorkflowContext:
                     f"工具 {tool_full_name} 没有 mock 实现，也没有 MCP 连接池。"
                     f"请在运行引擎时注册 mock 工具，或提供 MCP 连接池。"
                 )
+
+            result = self._unwrap_tool_result(result)
 
             elapsed = (time.time() - start) * 1000
 
@@ -189,11 +261,10 @@ class WorkflowContext:
         """
         gate = self._safety_gate
         if gate is None:
-            _logger.warning(
-                f"写入工具 {tool_full_name} 在 MCP 模式下被调用，"
-                f"但未配置 SafetyGate。建议在引擎上调用 engine.set_safety_gate()。"
+            raise RuntimeError(
+                f"安全门未配置，拒绝写入工具 {tool_full_name}。"
+                "请先在引擎上调用 engine.set_safety_gate()。"
             )
-            return
 
         tag_name = arguments.get(
             "tag_name",
@@ -204,36 +275,38 @@ class WorkflowContext:
 
         if not result.allowed:
             raise RuntimeError(f"安全检查拒绝 [{tool_full_name}]: {result.reason}")
+        if result.needs_confirmation:
+            token = arguments.get("confirmation_token")
+            if not isinstance(token, str) or not token.strip():
+                raise RuntimeError(
+                    f"安全检查需要人工确认 [{tool_full_name}]: {result.reason}"
+                )
+            # 令牌必须由最终 MCP 写入工具进行精确校验并原子消费；核心层
+            # 仅确保未经确认的工作流不会抵达最终写入边界。
 
     def _audit_tool_call(
         self,
         tool_full_name: str,
         arguments: dict[str, Any],
-        result: dict[str, Any],
+        result: Any,
     ) -> None:
-        """记录 MCP 工具调用的审计日志。
+        """记录 MCP 工具结果；控制工具的审计失败不得被静默吞掉。"""
+        from mcp_common.audit import get_audit_logger
 
-        通过安全模块的 audit 日志记录器记录每次 MCP 工具调用。
-        失败时不抛出异常，避免影响主流程。
-        """
+        is_control = self._is_control_tool(tool_full_name)
         try:
-            from safety.audit import audit
-
-            tag_name = arguments.get(
-                "tag_name",
-                arguments.get("address", tool_full_name),
-            )
-            value = str(arguments.get("value", arguments.get("data", "")))
-            detail = f"tool={tool_full_name} args={arguments} result={result}"
-
-            audit.log(
-                "mcp_tool_call",
-                str(tag_name),
-                value,
-                operator="ai",
-                detail=detail,
+            audit = get_audit_logger()
+            audit.log_operation(
+                "mcp_tool_result",
+                actor=self._authenticated_actor(),
+                tool=tool_full_name,
+                target=self._audit_target(tool_full_name, arguments),
+                params=arguments,
+                result=result,
             )
         except Exception:
+            if is_control:
+                raise
             _logger.debug("审计日志记录失败", exc_info=True)
 
     def _call_mcp_sync(
@@ -306,8 +379,11 @@ class WorkflowContext:
                 if self._is_write_tool(tool_full_name):
                     self._check_safety_gate(tool_full_name, kwargs)
 
+                self._audit_control_intent(tool_full_name, kwargs)
+
                 server_name, tool_name = parts
                 result = await self._pool.call_tool(server_name, tool_name, kwargs)
+                result = self._unwrap_tool_result(result)
 
                 # 审计日志
                 self._audit_tool_call(tool_full_name, kwargs, result)
@@ -317,6 +393,8 @@ class WorkflowContext:
                 raise RuntimeError(
                     f"工具 {tool_full_name} 没有 mock 实现，也没有 MCP 连接池。"
                 )
+
+            result = self._unwrap_tool_result(result)
 
             elapsed = (time.time() - start) * 1000
 
@@ -573,6 +651,8 @@ class OrchestratorEngine:
 
         try:
             output = wf_fn(context)
+            # 工作流可能在未抛异常时显式返回失败载荷；此类结果不能被误记为成功。
+            WorkflowContext._unwrap_tool_result(output)
             elapsed = (time.time() - start) * 1000
 
             # 检查所有步骤是否成功
@@ -636,10 +716,12 @@ class OrchestratorEngine:
 
         try:
             # 异步执行工作流函数
-            result = wf_fn(context)
+            output = wf_fn(context)
             # 如果工作流返回了协程，await 它
-            if asyncio.iscoroutine(result):
-                await result
+            if asyncio.iscoroutine(output):
+                output = await output
+            # 与同步入口一致：显式失败载荷必须使工作流失败关闭。
+            WorkflowContext._unwrap_tool_result(output)
 
             elapsed = (time.time() - start) * 1000
 

@@ -1,8 +1,9 @@
-"""AI PLC Assistant — 测试配置与共享 fixtures"""
-import sys
+"""AI PLC Assistant — 测试配置与共享 fixtures。"""
 import json
-import tempfile
+import os
 import shutil
+import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import patch, AsyncMock
 
@@ -14,11 +15,34 @@ BACKEND_DIR = Path(__file__).parent.parent  # ai-plc-assistant/backend
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+# ── 测试进程级隔离 ──────────────────────────────────────────
+# 必须在导入 main 前设置。main 会创建全局存储单例；若先导入，测试清理
+# 可能碰到开发者的 data/ 目录或真实凭据。
+_TEST_DATA_ROOT = Path(tempfile.mkdtemp(prefix="ai_plc_test_"))
+_TEST_PROJECT_DIR = _TEST_DATA_ROOT / "projects"
+_TEST_PROJECT_DIR.mkdir(parents=True, exist_ok=True)
+os.environ.update({
+    "AI_PLC_OFFLINE_TESTING": "1",
+    "VECTOR_DB_PATH": str(_TEST_DATA_ROOT / "vector_db"),
+    "CONVERSATIONS_DB": str(_TEST_DATA_ROOT / "conversations.db"),
+    "PROJECT_SEARCH_DB": str(_TEST_DATA_ROOT / "search_index.db"),
+    "APP_SETTINGS_PATH": str(_TEST_DATA_ROOT / "settings.json"),
+    "PROJECT_DIR": str(_TEST_PROJECT_DIR),
+    "PROMPTS_FILE": str(_TEST_DATA_ROOT / "prompts.json"),
+    "AI_PLC_LOG_DIR": str(_TEST_DATA_ROOT / "logs"),
+    "EMBEDDING_MODEL": "offline-test",
+    "LOCAL_API_TOKEN": "test-local-api-token",
+    # 覆盖可能由开发环境 .env 提供的真实凭据，测试绝不迁移或读取它们。
+    "OPENAI_API_KEY": "",
+    "CLAUDE_API_KEY": "",
+    "KIMI_API_KEY": "",
+    "DEEPSEEK_API_KEY": "",
+    "OPENROUTER_API_KEY": "",
+    "CUSTOM_API_KEY": "",
+})
+
 # ── 一次性导入真实 app ──────────────────────────────────────
-# 必须在任何测试/清理之前导入，避免 pydantic 重新导入的兼容性问题
-# 注意：app 中的全局单例（knowledge_engine 等）会在 import 时创建
-# 它们使用相对路径，所以在 import 前要先 chdir
-import os
+# app 的全局单例已全部被上方环境变量重定向到系统临时目录。
 _orig_cwd = os.getcwd()
 os.chdir(str(BACKEND_DIR))
 from main import app as _real_app
@@ -32,10 +56,35 @@ os.chdir(str(_orig_cwd))
 # ── 临时数据目录 ────────────────────────────────────────────
 @pytest.fixture(scope="session")
 def tmp_data_dir():
-    """每个测试会话创建一次临时数据目录"""
-    tmp = tempfile.mkdtemp(prefix="ai_plc_test_")
-    yield Path(tmp)
-    shutil.rmtree(tmp, ignore_errors=True)
+    """返回当前测试会话的隔离数据根目录。"""
+    return _TEST_DATA_ROOT
+
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_data():
+    """测试结束后仅删除本进程创建的临时目录。"""
+    yield
+    shutil.rmtree(_TEST_DATA_ROOT, ignore_errors=True)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolate_keyring():
+    """用进程内凭据库替身，测试不访问用户的系统凭据。"""
+    credentials: dict[tuple[str, str], str] = {}
+
+    def get_password(service: str, username: str) -> str | None:
+        return credentials.get((service, username))
+
+    def set_password(service: str, username: str, password: str) -> None:
+        credentials[(service, username)] = password
+
+    def delete_password(service: str, username: str) -> None:
+        credentials.pop((service, username), None)
+
+    with patch("storage.app_settings.keyring.get_password", side_effect=get_password), \
+         patch("storage.app_settings.keyring.set_password", side_effect=set_password), \
+         patch("storage.app_settings.keyring.delete_password", side_effect=delete_password):
+        yield credentials
 
 
 # ── Mock 编排层 bootstrap/shutdown ──────────────────────────
@@ -128,6 +177,13 @@ def client():
         pass
 
     with TestClient(_real_app) as c:
+        # SearchIndex 是进程级单例；每个用例从同一份隔离索引开始。
+        try:
+            import main as _main_module
+            _main_module.search_engine.clear()
+        except Exception:
+            pass
+        c.headers.update({"X-Local-Api-Token": os.environ["LOCAL_API_TOKEN"]})
         yield c
 
 
@@ -160,25 +216,11 @@ def sample_prompts():
         },
     ]
 
-    prompts_dir = BACKEND_DIR / "data"
-    prompts_dir.mkdir(parents=True, exist_ok=True)
-    prompts_file = prompts_dir / "prompts.json"
-
-    # 备份原始文件
-    original = None
-    if prompts_file.exists():
-        original = prompts_file.read_text(encoding="utf-8")
-
+    prompts_file = Path(os.environ["PROMPTS_FILE"])
+    prompts_file.parent.mkdir(parents=True, exist_ok=True)
     prompts_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     yield data
-
-    # 恢复
-    if original:
-        prompts_file.write_text(original, encoding="utf-8")
-    elif prompts_file.exists():
-        current = prompts_file.read_text(encoding="utf-8")
-        if current == json.dumps(data, ensure_ascii=False, indent=2):
-            prompts_file.unlink(missing_ok=True)
+    prompts_file.unlink(missing_ok=True)
 
 
 # ── 测试用文件 fixtures ──────────────────────────────────

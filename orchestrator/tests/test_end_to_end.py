@@ -370,7 +370,8 @@ class TestRobotWorkflowEndToEnd:
         result = asyncio.run(
             engine.run_async("robot_pick_place", input={})
         )
-        assert result.ok is True  # 无异常，正常中止
+        assert result.ok is False
+        assert "急停已触发" in result.error
         assert len(result.steps) == 1
         assert result.steps[0].tool == "robot-mcp.get_status"
         # 不应执行后续步骤
@@ -389,7 +390,8 @@ class TestRobotWorkflowEndToEnd:
         result = asyncio.run(
             engine.run_async("robot_pick_place", input={})
         )
-        assert result.ok is True
+        assert result.ok is False
+        assert "急停已触发" in result.error
         assert len(result.steps) == 1
 
     def test_error_handling_get_status_fails(self):
@@ -526,6 +528,8 @@ class TestOrchestratorApiIntegration:
         import os as _os
         import sys as _sys
         _orig_cwd = _os.getcwd()
+        _previous_token = _os.environ.get("LOCAL_API_TOKEN")
+        _os.environ["LOCAL_API_TOKEN"] = "orchestrator-e2e-test-token"
         if str(BACKEND_DIR) not in _sys.path:
             _sys.path.insert(0, str(BACKEND_DIR))
 
@@ -537,10 +541,15 @@ class TestOrchestratorApiIntegration:
 
             # mock orchestrator bootstrap/shutdown
             with patch("main.bootstrap", AsyncMock(return_value=None)), \
-                 patch("main.orchestrator_shutdown", AsyncMock(return_value=None)):
+                patch("main.orchestrator_shutdown", AsyncMock(return_value=None)):
                 with TestClient(app) as client:
+                    client.headers.update({"X-Local-Api-Token": "orchestrator-e2e-test-token"})
                     yield client
         finally:
+            if _previous_token is None:
+                _os.environ.pop("LOCAL_API_TOKEN", None)
+            else:
+                _os.environ["LOCAL_API_TOKEN"] = _previous_token
             _os.chdir(str(_orig_cwd))
 
     def test_health_endpoint(self, test_app):

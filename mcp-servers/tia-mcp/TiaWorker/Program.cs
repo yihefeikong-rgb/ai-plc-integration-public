@@ -26,8 +26,8 @@ namespace TiaWorker
         private static bool IsDebugEnabled =>
             string.Equals(Environment.GetEnvironmentVariable("TIAWORKER_DEBUG"), "1", StringComparison.OrdinalIgnoreCase);
 
-        // 当前 TIA Portal 主版本，可通过 --tia-major-version 参数重写
-        private static string _tiaMajorVersion = "V18";
+        // 唯一受支持的隔离控制目标版本。命令行只能重复声明 V21，不能切换目标。
+        private static string _tiaMajorVersion = "V21";
 
         // TIA Portal 安装根目录，优先从环境变量 TIA_PORTAL_ROOT 读取
         private static string _tiaPortalRoot =>
@@ -74,7 +74,7 @@ namespace TiaWorker
 
         static int Main(string[] args)
         {
-            // 解析可选参数 --tia-major-version=V18 和 --dry-run
+            // 解析可选参数 --tia-major-version=V21 和 --dry-run
             var filteredArgs = new List<string>();
             for (int i = 0; i < args.Length; i++)
             {
@@ -101,7 +101,7 @@ namespace TiaWorker
                 }
                 else if (arg.Equals("--tia-major-version", StringComparison.OrdinalIgnoreCase))
                 {
-                    // --tia-major-version V18 格式（取下一个 arg 作为值）
+                    // --tia-major-version V21 格式（取下一个 arg 作为值）
                     if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
                     {
                         _tiaMajorVersion = args[i + 1];
@@ -117,9 +117,16 @@ namespace TiaWorker
             }
 
             args = filteredArgs.ToArray();
+            if (!string.Equals(_tiaMajorVersion, "V21", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(JsonError("TiaWorker 仅支持 V21；请使用 config.yaml 的唯一 target.tia_version"));
+                return 1;
+            }
+            _tiaMajorVersion = "V21";
+
             if (args.Length < 2)
             {
-                Console.WriteLine(JsonError("Usage: TiaWorker.exe [--tia-major-version=V18] [--dry-run] <command> <jsonFile>"));
+                Console.WriteLine(JsonError("Usage: TiaWorker.exe [--tia-major-version=V21] [--dry-run] <command> <jsonFile>"));
                 return 1;
             }
 
@@ -526,8 +533,6 @@ namespace TiaWorker
                                 pcInterface = iface;
                         }
                     }
-                    pcInterface ??= mode.PcInterfaces.Count > 0 ? mode.PcInterfaces[0] : null;
-
                     if (pcInterface == null)
                     {
                         Console.WriteLine(JsonOk(new
@@ -553,12 +558,6 @@ namespace TiaWorker
                             catch { }
                         }
                     }
-                    // 取第一个目标接口
-                    if (targetConfig == null && pcInterface.TargetInterfaces.Count > 0)
-                    {
-                        targetConfig = pcInterface.TargetInterfaces[0];
-                    }
-
                     if (targetConfig == null)
                     {
                         Console.WriteLine(JsonOk(new
@@ -613,6 +612,8 @@ namespace TiaWorker
                     Console.WriteLine(JsonOk(new
                     {
                         success,
+                        operationId = input.OperationId,
+                        deviceState = success ? "downloaded" : "not_downloaded",
                         state = result.State.ToString(),
                         errors = result.ErrorCount,
                         message = success
@@ -623,14 +624,10 @@ namespace TiaWorker
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(JsonOk(new
-                    {
-                        note = "auto",
-                        message = $"API 下载尝试需 GUI 确认: {ex.Message}",
-                        fallback = "请查看 TIA Portal GUI 窗口，确认下载对话框。",
-                        detail = ex.ToString()
-                    }));
-                    return 0;
+                    Console.WriteLine(JsonError(
+                        $"下载结果未知，禁止自动回退或重试；请只读对账后再决定: {ex.Message}"
+                    ));
+                    return 1;
                 }
             }
         }
@@ -701,8 +698,6 @@ namespace TiaWorker
                             pcInterface ??= iface;
                         }
                     }
-                    pcInterface ??= mode.PcInterfaces.Count > 0 ? mode.PcInterfaces[0] : null;
-
                     if (pcInterface == null)
                     {
                         Console.WriteLine(JsonOk(new { note = "no_interface", message = "未找到可用 PC 接口" }));
@@ -719,8 +714,6 @@ namespace TiaWorker
                             catch { }
                         }
                     }
-                    targetConfig ??= (pcInterface.TargetInterfaces.Count > 0 ? pcInterface.TargetInterfaces[0] : null);
-
                     if (targetConfig == null)
                     {
                         Console.WriteLine(JsonOk(new { note = "no_target", message = "未找到目标 PLC" }));
@@ -803,6 +796,8 @@ namespace TiaWorker
                         Console.WriteLine(JsonOk(new
                         {
                             success,
+                            operationId = input.OperationId,
+                            deviceState = success ? "downloaded" : "not_downloaded",
                             state = result.State.ToString(),
                             errors = result.ErrorCount,
                             message = success
@@ -813,15 +808,10 @@ namespace TiaWorker
                     }
                     catch (Exception ex)
                     {
-                        // GUI 模式下下载失败（可能是对话框需要确认）
-                        // 返回 0 + note=gui_confirm 触发下一个降级策略
-                        Console.WriteLine(JsonOk(new
-                        {
-                            note = "gui_confirm",
-                            message = $"下载需要 GUI 确认: {ex.Message}",
-                            fallback = "请检查 TIA Portal GUI 窗口，确认下载对话框。"
-                        }));
-                        return 0;
+                        Console.WriteLine(JsonError(
+                            $"GUI 下载结果未知，禁止自动回退或重试；请只读对账后再决定: {ex.Message}"
+                        ));
+                        return 1;
                     }
                 }
             }
@@ -3325,6 +3315,7 @@ namespace TiaWorker
         public string InterfaceName { get; set; }
         public string TargetIp { get; set; }
         public int TimeoutSec { get; set; }
+        public string OperationId { get; set; }
     }
 
     class CreateBlockInput : ProjectInput

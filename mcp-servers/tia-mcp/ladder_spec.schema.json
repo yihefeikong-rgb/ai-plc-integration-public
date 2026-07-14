@@ -90,7 +90,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["Bool", "Int", "Real", "Word", "DWord", "Time"],
+          "enum": ["Bool", "Int", "Real", "Word"],
           "description": "数据类型"
         },
         "comment": {
@@ -99,8 +99,8 @@
         },
         "address": {
           "type": "string",
-          "pattern": "^%[IQM][0-9.]+$",
-          "description": "物理地址，如 %I15.0 或 %Q10.2"
+          "pattern": "^%[IQM](?:(?:[BWD]\\d+)|(?:\\d+\\.\\d+))$",
+          "description": "物理地址，如 %I15.0、%Q10.2 或 %MW100"
         }
       }
     },
@@ -116,7 +116,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["Bool", "Int", "Real", "Word", "DWord", "Time"]
+          "enum": ["Bool", "Int", "Real", "Word"]
         },
         "comment": {
           "type": "string"
@@ -126,7 +126,7 @@
 
     "element": {
       "type": "object",
-      "required": ["type", "operand"],
+      "required": ["type"],
       "additionalProperties": false,
       "properties": {
         "type": {
@@ -154,10 +154,26 @@
         },
         "preset_time": {
           "type": "string",
-          "pattern": "^T#|^TIME#",
+          "pattern": "^(?:T#|TIME#)(?:\\d+(?:MS|US|NS|D|H|M|S))+$",
           "description": "预设时间，如 T#5S"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {"enum": ["timer_on_delay", "timer_off_delay"]}
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["timer_instance", "preset_time"]
+          },
+          "else": {
+            "required": ["operand"]
+          }
+        }
+      ]
     }
   }
 }

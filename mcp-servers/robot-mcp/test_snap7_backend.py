@@ -35,6 +35,7 @@ class MockS7Client:
     def __init__(self):
         self._connected = False
         self._input_bytes = bytearray(2)   # 2 bytes for inputs (%I0.0-I1.0)
+        self._input_bytes[1] = 0b00000001  # I1.0：急停安全回路默认健康
         self._output_bytes = bytearray(1)  # 1 byte for outputs (%Q0.0-Q0.7)
 
     def connect(self, ip, rack, slot):
@@ -100,7 +101,7 @@ def snap7_backend(monkeypatch):
 def snap7_estop_triggered(snap7_backend):
     """snap7 模式下急停已触发"""
     mock_client, backend = snap7_backend
-    mock_client.set_input_bit(1, 0, True)  # sensor_estop = I1.0 byte=1, bit=0
+    mock_client.set_input_bit(1, 0, False)  # sensor_estop = I1.0 byte=1, bit=0；FALSE=急停/故障
     return mock_client, backend
 
 
@@ -176,15 +177,15 @@ class TestSnap7Connect:
 class TestSnap7ReadInputs:
     """测试 snap7 读取输入（传感器的值来自 PLCSIM 输入区 0x81）"""
 
-    def test_read_input_default_false(self, snap7_backend):
-        """所有传感器默认值为 False"""
+    def test_read_input_default_values(self, snap7_backend):
+        """默认急停安全回路健康，其他传感器为 False。"""
         mock_client, backend = snap7_backend
         for name in IO_MAP:
             if name.startswith("sensor_"):
                 val = asyncio.get_event_loop().run_until_complete(
                     backend.read_io(name)
                 )
-                assert val is False, f"snap7 {name} 默认值为 False, got {val}"
+                assert val is (name == "sensor_estop"), f"snap7 {name} 默认值不符合安全回路契约, got {val}"
 
     def test_read_input_sensor_entry(self, snap7_backend):
         """读取 sensor_entry (I0.0, byte=0, bit=0)"""
@@ -315,22 +316,22 @@ class TestSnap7Write:
 class TestSnap7Estop:
     """测试急停检查在 snap7 模式下"""
 
-    def test_estop_default_false_snap7(self, snap7_backend):
-        """急停传感器默认 False"""
+    def test_estop_default_is_healthy_snap7(self, snap7_backend):
+        """急停安全回路默认健康。"""
         mock_client, backend = snap7_backend
         val = asyncio.get_event_loop().run_until_complete(
             backend.read_io("sensor_estop")
         )
-        assert val is False
+        assert val is True
 
     def test_estop_blocks_actuator_write(self, snap7_estop_triggered):
         """急停触发后，写入执行器应被阻止"""
         mock_client, backend = snap7_estop_triggered
-        # 确认急停是 True
+        # 确认 FALSE 表示急停/故障
         val = asyncio.get_event_loop().run_until_complete(
             backend.read_io("sensor_estop")
         )
-        assert val is True
+        assert val is False
 
         result = asyncio.get_event_loop().run_until_complete(
             backend.write_io("conveyor_entry", True)
@@ -403,14 +404,14 @@ class TestSnap7ReadAllInputs:
         assert inputs["sensor_estop"] is True
         assert inputs["sensor_reset"] is False
 
-    def test_read_all_inputs_default_all_false(self, snap7_backend):
-        """默认所有输入为 False"""
+    def test_read_all_inputs_default_values(self, snap7_backend):
+        """默认急停安全回路健康，其他输入为 False。"""
         mock_client, backend = snap7_backend
         inputs = asyncio.get_event_loop().run_until_complete(
             backend.read_all_inputs()
         )
         for name, val in inputs.items():
-            assert val is False, f"snap7 {name} 默认应为 False"
+            assert val is (name == "sensor_estop"), f"snap7 {name} 默认值不符合安全回路契约"
 
     def test_read_all_inputs_fallback_on_error(self, snap7_backend):
         """snap7 read_area(批量) 失败时回退到逐个 read_io"""
@@ -487,7 +488,7 @@ class TestSnap7Unavailable:
             backend.write_io("conveyor_entry", True)
         )
         assert result["status"] == "error"
-        assert "未连接" in result["error"]
+        assert "安全回路" in result["error"]
 
 
 # ── Backend Info Test ──────────────────────────────────────────────

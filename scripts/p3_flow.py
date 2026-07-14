@@ -22,25 +22,37 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 SCRIPT_DIR = Path(__file__).parent
-TIA_MCP_DIR = SCRIPT_DIR / "mcp-servers" / "tia-mcp"
+PROJECT_ROOT = SCRIPT_DIR.parent
+TIA_MCP_DIR = PROJECT_ROOT / "mcp-servers" / "tia-mcp"
 
 # ── 配置（从 config_loader 获取，消灭硬编码） ──
 sys.path.insert(0, str(TIA_MCP_DIR))
 from config_loader import cfg
+from config_loader import TargetConfigurationError, validate_control_target
 
-PROJECT_PATH = cfg.tia.project_path
-PLC_IP = cfg.simulation.advanced.plc_ip
-FIO_EXE = cfg.factory_io.exe_path
-PLCSIM_INSTANCE = cfg.factory_io.plcsim_instance
-
-# Golden backup 路径
-GOLDEN_ZIP = os.path.join(os.path.dirname(PROJECT_PATH), 'factory_io1_golden.zip')
-STORAGE_PATH = os.path.join(os.path.dirname(PROJECT_PATH), 'plcsim_storage')
+PROJECT_PATH = ""
+PLC_IP = ""
+FIO_EXE = ""
+PLCSIM_INSTANCE = ""
+GOLDEN_ZIP = ""
+STORAGE_PATH = ""
 
 # TiaWorker 路径
 TIAWORKER_EXE = str(TIA_MCP_DIR / "bin" / "TiaWorker.exe")
 
 GREEN='\033[92m'; YELLOW='\033[93m'; RED='\033[91m'; BLUE='\033[94m'; RESET='\033[0m'
+
+
+def _load_target_configuration() -> None:
+    """只从唯一 target 配置加载 P3 的项目、实例和隔离 IP。"""
+    global PROJECT_PATH, PLC_IP, FIO_EXE, PLCSIM_INSTANCE, GOLDEN_ZIP, STORAGE_PATH
+    target = validate_control_target()
+    PROJECT_PATH = str(target.project_path)
+    PLC_IP = target.plc_ip
+    PLCSIM_INSTANCE = target.plcsim_instance
+    FIO_EXE = cfg.factory_io.exe_path
+    GOLDEN_ZIP = cfg.simulation.golden_backup.zip_path
+    STORAGE_PATH = cfg.simulation.golden_backup.storage_path
 
 def log(msg, l="info"):
     e={"ok":"✅","warn":"🟡","error":"❌","info":"📋","step":"▶","wait":"⏳"}.get(l,"•")
@@ -237,6 +249,12 @@ drivers.siemens_s7plcsim.connection_timeout = 60
 #  Main
 # ═══════════════════════════════════════
 def main():
+    try:
+        _load_target_configuration()
+    except TargetConfigurationError as exc:
+        log(f"控制目标配置无效，拒绝执行: {exc}", "error")
+        return 1
+
     print(f"\n{'='*56}\n  P3 端到端闭环（纯编排器模式）\n{'='*56}\n")
     print(f"  项目: {os.path.basename(PROJECT_PATH)}")
     print(f"  PLCSIM: {PLCSIM_INSTANCE} @ {PLC_IP}")

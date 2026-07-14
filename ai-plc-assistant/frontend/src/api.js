@@ -2,12 +2,20 @@
 
 // Dev 模式走 Vite proxy（绕过系统代理），Prod 模式直连后端
 export const API_BASE = import.meta.env.DEV ? '/api' : 'http://127.0.0.1:8005/api'
+const LOCAL_API_TOKEN = import.meta.env.VITE_LOCAL_API_TOKEN
+
+export function localControlHeaders() {
+  return LOCAL_API_TOKEN ? { 'X-Local-Api-Token': LOCAL_API_TOKEN } : {}
+}
 
 async function request(path, options = {}) {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const headers = { ...localControlHeaders(), ...options.headers }
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+  if (!isFormData && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
+    headers,
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -26,9 +34,7 @@ export const deleteProject = (id) => request(`/projects/${id}`, { method: 'DELET
 export async function importProject(file) {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch(`${API_BASE}/projects/import`, { method: 'POST', body: formData })
-  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || `HTTP ${res.status}`) }
-  return res.json()
+  return request('/projects/import', { method: 'POST', body: formData })
 }
 
 // ---- 对话管理 ----
@@ -49,14 +55,12 @@ export const addMessage = (convId, role, content, msg_type = 'text', metadata = 
 export async function uploadDocument(file) {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch(`${API_BASE}/knowledge/import`, { method: 'POST', body: formData })
-  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || `HTTP ${res.status}`) }
-  return res.json()
+  return request('/knowledge/import', { method: 'POST', body: formData })
 }
 export const searchKnowledge = (query, limit = 5) => request(`/knowledge/search?q=${encodeURIComponent(query)}&limit=${limit}`)
 export const getKnowledgeStatus = () => request('/knowledge/status')
 export const listDocuments = () => request('/knowledge/documents')
-export const deleteDocument = (id) => fetch(`${API_BASE}/knowledge/documents/${id}`, { method: 'DELETE' }).then(r => r.json())
+export const deleteDocument = (id) => request(`/knowledge/documents/${id}`, { method: 'DELETE' })
 
 // ---- PLC 工程搜索 ----
 
@@ -67,33 +71,30 @@ export const searchProjects = (query, typeFilter = '', limit = 20) => {
 }
 export const getSearchStats = () => request('/search/stats')
 export const indexProjectDir = (directory = '') => {
-  let url = `${API_BASE}/search/index`
+  let url = '/search/index'
   if (directory) url += `?directory=${encodeURIComponent(directory)}`
-  return fetch(url, { method: 'POST' }).then(r => r.json())
+  return request(url, { method: 'POST' })
 }
 
 // ---- 梯形图生成 ----
 
 export const generateLadder = (input, variables = {}, templateId = '', modelId = 'deepseek') =>
-  fetch(`${API_BASE}/generate/ladder`, {
+  request('/generate/ladder', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ input, variables, template_id: templateId, model_id: modelId }),
-  }).then(r => r.json())
+  })
 
 export const generateSCL = (input) =>
-  fetch(`${API_BASE}/generate/ladder/scl`, {
+  request('/generate/ladder/scl', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ input }),
-  }).then(r => r.json())
+  })
 
 export const exportCode = (data) =>
-  fetch(`${API_BASE}/generate/export`, {
+  request('/generate/export', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
-  }).then(r => r.json())
+  })
 
 // ---- 全链路 Pipeline ----
 
@@ -133,7 +134,7 @@ export async function streamChat({ model_id = 'deepseek', messages = [], tempera
 
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...localControlHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal,
   })

@@ -17,8 +17,53 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 import sys
+from pathlib import Path
+
+
+BRIDGE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BRIDGE_DIR.parents[2]
+ALLOWED_CLAUDE_EXECUTABLES = frozenset({"claude", "claude.exe", "claude.cmd"})
+
+
+class RunnerCommandError(ValueError):
+    """执行命令不满足 Bridge 的受控 CLI 边界。"""
+
+
+def resolve_claude_command(raw_command: str) -> list[str]:
+    """只接受单个、可定位的 Claude CLI 可执行文件，拒绝附带参数。"""
+    try:
+        parts = shlex.split(raw_command, posix=False)
+    except ValueError as exc:
+        raise RunnerCommandError(f"CLAUDE_CODE_CMD 无法解析: {exc}") from exc
+
+    if len(parts) != 1 or not parts[0].strip():
+        raise RunnerCommandError("CLAUDE_CODE_CMD 只能指定一个 Claude CLI 可执行文件，不可包含参数")
+
+    candidate = parts[0].strip('"')
+    if Path(candidate).name.lower() not in ALLOWED_CLAUDE_EXECUTABLES:
+        raise RunnerCommandError("CLAUDE_CODE_CMD 必须是 claude、claude.exe 或 claude.cmd")
+
+    resolved = shutil.which(candidate)
+    if not resolved:
+        raise RunnerCommandError(f"找不到受控 Claude CLI: {candidate}")
+    if Path(resolved).name.lower() not in ALLOWED_CLAUDE_EXECUTABLES:
+        raise RunnerCommandError("解析后的 CLI 不在受控允许列表中")
+    return [resolved]
+
+
+def run_claude_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess:
+    """在固定项目根目录运行经 allowlist 验证过的 Claude CLI。"""
+    return subprocess.run(
+        argv,
+        input=prompt,
+        text=True,
+        shell=False,
+        cwd=str(PROJECT_ROOT),
+        timeout=3600,
+    )
 
 from runner_dry_run import (
     STATE_PATH,
@@ -133,9 +178,10 @@ def main() -> int:
                 print('  set CLAUDE_CODE_CMD=claude              # Windows cmd')
                 print('  $env:CLAUDE_CODE_CMD="claude"           # Windows PowerShell')
                 return 1
-            argv = shlex.split(cmd)
-            if not argv:
-                print(f"[runner_step] 错误: CLAUDE_CODE_CMD 解析后为空: '{cmd}'")
+            try:
+                argv = resolve_claude_command(cmd)
+            except RunnerCommandError as exc:
+                print(f"[runner_step] 错误: {exc}")
                 return 1
     elif stage in ("NEED_CODEX_PLAN", "NEED_CODEX_REVIEW"):
         cmd_source = "env CODEX_CMD（未设置，Phase 5 MVP 暂不支持 Codex CLI）"
@@ -175,13 +221,7 @@ def main() -> int:
     print(f"[runner_step] 正在执行: {argv}")
     print("=" * 62)
     try:
-        result = subprocess.run(
-            argv,
-            input=prompt,
-            text=True,
-            shell=False,
-            timeout=3600,
-        )
+        result = run_claude_cli(argv or [], prompt)
         print("=" * 62)
         if result.returncode == 0:
             print(f"[runner_step] CLI 执行完成 (exit code: {result.returncode})")

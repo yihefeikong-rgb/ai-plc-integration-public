@@ -21,6 +21,7 @@ const INITIAL_STATE = {
 }
 
 const MAX_LOGS = 50
+const LOCAL_API_TOKEN = import.meta.env.VITE_LOCAL_API_TOKEN
 
 function timestamp() {
   return new Date().toLocaleTimeString('zh-CN', { hour12: false })
@@ -55,10 +56,10 @@ export default function RobotPanel() {
     setRobot(prev => {
       const next = !prev.emergencyStop
       if (next) {
-        addLog('急停触发', '所有输出已关闭')
+        addLog('模拟急停触发', '仅重置本地模拟状态；不控制真实设备')
         return { ...INITIAL_STATE, emergencyStop: true, connected: prev.connected, backend: prev.backend }
       }
-      addLog('急停解除', '系统恢复正常')
+      addLog('模拟急停解除', '本地模拟状态已恢复')
       return { ...prev, emergencyStop: false }
     })
   }, [addLog])
@@ -130,7 +131,10 @@ export default function RobotPanel() {
     try {
       const res = await fetch(`${API_BASE}/orchestrator/workflows/robot_pick_place/run`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(LOCAL_API_TOKEN ? { 'X-Local-Api-Token': LOCAL_API_TOKEN } : {}),
+        },
         body: JSON.stringify({ input: {} }),
       })
       if (!res.ok) {
@@ -189,7 +193,7 @@ export default function RobotPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Factory size={18} className="text-accent" />
-          <h1 className="text-sm font-semibold text-text-bright">机器人控制</h1>
+          <h1 className="text-sm font-semibold text-text-bright">机器人模拟控制</h1>
         </div>
         <div className="flex items-center gap-2">
           {robot.connected

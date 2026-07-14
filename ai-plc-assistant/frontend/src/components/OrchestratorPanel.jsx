@@ -6,7 +6,7 @@ import {
   Search, Plus, Trash2, Save, GripVertical, X,
   Edit3, HelpCircle,
 } from 'lucide-react'
-import { API_BASE } from '../api'
+import { API_BASE, localControlHeaders } from '../api'
 
 // ================================================================
 // 中文映射
@@ -105,13 +105,13 @@ async function apiGet(path) {
 }
 
 async function apiPost(path, body) {
-  const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...localControlHeaders() }, body: JSON.stringify(body) })
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || `HTTP ${res.status}`) }
   return res.json()
 }
 
 async function apiDelete(path) {
-  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' })
+  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE', headers: localControlHeaders() })
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || `HTTP ${res.status}`) }
   return res.json()
 }
@@ -137,7 +137,7 @@ function StatCard({ icon: Icon, label, value, color }) {
 }
 
 function StepResultRow({ step, index }) {
-  const ok = step.ok !== false
+  const ok = step.ok === true
   return (
     <div className="flex items-center gap-2 py-1 text-xs">
       <span className="text-text-dim w-5 text-right shrink-0">{index + 1}.</span>
@@ -169,6 +169,7 @@ export default function OrchestratorPanel({ showTutorial = false, onCloseTutoria
   const [error, setError] = useState(null)
   const [runDialog, setRunDialog] = useState(null)
   const [localTutorial, setLocalTutorial] = useState(false)
+  const workflowSucceeded = lastResult?.ok === true && !lastResult?.error && (lastResult.steps || []).every(step => step.ok === true)
 
   // 工具搜索
   const [toolSearch, setToolSearch] = useState('')
@@ -594,13 +595,13 @@ export default function OrchestratorPanel({ showTutorial = false, onCloseTutoria
           {lastResult && (
             <div className="bg-ide-sidebar border border-ide-border rounded overflow-hidden mb-4">
               <div className="flex items-center gap-2 px-4 py-2.5 border-b border-ide-border">
-                {lastResult.error
-                  ? <XCircle size={14} className="text-status-error" />
-                  : <CheckCircle2 size={14} className="text-status-ok" />}
+                {workflowSucceeded
+                  ? <CheckCircle2 size={14} className="text-status-ok" />
+                  : <XCircle size={14} className="text-status-error" />}
                 <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">执行结果</span>
                 <span className="text-2xs text-text-dim ml-2 font-mono">{lastResult.workflow}</span>
-                <span className={`ml-auto text-2xs font-medium ${lastResult.error ? 'text-status-error' : 'text-status-ok'}`}>
-                  {lastResult.error ? '失败' : '成功'}
+                <span className={`ml-auto text-2xs font-medium ${workflowSucceeded ? 'text-status-ok' : 'text-status-error'}`}>
+                  {workflowSucceeded ? '成功' : '失败'}
                 </span>
               </div>
               <div className="px-4 py-2 max-h-[240px] overflow-y-auto">

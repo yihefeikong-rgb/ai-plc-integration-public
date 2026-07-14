@@ -16,7 +16,8 @@ from pymodbus.client import ModbusTcpClient
 from mcp_common.config import env_config
 from safety.validator import validator as safety_validator
 from safety.shadow_simulator import shadow_sim
-from mcp_common.audit import get_audit_logger
+from safety.confirmation import ConfirmationError, ConfirmationService
+from mcp_common.audit import authenticated_actor, get_audit_logger
 
 audit = get_audit_logger()
 
@@ -27,6 +28,7 @@ _client: ModbusTcpClient | None = None
 
 # ── 认证 ──
 _AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "")
+confirmation_service = ConfirmationService()
 
 
 def _require_auth(token: str):
@@ -43,6 +45,10 @@ def get_client() -> ModbusTcpClient:
         _client = ModbusTcpClient(host=settings.modbus_host, port=settings.modbus_port)
         _client.connect()
     return _client
+
+
+def _confirmation_device_id() -> str:
+    return f"modbus:{settings.modbus_host}:{settings.modbus_port}:unit-1"
 
 
 # ===== 阶段1：读取 =====
@@ -92,59 +98,119 @@ async def read_discrete_input(address: int, auth_token: str = "") -> dict:
 # ===== 阶段2：写入（带安全校验）=====
 
 @mcp.tool()
-async def write_coil(address: int, value: bool, operator: str = "ai-agent", auth_token: str = "") -> dict:
+async def write_coil(
+    address: int,
+    value: bool,
+    operator: str = "ai-agent",
+    auth_token: str = "",
+    confirmation_token: str = "",
+) -> dict:
     """写入线圈（%QX 输出）"""
     _require_auth(auth_token)
+    actor = authenticated_actor(auth_token, "modbus")
     tag = f"coil.{address}"
     result = safety_validator.validate(tag, value)
     if not result.allowed:
-        audit.log("write_blocked", tag, str(value), operator=operator,
+        audit.log("write_blocked", tag, str(value), operator=actor,
                   success=False, detail=result.reason)
         return {"address": address, "type": "coil", "status": "blocked", "reason": result.reason}
+    if result.needs_confirmation:
+        if not confirmation_token:
+            reason = f"需要人工确认: {result.reason}"
+            audit.log("write_blocked", tag, str(value), operator=actor,
+                      success=False, detail=reason)
+            return {"address": address, "type": "coil", "status": "blocked", "reason": reason}
+        try:
+            confirmation_service.consume(
+                confirmation_token,
+                operator=operator,
+                target=tag,
+                value=value,
+                device_id=_confirmation_device_id(),
+            )
+        except ConfirmationError as exc:
+            reason = str(exc)
+            audit.log("write_blocked", tag, str(value), operator=actor,
+                      success=False, detail=reason)
+            return {"address": address, "type": "coil", "status": "blocked", "reason": reason}
 
     sim_result = await shadow_sim.simulate_write(tag, value)
     if not sim_result.safe:
-        audit.log("shadow_rejected", tag, str(value), operator=operator,
+        audit.log("shadow_rejected", tag, str(value), operator=actor,
                   success=False, detail=sim_result.reason)
         return {"address": address, "type": "coil", "status": "blocked", "reason": sim_result.reason}
 
     try:
+        audit.begin_control_operation(
+            "modbus.write_coil", tag, actor,
+            {"address": address, "value": value, "unit_id": 1},
+        )
         c = get_client()
         r = c.write_coil(address, value, device_id=1)
         ok = not r.isError()
-        audit.log("write", tag, str(value), operator=operator, success=ok)
+        audit.log("write", tag, str(value), operator=actor, success=ok)
         return {"address": address, "type": "coil", "value": value, "status": "ok" if ok else "error"}
     except Exception as e:
-        audit.log("write", tag, str(value), operator=operator, success=False, detail=str(e))
+        audit.log("write", tag, str(value), operator=actor, success=False, detail=str(e))
         safety_validator.consecutive_errors += 1
         return {"address": address, "type": "coil", "status": "error", "error": str(e)}
 
 
 @mcp.tool()
-async def write_register(address: int, value: int, operator: str = "ai-agent", auth_token: str = "") -> dict:
+async def write_register(
+    address: int,
+    value: int,
+    operator: str = "ai-agent",
+    auth_token: str = "",
+    confirmation_token: str = "",
+) -> dict:
     """写入保持寄存器"""
     _require_auth(auth_token)
+    actor = authenticated_actor(auth_token, "modbus")
     tag = f"register.{address}"
     result = safety_validator.validate(tag, value)
     if not result.allowed:
-        audit.log("write_blocked", tag, str(value), operator=operator,
+        audit.log("write_blocked", tag, str(value), operator=actor,
                   success=False, detail=result.reason)
         return {"address": address, "type": "register", "status": "blocked", "reason": result.reason}
+    if result.needs_confirmation:
+        if not confirmation_token:
+            reason = f"需要人工确认: {result.reason}"
+            audit.log("write_blocked", tag, str(value), operator=actor,
+                      success=False, detail=reason)
+            return {"address": address, "type": "register", "status": "blocked", "reason": reason}
+        try:
+            confirmation_service.consume(
+                confirmation_token,
+                operator=operator,
+                target=tag,
+                value=value,
+                device_id=_confirmation_device_id(),
+            )
+        except ConfirmationError as exc:
+            reason = str(exc)
+            audit.log("write_blocked", tag, str(value), operator=actor,
+                      success=False, detail=reason)
+            return {"address": address, "type": "register", "status": "blocked", "reason": reason}
 
     sim_result = await shadow_sim.simulate_write(tag, value)
     if not sim_result.safe:
-        audit.log("shadow_rejected", tag, str(value), operator=operator,
+        audit.log("shadow_rejected", tag, str(value), operator=actor,
                   success=False, detail=sim_result.reason)
         return {"address": address, "type": "register", "status": "blocked", "reason": sim_result.reason}
 
     try:
+        audit.begin_control_operation(
+            "modbus.write_register", tag, actor,
+            {"address": address, "value": value, "unit_id": 1},
+        )
         c = get_client()
         r = c.write_register(address, value, device_id=1)
         ok = not r.isError()
-        audit.log("write", tag, str(value), operator=operator, success=ok)
+        audit.log("write", tag, str(value), operator=actor, success=ok)
         return {"address": address, "type": "register", "value": value, "status": "ok" if ok else "error"}
     except Exception as e:
-        audit.log("write", tag, str(value), operator=operator, success=False, detail=str(e))
+        audit.log("write", tag, str(value), operator=actor, success=False, detail=str(e))
         safety_validator.consecutive_errors += 1
         return {"address": address, "type": "register", "status": "error", "error": str(e)}
 

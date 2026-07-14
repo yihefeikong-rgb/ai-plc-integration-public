@@ -8,8 +8,8 @@ VAR
 END_VAR
 
 BEGIN
-    // Emergency stop monitoring
-    // When estop (I0.8) is pressed, force all outputs to OFF
+    // Emergency-stop safety circuit: I0.8 = TRUE means healthy; FALSE means active/fault.
+    // When I0.8 is FALSE, force all outputs to OFF.
     // In normal mode, do NOT write outputs - robot-mcp controls them directly
 
     IF NOT "I0_8" THEN

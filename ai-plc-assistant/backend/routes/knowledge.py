@@ -4,10 +4,11 @@ import os
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, Query, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException
 from pydantic import BaseModel
 
 from knowledge.engine import KnowledgeEngine
+from security import require_local_session
 
 router = APIRouter()
 
@@ -40,10 +41,15 @@ class StatsResponse(BaseModel):
 
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+UPLOAD_CHUNK_BYTES = 64 * 1024
+MAX_KNOWLEDGE_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 @router.post("/import", status_code=201)
-async def import_document(file: UploadFile = File(...)):
+async def import_document(
+    file: UploadFile = File(...),
+    _actor: str = Depends(require_local_session),
+):
     """导入文档到知识库（PDF / DOCX / TXT）"""
     if engine is None:
         raise HTTPException(status_code=503, detail="知识库引擎未初始化")
@@ -57,11 +63,16 @@ async def import_document(file: UploadFile = File(...)):
         )
 
     # 保存到临时文件
+    tmp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-            content = await file.read()
-            tmp.write(content)
             tmp_path = tmp.name
+            uploaded = 0
+            while chunk := await file.read(UPLOAD_CHUNK_BYTES):
+                uploaded += len(chunk)
+                if uploaded > MAX_KNOWLEDGE_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="上传文件超过大小上限")
+                tmp.write(chunk)
 
         # 索引（传入原始文件名，避免显示 tmp_xxx）
         original_name = Path(file.filename or "").name
@@ -72,10 +83,12 @@ async def import_document(file: UploadFile = File(...)):
             "chunk_count": result["chunk_count"],
             "status": "success",
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="导入失败")
     finally:
-        if os.path.exists(tmp_path):
+        if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
 
@@ -83,6 +96,7 @@ async def import_document(file: UploadFile = File(...)):
 async def search_knowledge(
     q: str = Query("", description="搜索关键词"),
     limit: int = Query(5, description="返回结果数", ge=1, le=50),
+    _actor: str = Depends(require_local_session),
 ):
     """在知识库中搜索相关内容"""
     if engine is None:
@@ -99,7 +113,7 @@ async def search_knowledge(
 
 
 @router.get("/documents")
-async def list_documents():
+async def list_documents(_actor: str = Depends(require_local_session)):
     """列出所有已索引的文档"""
     if engine is None:
         raise HTTPException(status_code=503, detail="知识库引擎未初始化")
@@ -107,7 +121,7 @@ async def list_documents():
 
 
 @router.delete("/documents/{document_id}")
-async def delete_document(document_id: str):
+async def delete_document(document_id: str, _actor: str = Depends(require_local_session)):
     """删除指定文档及其所有块"""
     if engine is None:
         raise HTTPException(status_code=503, detail="知识库引擎未初始化")
@@ -118,7 +132,7 @@ async def delete_document(document_id: str):
 
 
 @router.get("/status", response_model=StatsResponse)
-async def knowledge_status():
+async def knowledge_status(_actor: str = Depends(require_local_session)):
     """知识库统计信息"""
     if engine is None:
         raise HTTPException(status_code=503, detail="知识库引擎未初始化")
@@ -127,7 +141,7 @@ async def knowledge_status():
 
 
 @router.get("/code-templates")
-async def list_code_templates():
+async def list_code_templates(_actor: str = Depends(require_local_session)):
     """列出可用的 SCL 代码模板文件"""
     templates_dir = Path(__file__).parent.parent.parent.parent / "plc-code-templates" / "siemens-scl"
     if not templates_dir.exists():
@@ -175,7 +189,7 @@ async def list_code_templates():
 
 
 @router.get("/code-templates/{name}")
-async def get_code_template(name: str):
+async def get_code_template(name: str, _actor: str = Depends(require_local_session)):
     """获取单个 SCL 代码模板内容"""
     import re as _re
     if ".." in name or "/" in name or "\\" in name:
@@ -220,7 +234,7 @@ async def get_code_template(name: str):
 
 
 @router.get("/ladder-templates")
-async def list_ladder_templates():
+async def list_ladder_templates(_actor: str = Depends(require_local_session)):
     """列出可用的梯形图 LAD 模板（JSON 格式）"""
     import json as _json
     templates_dir = Path(__file__).parent.parent.parent.parent / "mcp-servers" / "tia-mcp" / "templates"
@@ -249,7 +263,7 @@ async def list_ladder_templates():
 
 
 @router.get("/ladder-templates/{name}")
-async def get_ladder_template(name: str):
+async def get_ladder_template(name: str, _actor: str = Depends(require_local_session)):
     """获取单个梯形图模板完整 JSON + 文本化展示"""
     import json as _json
     if ".." in name or "/" in name or "\\" in name:

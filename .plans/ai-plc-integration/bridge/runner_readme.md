@@ -198,11 +198,12 @@ python .plans/ai-plc-integration/bridge/runner_step.py --execute
 
 1. **停止态保护**：`DONE` / `BLOCKED` / `SAFETY_BLOCK` 下直接拒绝执行，不做任何 CLI 调用
 2. **YES 确认**：`--execute` 时必须在执行前输入 `YES`，否则取消
-3. **环境变量校验**：缺失 `CLAUDE_CODE_CMD` 时清晰报错，不猜测路径
+3. **环境变量校验**：`CLAUDE_CODE_CMD` 必须只指定 `claude`、`claude.exe` 或 `claude.cmd`；附带参数或其他可执行文件一律拒绝
 4. **超时保护**：CLI 执行超过 3600 秒自动终止
-5. **不写桥接文件**：不自动修改 `state.json`、`lock.json`、`task_packet.md`、`claude_result.md`、`codex_review.md`、`next_action.md`
-6. **不操作 Git**：不自动 git add / commit / push
-7. **不循环**：每次只推进一个 state，不自动重试，不自动调用多个 Agent
+5. **固定工作目录**：受控 CLI 只能以项目根目录作为 `cwd`，且始终使用 `shell=False`
+6. **不写桥接文件**：不自动修改 `state.json`、`state.json.lock`、`task_packet.md`、`claude_result.md`、`codex_review.md`、`next_action.md`
+7. **不操作 Git**：不自动 git add / commit / push
+8. **不循环**：每次只推进一个 state，不自动重试，不自动调用多个 Agent
 
 ### Phase 5 边界
 

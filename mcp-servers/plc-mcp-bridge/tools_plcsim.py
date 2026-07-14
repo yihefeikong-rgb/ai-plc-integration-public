@@ -1,7 +1,22 @@
 """PLCSIM Advanced 管理工具"""
 import os
 from _helpers import mcp, _run_python, _format_result
-from _helpers import PLCSIM_API, PLCSIM_INSTANCE, PLC_IP, GOLDEN_ZIP, STORAGE_PATH
+from _helpers import PLCSIM_API, GOLDEN_ZIP, STORAGE_PATH
+from mcp_common.control_target import TargetConfigurationError, get_control_target, require_control_ip
+
+
+def _resolve_target(name: str = "", ip: str = ""):
+    """管理操作只能作用于唯一隔离 PLCSIM 实例。"""
+    try:
+        target = get_control_target()
+        if name and name != target.plcsim_instance:
+            raise TargetConfigurationError(
+                f"PLCSIM 实例必须为 {target.plcsim_instance}，收到 {name}"
+            )
+        require_control_ip(ip or target.plc_ip)
+        return target, ""
+    except TargetConfigurationError as exc:
+        return None, f"🚫 操作被拒绝: {exc}"
 
 
 @mcp.tool(
@@ -22,12 +37,19 @@ async def list_instances() -> str:
     annotations={"destructiveHint": False},
 )
 async def create_instance(
-    name: str = "factoryio",
-    ip: str = "192.168.0.1",
+    name: str = "",
+    ip: str = "",
     cpu_type: str = "1511",
 ) -> str:
     """创建并启动一个新的 PLCSIM Advanced 空壳实例"""
-    result = _run_python(PLCSIM_API, ["create", name, ip, cpu_type], timeout=120)
+    target, error = _resolve_target(name, ip)
+    if error:
+        return error
+    result = _run_python(
+        PLCSIM_API,
+        ["create", target.plcsim_instance, target.plc_ip, cpu_type],
+        timeout=120,
+    )
     return _format_result(result.get("success"), error=result.get("error", ""))
 
 
@@ -35,9 +57,12 @@ async def create_instance(
     name="plc_stop_instance",
     annotations={"destructiveHint": True},
 )
-async def stop_instance(name: str = "factoryio") -> str:
+async def stop_instance(name: str = "") -> str:
     """停止并删除指定 PLCSIM Advanced 实例"""
-    result = _run_python(PLCSIM_API, ["stop", name], timeout=60)
+    target, error = _resolve_target(name)
+    if error:
+        return error
+    result = _run_python(PLCSIM_API, ["stop", target.plcsim_instance], timeout=60)
     return _format_result(result.get("success"), error=result.get("error", ""))
 
 
@@ -45,13 +70,16 @@ async def stop_instance(name: str = "factoryio") -> str:
     name="plc_get_state",
     annotations={"readOnlyHint": True},
 )
-async def get_instance_state(name: str = "factoryio") -> str:
+async def get_instance_state(name: str = "") -> str:
     """获取 PLCSIM 实例的运行状态(RUN/STOP/Off 等)"""
+    target, error = _resolve_target(name)
+    if error:
+        return error
     instances = _run_python(PLCSIM_API, ["list"]).get("output", "")
     for line in instances.split("\n"):
-        if name in line:
-            return f"实例 `{name}` 状态:\n{line.strip()}"
-    return f"实例 `{name}` 未找到或未运行"
+        if target.plcsim_instance in line:
+            return f"实例 `{target.plcsim_instance}` 状态:\n{line.strip()}"
+    return f"实例 `{target.plcsim_instance}` 未找到或未运行"
 
 
 @mcp.tool(
@@ -74,10 +102,13 @@ async def restore_from_golden(
         ip: PLC 的 IP 地址
         auto_run: 恢复后自动切换到 RUN 模式
     """
-    n = name or PLCSIM_INSTANCE
+    target, error = _resolve_target(name, ip)
+    if error:
+        return error
+    n = target.plcsim_instance
     gz = golden_zip or GOLDEN_ZIP
     sp = storage_path or STORAGE_PATH
-    p = ip or PLC_IP
+    p = target.plc_ip
 
     if not gz or not sp:
         return "❌ 配置缺失: 请提供 golden_zip 和 storage_path 参数"
@@ -98,7 +129,10 @@ async def archive_to_golden(name: str = "", golden_zip: str = "") -> str:
     下载到 PLCSIM 成功后调用此工具，更新 golden backup。
     下次 restore_from_golden 就能恢复到最新状态。
     """
-    n = name or PLCSIM_INSTANCE
+    target, error = _resolve_target(name)
+    if error:
+        return error
+    n = target.plcsim_instance
     gz = golden_zip or GOLDEN_ZIP
     if not gz:
         return "❌ 请提供 golden_zip 参数"
@@ -112,7 +146,10 @@ async def archive_to_golden(name: str = "", golden_zip: str = "") -> str:
 )
 async def switch_to_tcpip(name: str = "", ip: str = "") -> str:
     """将 PLCSIM 实例切换到 TCP/IP 通信模式（Factory I/O 需要）"""
-    n = name or PLCSIM_INSTANCE
-    p = ip or PLC_IP
+    target, error = _resolve_target(name, ip)
+    if error:
+        return error
+    n = target.plcsim_instance
+    p = target.plc_ip
     result = _run_python(PLCSIM_API, ["tcpip", n, p], timeout=60)
     return _format_result(result.get("success"), error=result.get("error", "切换失败"))

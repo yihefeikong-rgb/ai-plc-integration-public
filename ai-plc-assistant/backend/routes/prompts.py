@@ -12,7 +12,8 @@ from pydantic import BaseModel
 router = APIRouter()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-PROMPTS_FILE = os.path.join(DATA_DIR, "prompts.json")
+PROMPTS_FILE = os.environ.get("PROMPTS_FILE", os.path.join(DATA_DIR, "prompts.json"))
+DATA_DIR = os.path.dirname(PROMPTS_FILE)
 
 
 # ---- 数据模型 ----

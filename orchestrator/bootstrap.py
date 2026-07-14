@@ -53,6 +53,10 @@ async def bootstrap(
     if server_list is None:
         server_list = ALL_SERVERS
 
+    # 必须让实际运行工作流的全局引擎持有同一个连接池和安全门。
+    engine.set_pool(pool)
+    engine.set_safety_gate()
+
     result = BootstrapResult()
     registry = get_registry()
 

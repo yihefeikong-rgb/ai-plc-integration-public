@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # 服务配置
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = 8005
 
     # 模型 API 配置
     openai_api_key: str = ""
@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     # 对话存储
     conversations_db: str = "data/conversations.db"
+    app_settings_path: str = "data/settings.json"
 
     # PLC 工程搜索配置
     project_dir: str = ""                     # 默认项目目录（空 = 仅在手动索引时指定）

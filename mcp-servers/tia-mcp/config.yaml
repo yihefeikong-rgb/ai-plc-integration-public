@@ -4,13 +4,18 @@
 # 支持环境变量引用: ${VAR_NAME} 或 ${VAR_NAME:默认值}
 # 相对路径从项目根目录（本文件的上上级目录的上级目录）解析
 
+# ── 唯一控制目标（所有 V21/PLCSIM/Factory I/O 入口必须从这里读取） ──
+target:
+  profile: "isolated_plcsim_v21"
+  tia_version: "${TIA_VERSION:V21}"
+  project_path: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21\\demo_V21.ap21}"
+  plcsim_instance: "${PLCSIM_INSTANCE:factoryio}"
+  plc_ip: "${PLCSIM_TARGET_IP:192.168.0.110}"
+
 # ── TIA Portal ──
 tia:
-  version: "${TIA_VERSION:V18}"
-  # TIA 项目文件 (.ap18/.ap21)
-  project_path: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\demo.ap18}"
   # TIA Portal 安装目录（Openness API DLL 所在）
-  install_dir: "${TIA_INSTALL_DIR:D:\\TIA BEN TI\\Portal V18}"
+  install_dir: "${TIA_INSTALL_DIR:D:\\TIA BEN TI\\Portal V21}"
   # 仿真/输出文件目录（XML、SVG、SCL 均输出到此）
   output_dir: "${TIA_OUTPUT_DIR:D:\\TIA FANG ZHEN}"
 
@@ -51,21 +56,17 @@ simulation:
 
   # PLCSIM Advanced 连接参数（仅 backend=advanced 时生效）
   advanced:
-    plc_ip: "192.168.0.1"
     rack: 0
     slot: 1
     port: 102
 
   # 黄金备份（PLCSIM 实例存档）
   golden_backup:
-    # V18（当前主用）
-    v18_dir: "${GOLDEN_V18_DIR:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo}"
-    # V21（暂缓）
     v21_dir: "${GOLDEN_V21_DIR:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21}"
     # golden zip 文件路径
-    zip_path: "${GOLDEN_ZIP_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo/factory_io1_golden.zip}"
+    zip_path: "${GOLDEN_ZIP_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21\\factory_io1_golden.zip}"
     # PLCSIM 实例存储目录
-    storage_path: "${GOLDEN_STORAGE_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo/plcsim_storage}"
+    storage_path: "${GOLDEN_STORAGE_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21\\plcsim_storage}"
 
 # ── Factory I/O ──
 factory_io:
@@ -85,10 +86,6 @@ factory_io:
   # 驱动模式: "plcsim" (Softbus, 推荐) 或 "tcpip" (S7-1200/1500 Ethernet)
   driver_mode: "${FIO_DRIVER_MODE:plcsim}"
 
-  # PLCSIM Advanced 实例名（仅 drivermode=plcsim 时生效）
-  # Factory I/O 要求固定为 "factoryio"
-  plcsim_instance: "factoryio"
-
   # IO 偏移量（两种模式通用）
   # 传感器 → %I{input_offset}.0 开始
   # 执行器 → %Q{output_offset}.0 开始
@@ -97,7 +94,6 @@ factory_io:
 
   # TCP/IP 模式连接参数（仅 drivermode=tcpip 时生效）
   tcpip:
-    host: "${FIO_TCP_HOST:192.168.0.1}"
     rack: 0
     slot: 1
     model: "S7-1500"

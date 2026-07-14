@@ -51,11 +51,11 @@ class TestSimulatedReadWrite:
     """测试 simulated 读写"""
 
     def test_read_default_values(self, sim_backend):
-        """所有传感器默认值为 False"""
+        """默认急停安全回路健康，其他传感器为 False。"""
         for name in IO_MAP:
             if name.startswith("sensor_"):
                 val = asyncio.get_event_loop().run_until_complete(sim_backend.read_io(name))
-                assert val is False, f"{name} 默认值应为 False"
+                assert val is (name == "sensor_estop"), f"{name} 默认值不符合安全回路契约"
 
     def test_write_then_read(self, sim_backend):
         """写入后读取应返回写入值"""
@@ -132,13 +132,13 @@ class TestSimulatedDependencies:
 class TestSimulatedEstop:
     """测试急停状态模拟"""
 
-    def test_estop_default_false(self, sim_backend):
+    def test_estop_default_is_healthy(self, sim_backend):
         val = asyncio.get_event_loop().run_until_complete(sim_backend.read_io("sensor_estop"))
-        assert val is False
+        assert val is True
 
     def test_estop_blocks_output_write(self, sim_backend):
         """急停触发后，写入输出应被阻止"""
-        asyncio.get_event_loop().run_until_complete(sim_backend.write_io("sensor_estop", True))
+        asyncio.get_event_loop().run_until_complete(sim_backend.write_io("sensor_estop", False))
         result = asyncio.get_event_loop().run_until_complete(
             sim_backend.write_io("conveyor_entry", True)
         )
@@ -156,8 +156,9 @@ class TestSimulatedEstop:
 
     def test_estop_release_allows_write(self, sim_backend):
         """急停解除后，写入应恢复正常"""
-        asyncio.get_event_loop().run_until_complete(sim_backend.write_io("sensor_estop", True))
         asyncio.get_event_loop().run_until_complete(sim_backend.write_io("sensor_estop", False))
+        asyncio.get_event_loop().run_until_complete(sim_backend.write_io("sensor_estop", True))
+        asyncio.get_event_loop().run_until_complete(sim_backend.confirm_estop_recovery())
         result = asyncio.get_event_loop().run_until_complete(
             sim_backend.write_io("conveyor_entry", True)
         )

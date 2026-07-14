@@ -19,7 +19,8 @@ from fastmcp import FastMCP
 from mcp_common.config import env_config
 from safety.validator import validator as safety_validator
 from safety.shadow_simulator import shadow_sim
-from mcp_common.audit import get_audit_logger
+from safety.confirmation import ConfirmationError, ConfirmationService
+from mcp_common.audit import authenticated_actor, get_audit_logger
 
 audit = get_audit_logger()
 from mc_protocol import (
@@ -35,6 +36,7 @@ _writer: asyncio.StreamWriter | None = None
 
 # ── 认证 ──
 _AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "")
+confirmation_service = ConfirmationService()
 
 
 def _require_auth(token: str):
@@ -52,6 +54,10 @@ async def get_connection():
             settings.melsec_host, settings.melsec_port
         )
     return _reader, _writer
+
+
+def _confirmation_device_id() -> str:
+    return f"melsec:{settings.melsec_host}:{settings.melsec_port}"
 
 
 # ===== 阶段1：读取 =====
@@ -84,33 +90,63 @@ async def read_devices(addresses: list[str], auth_token: str = "") -> list[dict]
 # ===== 阶段2：写入（带安全校验）=====
 
 @mcp.tool()
-async def write_device(addr: str, value: int, operator: str = "ai-agent", auth_token: str = "") -> dict:
+async def write_device(
+    addr: str,
+    value: int,
+    operator: str = "ai-agent",
+    auth_token: str = "",
+    confirmation_token: str = "",
+) -> dict:
     """写入设备地址"""
     _require_auth(auth_token)
+    actor = authenticated_actor(auth_token, "melsec")
     result = safety_validator.validate(addr, value)
     if not result.allowed:
-        audit.log("write_blocked", addr, str(value), operator=operator,
+        audit.log("write_blocked", addr, str(value), operator=actor,
                   success=False, detail=result.reason)
         return {"device": addr, "status": "blocked", "reason": result.reason}
+    if result.needs_confirmation:
+        if not confirmation_token:
+            reason = f"需要人工确认: {result.reason}"
+            audit.log("write_blocked", addr, str(value), operator=actor,
+                      success=False, detail=reason)
+            return {"device": addr, "status": "blocked", "reason": reason}
+        try:
+            confirmation_service.consume(
+                confirmation_token,
+                operator=operator,
+                target=addr,
+                value=value,
+                device_id=_confirmation_device_id(),
+            )
+        except ConfirmationError as exc:
+            reason = str(exc)
+            audit.log("write_blocked", addr, str(value), operator=actor,
+                      success=False, detail=reason)
+            return {"device": addr, "status": "blocked", "reason": reason}
 
     sim_result = await shadow_sim.simulate_write(addr, value)
     if not sim_result.safe:
-        audit.log("shadow_rejected", addr, str(value), operator=operator,
+        audit.log("shadow_rejected", addr, str(value), operator=actor,
                   success=False, detail=sim_result.reason)
         return {"device": addr, "status": "blocked", "reason": sim_result.reason}
 
     try:
+        audit.begin_control_operation(
+            "melsec.write_device", addr, actor,
+            {"address": addr, "value": value},
+        )
         r, w = await get_connection()
         frame = build_write_request(addr, value)
         w.write(frame)
         await w.drain()
         resp = await asyncio.wait_for(r.read(1024), timeout=5.0)
         parse_write_response(resp)
-        audit.log("write", addr, str(value), operator=operator, success=True)
+        audit.log("write", addr, str(value), operator=actor, success=True)
         return {"device": addr, "value": value, "status": "ok",
                 "needs_confirmation": result.needs_confirmation}
     except Exception as e:
-        audit.log("write", addr, str(value), operator=operator,
+        audit.log("write", addr, str(value), operator=actor,
                   success=False, detail=str(e))
         safety_validator.consecutive_errors += 1
         return {"device": addr, "status": "error", "error": str(e)}

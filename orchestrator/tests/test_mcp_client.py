@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from orchestrator.registry import ServerInfo, ToolInfo
-from orchestrator.mcp_client import McpClientAdapter
+from orchestrator.mcp_client import McpClientAdapter, ToolResult
 
 
 # ============================================================================
@@ -205,7 +205,9 @@ class TestMcpClientAdapter:
             await adapter.connect()
             resp = await adapter.call_tool("read_tag", {"tag": "DB1.MotorSpeed"})
 
-            assert resp == {"value": 42}
+            assert isinstance(resp, ToolResult)
+            assert resp.ok is True
+            assert resp.data == {"value": 42}
             session.call_tool.assert_awaited_once_with(
                 name="read_tag",
                 arguments={"tag": "DB1.MotorSpeed"},
@@ -228,7 +230,8 @@ class TestMcpClientAdapter:
             await adapter.connect()
             resp = await adapter.call_tool("ping")
 
-            assert resp == {"ok": True}
+            assert resp.ok is True
+            assert resp.data == {"ok": True}
             session.call_tool.assert_awaited_once_with(
                 name="ping",
                 arguments={},
@@ -255,7 +258,8 @@ class TestMcpClientAdapter:
             await adapter.connect()
             resp = await adapter.call_tool("compile")
 
-            assert resp == {"status": "compiled", "errors": 0}
+            assert resp.ok is True
+            assert resp.data == {"status": "compiled", "errors": 0}
 
     @pytest.mark.asyncio
     async def test_call_tool_error_result(self, test_server_info):
@@ -277,8 +281,9 @@ class TestMcpClientAdapter:
             await adapter.connect()
             resp = await adapter.call_tool("bad_tool")
 
-            assert resp["error"] is True
-            assert "项目未打开" in resp["message"]
+            assert resp.ok is False
+            assert resp.kind == "tool_error"
+            assert "项目未打开" in resp.error
 
     @pytest.mark.asyncio
     async def test_call_tool_not_connected_raises(self, test_server_info):
@@ -348,7 +353,9 @@ class TestMcpClientAdapter:
             await adapter.connect()
             resp = await adapter.call_tool("simple_tool")
 
-            assert resp == {"text": "操作成功完成"}
+            assert resp.ok is True
+            assert resp.kind == "text_success"
+            assert resp.data == "操作成功完成"
 
 
 # ============================================================================
@@ -366,7 +373,8 @@ class TestExtractResult:
         )
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted == {"a": 1, "b": 2}
+        assert extracted.ok is True
+        assert extracted.data == {"a": 1, "b": 2}
 
     def test_extract_json_text(self):
         from mcp.types import CallToolResult, TextContent
@@ -375,7 +383,8 @@ class TestExtractResult:
         )
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted == {"key": "value"}
+        assert extracted.ok is True
+        assert extracted.data == {"key": "value"}
 
     def test_extract_plain_text(self):
         from mcp.types import CallToolResult, TextContent
@@ -384,14 +393,16 @@ class TestExtractResult:
         )
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted == {"text": "hello world"}
+        assert extracted.ok is False
+        assert extracted.kind == "invalid_response"
 
     def test_extract_empty_content(self):
         from mcp.types import CallToolResult
         result = CallToolResult(content=[])
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted == {"text": ""}
+        assert extracted.ok is False
+        assert extracted.kind == "invalid_response"
 
     def test_extract_error_with_text(self):
         from mcp.types import CallToolResult, TextContent
@@ -401,16 +412,18 @@ class TestExtractResult:
         )
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted["error"] is True
-        assert "编译错误" in extracted["message"]
+        assert extracted.ok is False
+        assert extracted.kind == "tool_error"
+        assert "编译错误" in extracted.error
 
     def test_extract_error_no_text(self):
         from mcp.types import CallToolResult
         result = CallToolResult(content=[], isError=True)
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted["error"] is True
-        assert extracted["message"] == "未知错误"
+        assert extracted.ok is False
+        assert extracted.kind == "tool_error"
+        assert extracted.error == "MCP 工具报告未知错误"
 
     def test_extract_markdown_code_block_json(self):
         """MCP 真实模式下 \"✅ 成功\\n```json\\n{...}\\n```\" 应提取 JSON"""
@@ -423,7 +436,8 @@ class TestExtractResult:
         )
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted == {"success": True, "errors": 0, "error_list": []}
+        assert extracted.ok is True
+        assert extracted.data == {"success": True, "errors": 0, "error_list": []}
 
     def test_extract_markdown_code_block_no_lang(self):
         """无语言标注的 code block 也能提取"""
@@ -436,7 +450,8 @@ class TestExtractResult:
         )
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted == {"ok": True, "count": 42}
+        assert extracted.ok is True
+        assert extracted.data == {"ok": True, "count": 42}
 
     def test_extract_markdown_no_code_block_falls_back(self):
         """无 code block 的纯文本仍走降级路径"""
@@ -446,4 +461,5 @@ class TestExtractResult:
         )
         adapter = McpClientAdapter.__new__(McpClientAdapter)
         extracted = adapter._extract_result(result)
-        assert extracted == {"text": "操作完成，但这是纯文本"}
+        assert extracted.ok is False
+        assert extracted.kind == "invalid_response"

@@ -7,6 +7,7 @@ TIA MCP Server — 阶段3：西门子工程态
 """
 
 import json
+import hmac
 import logging
 import re
 import subprocess
@@ -14,6 +15,7 @@ import sys
 import argparse
 import tempfile
 import os
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -24,8 +26,14 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.append(str(_PROJECT_ROOT))
 
 from fastmcp import FastMCP
-from config_loader import cfg, validate_ladder_spec
+from config_loader import (
+    cfg,
+    safety_validate_ladder,
+    validate_control_target,
+    validate_ladder_spec,
+)
 from audit import audit_log
+from mcp_common.tiaworker_client import TiaWorkerClient
 from safety.validator import validator as safety_validator
 
 
@@ -51,18 +59,19 @@ except ImportError:
 mcp = FastMCP("tia-portal")
 
 # ── 认证 ───────────────────────────────────────────────
-_AUTH_TOKEN = ""
+# TIA Openness 可修改工程和执行下载；未配置认证时不能暴露任何工具。
+_AUTH_TOKEN = os.environ.get("TIA_MCP_AUTH_TOKEN", os.environ.get("MCP_AUTH_TOKEN", ""))
 
 
 def _check_auth(token: str = "") -> bool:
-    """验证 auth token（空 token 表示未启用认证，直接通过）"""
-    if not _AUTH_TOKEN:
-        return True
-    return token == _AUTH_TOKEN
+    """验证认证令牌；缺少服务器端令牌必须失败关闭。"""
+    return bool(_AUTH_TOKEN) and bool(token) and hmac.compare_digest(token, _AUTH_TOKEN)
 
 
 def _require_auth(token: str = "") -> None:
-    """如果认证未通过则抛出异常"""
+    """如果认证未配置或未通过则拒绝调用。"""
+    if not _AUTH_TOKEN:
+        raise PermissionError("MCP_AUTH_TOKEN 未配置，TIA MCP 服务不可用")
     if not _check_auth(token):
         raise PermissionError("认证失败：无效的 auth token")
 
@@ -72,10 +81,61 @@ LAD_CREATOR = Path(__file__).parent / "lad_creator.py"
 SCL_TEMPLATES = Path(__file__).parent.parent.parent / "plc-code-templates" / "siemens-scl"
 
 
+def _control_target():
+    """读取并验证唯一的 V21 控制目标。"""
+    try:
+        target = validate_control_target()
+    except Exception as exc:
+        raise ValueError(f"控制目标配置无效: {exc}") from exc
+    if str(target.tia_version).upper() != "V21":
+        raise ValueError("控制目标必须使用 V21")
+    return target
+
+
+def _same_path(left: str, right: str) -> bool:
+    return os.path.normcase(os.path.normpath(left)) == os.path.normcase(os.path.normpath(right))
+
+
+def _worker_error(
+    command: str,
+    message: str,
+    *,
+    operation_id: str = "",
+    outcome_unknown: bool = False,
+) -> dict:
+    result = {"status": "error", "ok": False, "result": None, "error": message}
+    if operation_id:
+        result["operation_id"] = operation_id
+    if outcome_unknown:
+        result["error_code"] = "OUTCOME_UNKNOWN"
+        result["reconcile_required"] = True
+        result["error"] = f"{message}；操作结果未知，必须先只读对账，禁止重试 {command}"
+    return result
+
+
 def _run_worker(command: str, payload: dict) -> dict:
-    """调用 TiaWorker.exe"""
+    """调用 TiaWorker.exe，并保持 V21 目标、退出码与未知结果均失败关闭。"""
     if not TIA_WORKER.exists():
-        return {"status": "error", "error": f"TiaWorker.exe not found at {TIA_WORKER}"}
+        return _worker_error(command, f"TiaWorker.exe not found at {TIA_WORKER}")
+
+    try:
+        target = _control_target()
+    except ValueError as exc:
+        return _worker_error(command, str(exc))
+
+    payload = dict(payload)
+    configured_project = str(target.project_path)
+    supplied_project = payload.get("ProjectPath")
+    if supplied_project and not _same_path(str(supplied_project), configured_project):
+        return _worker_error(command, "拒绝非唯一配置中的 TIA 项目路径")
+    if supplied_project:
+        payload["ProjectPath"] = configured_project
+
+    is_mutating = TiaWorkerClient.is_mutating_command(command)
+    operation_id = ""
+    if is_mutating:
+        operation_id = str(payload.get("OperationId") or uuid.uuid4().hex)
+        payload["OperationId"] = operation_id
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False, encoding="utf-8"
@@ -85,17 +145,50 @@ def _run_worker(command: str, payload: dict) -> dict:
 
     try:
         result = subprocess.run(
-            [str(TIA_WORKER), command, tmp_path],
+            [str(TIA_WORKER), f"--tia-major-version={target.tia_version}", command, tmp_path],
             capture_output=True, text=True, timeout=120,
         )
         output = result.stdout.strip()
         if output:
-            return json.loads(output)
-        return {"status": "error", "error": result.stderr or "No output"}
+            decoded = json.loads(output)
+            if decoded.get("ok") is not True:
+                return _worker_error(command, str(decoded.get("error") or "TiaWorker 返回失败"), operation_id=operation_id)
+            if result.returncode != 0:
+                return _worker_error(
+                    command,
+                    str(decoded.get("error") or f"TiaWorker 返回码 {result.returncode}"),
+                    operation_id=operation_id,
+                )
+            if operation_id:
+                decoded["operation_id"] = operation_id
+            return decoded
+        return _worker_error(
+            command,
+            result.stderr or "TiaWorker 无输出",
+            operation_id=operation_id,
+            outcome_unknown=is_mutating,
+        )
     except subprocess.TimeoutExpired:
-        return {"status": "error", "error": "TiaWorker timeout (120s)"}
+        return _worker_error(
+            command,
+            "TiaWorker timeout (120s)",
+            operation_id=operation_id,
+            outcome_unknown=is_mutating,
+        )
     except json.JSONDecodeError:
-        return {"status": "error", "error": f"Invalid JSON: {output[:500]}"}
+        return _worker_error(
+            command,
+            f"Invalid JSON: {output[:500]}",
+            operation_id=operation_id,
+            outcome_unknown=is_mutating,
+        )
+    except Exception as exc:
+        return _worker_error(
+            command,
+            str(exc),
+            operation_id=operation_id,
+            outcome_unknown=is_mutating,
+        )
     finally:
         try:
             os.unlink(tmp_path)
@@ -104,10 +197,11 @@ def _run_worker(command: str, payload: dict) -> dict:
 
 
 def _resolve_path(project_path: str) -> str:
-    p = project_path or cfg.tia.project_path
-    if not p:
-        raise ValueError("未指定项目路径，请在 config.yaml 或 .env 中设置 TIA_PROJECT_PATH")
-    return p
+    target = _control_target()
+    configured_project = str(target.project_path)
+    if project_path and not _same_path(project_path, configured_project):
+        raise ValueError("拒绝非唯一配置中的 TIA 项目路径")
+    return configured_project
 
 
 def _gen_scl_via_deepseek(description: str, template: str) -> dict:
@@ -248,18 +342,27 @@ def import_scl_file(
     except ImportError:
         pass  # scl_lint 模块不可用时跳过校验
 
-    # 写入临时 .scl 文件（去除 BOM，确保 UTF-8 无 BOM）
+    # 写入系统临时文件（去除 BOM，确保 UTF-8 无 BOM）。不得使用由调用方
+    # 提供的 block_name 拼接路径，且 worker 返回后立即清理。
     scl_code = scl_code.lstrip("\ufeff")
-    scl_dir = Path(tempfile.gettempdir()) / "tia-scl"
-    scl_dir.mkdir(exist_ok=True)
-    scl_file = scl_dir / f"{block_name}.scl"
-    scl_file.write_text(scl_code, encoding="utf-8")
-
-    command = "import-scl-replace" if replace else "import-scl"
-    result = _run_worker(command, {
-        "ProjectPath": path,
-        "SclFilePath": str(scl_file),
-    })
+    tmp_scl_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".scl", prefix="tia-scl-", delete=False, encoding="utf-8"
+        ) as scl_file:
+            scl_file.write(scl_code)
+            tmp_scl_path = scl_file.name
+        command = "import-scl-replace" if replace else "import-scl"
+        result = _run_worker(command, {
+            "ProjectPath": path,
+            "SclFilePath": tmp_scl_path,
+        })
+    finally:
+        if tmp_scl_path:
+            try:
+                os.unlink(tmp_scl_path)
+            except OSError:
+                pass
 
     success = result.get("status") != "error"
     audit_log("import_scl_file",
@@ -480,8 +583,8 @@ def download_to_plcsim(
     Args:
         project_path: TIA 项目路径，留空使用默认值
         compile_first: 下载前先编译
-        method: "auto" (自动), "tiaworker", "ui", "manual"
-        target_ip: PLCSIM Advanced 的 IP 地址（可选）
+        method: "auto" (自动), "tiaworker", "tiaworker-gui", "python" 或 "ui"
+        target_ip: 已弃用；下载目标只能来自经验证的配置
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
@@ -491,9 +594,16 @@ def download_to_plcsim(
     try:
         path = _resolve_path(project_path)
         from download_to_plcsim import (
-            _try_download_via_python, download_via_ui
+            _try_download_via_python,
+            _try_download_via_tiaworker,
+            _try_download_via_tiaworker_gui,
+            _verified_plcsim_target,
+            download_via_ui,
         )
-        import sys as _sys
+        method = method.strip().lower()
+        if method not in {"auto", "tiaworker", "tiaworker-gui", "python", "ui"}:
+            return {"status": "error", "error": f"不支持的 method: {method}"}
+        target_ip = _verified_plcsim_target(target_ip)
 
         if method == "ui":
             rc = download_via_ui(compile_first)
@@ -501,23 +611,45 @@ def download_to_plcsim(
                     "message": "UI Automation 下载完成" if rc == 0 else "UI Automation 下载失败"}
 
         if method == "tiaworker":
+            rc = _try_download_via_tiaworker(compile_first, target_ip)
+            return {"status": "ok" if rc == 0 else "error",
+                    "message": "TiaWorker 下载完成" if rc == 0 else "TiaWorker 未确认设备下载成功"}
+
+        if method == "tiaworker-gui":
+            rc = _try_download_via_tiaworker_gui(target_ip)
+            return {"status": "ok" if rc == 0 else "error",
+                    "message": "TiaWorker GUI 下载完成" if rc == 0 else "TiaWorker GUI 未确认设备下载成功"}
+
+        if method == "python":
             rc = _try_download_via_python(compile_first, target_ip)
             return {"status": "ok" if rc == 0 else "error",
-                    "message": "Python API 下载完成" if rc == 0 else "Python API 下载需要 PLCSIM 运行"}
+                    "message": "Python API 下载完成" if rc == 0 else "Python API 未确认设备下载成功"}
 
-        # "auto" 模式：依次尝试
-        rc = _try_download_via_python(compile_first, target_ip)
+        # 仅当上一策略明确“不具备能力”(rc=-1) 时才切换，未知或失败结果禁止重试。
+        rc = _try_download_via_tiaworker(compile_first, target_ip)
         if rc == 0:
-            return {"status": "ok", "message": "Python API 下载完成"}
+            return {"status": "ok", "message": "TiaWorker 下载完成"}
+
+        if rc == -1:
+            rc = _try_download_via_tiaworker_gui(target_ip)
+            if rc == 0:
+                return {"status": "ok", "message": "TiaWorker GUI 下载完成",
+                        "note": "headless TiaWorker 不可用，使用 GUI 模式"}
+
+        if rc == -1:
+            rc = _try_download_via_python(compile_first, target_ip)
+            if rc == 0:
+                return {"status": "ok", "message": "Python API 下载完成",
+                        "note": "TiaWorker 不可用，使用 Python API"}
 
         if rc == -1:
             rc = download_via_ui(compile_first=False)
             if rc == 0:
                 return {"status": "ok", "message": "UI Automation 下载完成",
-                        "note": "Python API 不可用，使用 UI Automation"}
+                        "note": "自动接口均不可用，使用 UI Automation"}
 
-        return {"status": "ok" if rc == 0 else "error",
-                "message": "下载成功" if rc == 0 else "请手动下载",
+        return {"status": "error",
+                "message": "未获得设备级下载成功回执，请手动下载并只读核验",
                 "manual_steps": [
                     "1. 打开 TIA Portal，右键 PLC 设备",
                     "2. 下载到设备 → 软件（全部）",
@@ -617,11 +749,21 @@ def _gen_lad_spec(description: str, block_name: str) -> dict:
     if not validation["valid"]:
         raise ValueError(f"LadderSpec 格式校验失败: {validation['errors']}")
 
+    return _require_ladder_semantic_safety(spec)
+
+
+def _require_ladder_semantic_safety(spec: dict) -> dict:
+    """将语义安全校验作为 CartGen/TIA 导入前的硬阻断。"""
+    validation = safety_validate_ladder(spec)
+    if not validation.get("safe"):
+        warnings = validation.get("warnings", ["未知语义安全错误"])
+        raise ValueError(f"LadderSpec 语义安全校验失败: {warnings}")
     return spec
 
 
 def _run_cartgen(spec: dict) -> str:
     """保存 LadderSpec JSON + 调用 CartGen 生成 SimaticML XML，返回 XML 路径"""
+    _require_ladder_semantic_safety(spec)
     tmp_json = os.path.join(tempfile.gettempdir(), f"lad_{spec['blockName']}.json")
     with open(tmp_json, "w", encoding="utf-8") as f:
         json.dump(spec, f, ensure_ascii=False, indent=2)
@@ -639,7 +781,48 @@ def _run_cartgen(spec: dict) -> str:
         err_text = r.stderr.decode('utf-8', 'ignore') or r.stdout.decode('utf-8', 'ignore')
         raise RuntimeError(f"CartGen 失败: {err_text[:500]}")
 
+    _verify_cartgen_artifacts(spec, xml_path)
+
     return xml_path
+
+
+def _cartgen_io_manifest_path(xml_path: str) -> Path:
+    return Path(xml_path).with_suffix(".io-map.json")
+
+
+def _expected_io_mapping(spec: dict) -> dict:
+    interface = spec.get("interface", {})
+
+    def _entries(section: str) -> list[dict]:
+        return [
+            {"name": item["name"], "type": item["type"], "address": item["address"]}
+            for item in interface.get(section, [])
+        ]
+
+    return {
+        "blockName": spec["blockName"],
+        "inputs": _entries("inputs"),
+        "outputs": _entries("outputs"),
+    }
+
+
+def _verify_cartgen_artifacts(spec: dict, xml_path: str) -> None:
+    """验证 CartGen 同时生成 XML 和未丢失 I/O 映射的清单。"""
+    xml = Path(xml_path)
+    if not xml.is_file() or xml.stat().st_size == 0:
+        raise RuntimeError("CartGen 未生成有效 XML 文件")
+
+    manifest = _cartgen_io_manifest_path(xml_path)
+    if not manifest.is_file() or manifest.stat().st_size == 0:
+        raise RuntimeError("CartGen 未生成 I/O 映射清单，拒绝导入")
+    try:
+        actual = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("CartGen I/O 映射清单不可读取，拒绝导入") from exc
+
+    expected = _expected_io_mapping(spec)
+    if actual != expected:
+        raise RuntimeError("CartGen I/O 映射清单与 LadderSpec 不一致，拒绝导入")
 
 
 def _clean_xml(xml_path: str) -> None:
@@ -719,19 +902,17 @@ def create_ladder_block(
     gate = _safety_gate("create_ladder_block")
     if gate:
         return gate
-    # 快速命令：直接走硬编码模板
+    # 不允许硬编码模板绕过 LadderSpec 的结构和语义安全闸门。
     if description == "cart3cycle":
-        result = subprocess.run(
-            [sys.executable, str(LAD_CREATOR), "cart3cycle"],
-            capture_output=True, text=True, timeout=180,
-        )
-        lines = [l for l in result.stdout.split("\n") if l.strip()]
-        return {"status": "ok" if result.returncode == 0 else "error",
-                "output": lines, "returncode": result.returncode}
+        return {
+            "status": "error",
+            "error": "cart3cycle 硬编码路径未提供可审计 LadderSpec，已在导入前安全阻断",
+        }
 
     # AI 生成流程
     try:
         spec = _gen_lad_spec(description, block_name)
+        _require_ladder_semantic_safety(spec)
         xml_path = _run_cartgen(spec)
         _clean_xml(xml_path)
         _import_xml_into_tia(xml_path, project_path)
@@ -977,9 +1158,16 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TIA MCP Server")
-    parser.add_argument("--auth-token", default="", help="认证令牌（可选）")
+    parser.add_argument(
+        "--auth-token",
+        default=os.environ.get("TIA_MCP_AUTH_TOKEN", os.environ.get("MCP_AUTH_TOKEN", "")),
+        help="认证令牌（必填；也可通过 TIA_MCP_AUTH_TOKEN 或 MCP_AUTH_TOKEN 提供）",
+    )
     args = parser.parse_args()
     _AUTH_TOKEN = args.auth_token
+
+    if not _AUTH_TOKEN:
+        raise SystemExit("TIA MCP 拒绝启动：必须配置 MCP_AUTH_TOKEN 或 --auth-token")
 
     # 检查管理员权限 — TIA Portal Openness API 需要管理员权限
     import ctypes

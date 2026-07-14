@@ -1,11 +1,12 @@
 """代码生成 API — 自然语言 → SCL/XML/CSV 多格式输出"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from generator.workflow import generate_ladder, build_prompt
+from generator.workflow import GenerationError, generate_ladder, build_prompt
 from generator import LadderProgram, Variable, Network
+from security import require_local_session
 
 router = APIRouter()
 
@@ -41,35 +42,41 @@ class GenerateResponse(BaseModel):
 
 
 @router.post("/ladder", response_model=GenerateResponse)
-async def generate_ladder_code(req: GenerateRequest):
+async def generate_ladder_code(req: GenerateRequest, _actor: str = Depends(require_local_session)):
     """自然语言 → 梯形图程序（结构化输出）"""
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 
-    result = generate_ladder(
-        user_input=req.input,
-        template_id=req.template_id or None,
-        variables=req.variables,
-        context=req.context or None,
-        model_id=req.model_id,
-    )
+    try:
+        result = generate_ladder(
+            user_input=req.input,
+            template_id=req.template_id or None,
+            variables=req.variables,
+            context=req.context or None,
+            model_id=req.model_id,
+        )
+    except GenerationError as exc:
+        raise HTTPException(status_code=502, detail="模型未返回可验证的梯形图，未生成可导出程序") from exc
 
     return GenerateResponse(**result)
 
 
 @router.post("/ladder/scl")
-async def generate_scl_code(req: GenerateRequest):
+async def generate_scl_code(req: GenerateRequest, _actor: str = Depends(require_local_session)):
     """自然语言 → SCL 源代码（可直接粘贴到 TIA Portal）"""
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 
-    result = generate_ladder(
-        user_input=req.input,
-        template_id=req.template_id or None,
-        variables=req.variables,
-        context=req.context or None,
-        model_id=req.model_id,
-    )
+    try:
+        result = generate_ladder(
+            user_input=req.input,
+            template_id=req.template_id or None,
+            variables=req.variables,
+            context=req.context or None,
+            model_id=req.model_id,
+        )
+    except GenerationError as exc:
+        raise HTTPException(status_code=502, detail="模型未返回可验证的梯形图，未生成可导出程序") from exc
 
     program = _dict_to_program(result["structured"])
 
@@ -79,18 +86,21 @@ async def generate_scl_code(req: GenerateRequest):
 
 
 @router.post("/ladder/xml")
-async def generate_xml_code(req: GenerateRequest):
+async def generate_xml_code(req: GenerateRequest, _actor: str = Depends(require_local_session)):
     """自然语言 → PLCopen XML（可导入 TIA Portal）"""
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 
-    result = generate_ladder(
-        user_input=req.input,
-        template_id=req.template_id or None,
-        variables=req.variables,
-        context=req.context or None,
-        model_id=req.model_id,
-    )
+    try:
+        result = generate_ladder(
+            user_input=req.input,
+            template_id=req.template_id or None,
+            variables=req.variables,
+            context=req.context or None,
+            model_id=req.model_id,
+        )
+    except GenerationError as exc:
+        raise HTTPException(status_code=502, detail="模型未返回可验证的梯形图，未生成可导出程序") from exc
 
     program = _dict_to_program(result["structured"])
 
@@ -100,7 +110,7 @@ async def generate_xml_code(req: GenerateRequest):
 
 
 @router.post("/export")
-async def export_code(req: ExportRequest):
+async def export_code(req: ExportRequest, _actor: str = Depends(require_local_session)):
     """从结构化数据导出为指定格式"""
     program = _dict_to_program({
         "title": req.title,
@@ -144,9 +154,9 @@ async def export_code(req: ExportRequest):
 
 
 @router.post("/export/download")
-async def download_export(req: ExportRequest):
+async def download_export(req: ExportRequest, _actor: str = Depends(require_local_session)):
     """导出并直接下载文件"""
-    result = await export_code(req)
+    result = await export_code(req, _actor)
     mime = result["mime_type"]
     return PlainTextResponse(
         content=result["content"],
@@ -156,7 +166,7 @@ async def download_export(req: ExportRequest):
 
 
 @router.post("/prompt")
-async def get_generation_prompt(req: GenerateRequest):
+async def get_generation_prompt(req: GenerateRequest, _actor: str = Depends(require_local_session)):
     """获取 LLM Prompt（调试用）"""
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")

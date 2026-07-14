@@ -15,6 +15,8 @@ import pytest
 import sys
 from pathlib import Path
 
+pytestmark = pytest.mark.hardware
+
 ROBOT_DIR = Path(__file__).parent.parent / "mcp-servers" / "robot-mcp"
 sys.path.insert(0, str(ROBOT_DIR))
 

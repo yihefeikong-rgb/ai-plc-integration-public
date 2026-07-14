@@ -3,8 +3,15 @@ PLCSIM Advanced 实例管理 — 创建/停止/列举/清理/上下文管理器�
 
 依赖 plcsim_common（加载 CLR + 共享工具函数）。
 """
-import os, time, subprocess
+import os, sys, time, subprocess
+from pathlib import Path
 from typing import Optional, List, Dict
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from mcp_common.control_target import TargetConfigurationError, get_control_target, require_control_ip
 
 from plcsim_common import (
     SimulationRuntimeManager,
@@ -23,6 +30,17 @@ from plcsim_common import (
 
 _MANAGER_EXE: Optional[str] = None  # 缓存 Runtime Manager 路径
 _UI_EXE_CACHE: Optional[str] = None  # 缓存 UserInterface 路径
+
+
+def _require_isolated_target(name: str, ip: str = ""):
+    """PLCSIM 改变操作不得作用于唯一隔离实例之外的目标。"""
+    target = get_control_target()
+    if name != target.plcsim_instance:
+        raise TargetConfigurationError(
+            f"PLCSIM 实例必须为 {target.plcsim_instance}，收到 {name}"
+        )
+    require_control_ip(ip or target.plc_ip)
+    return target
 
 
 # ── 运行时服务管理 ──
@@ -158,6 +176,7 @@ def force_cleanup(name: str):
     Args:
         name: 实例名称（如 "factoryio"）
     """
+    _require_isolated_target(name)
     print(f"[plcsim] 强制清理实例 '{name}' ...")
 
     sp = None
@@ -293,7 +312,7 @@ def get_instances() -> List[Dict]:
 
 def create_instance(
     name: str,
-    ip: str = "192.168.0.1",
+    ip: str = "",
     subnet: str = "255.255.255.0",
     cpu_type: str = "1511",
     interface: str = "tcpip",
@@ -301,7 +320,7 @@ def create_instance(
 ) -> IInstance:
     """创建并启动一个 PLCSIM Advanced 虚拟 PLC 实例（空壳 CPU，无硬件配置）。
 
-    默认为 TCP/IP 模式 + 192.168.0.1，适用于 Factory I/O 通过 S7-1200/1500 驱动连接。
+    TCP/IP 地址始终取自唯一隔离目标配置。
 
     Args:
         name: 实例名称
@@ -317,6 +336,9 @@ def create_instance(
     Raises:
         RuntimeError: 创建失败
     """
+    target = _require_isolated_target(name, ip)
+    ip = target.plc_ip
+
     existing = _get_instance(name)
     if existing is not None:
         st = STATE_NAMES.get(existing.OperatingState, "unknown")
@@ -382,6 +404,7 @@ def create_instance(
 
 def stop_instance(name: str, cleanup: bool = True):
     """停止并（可选）删除实例。"""
+    _require_isolated_target(name)
     instance = _get_instance(name)
     if instance is None:
         print(f"[plcsim] 实例 '{name}' 不存在，跳过")
@@ -400,17 +423,9 @@ def stop_instance(name: str, cleanup: bool = True):
 
 
 def stop_all():
-    """停止并删除所有已注册实例。"""
-    names = [info["name"] for info in get_instances()]
-    if not names:
-        print("[plcsim] 没有运行中的实例")
-        return
-    print(f"[plcsim] 停止所有: {names}")
-    for name in names:
-        try:
-            stop_instance(name, cleanup=True)
-        except Exception as e:
-            print(f"[plcsim] ⚠ {name}: {e}")
+    """停止唯一隔离实例，不会影响同机其他 PLCSIM 实例。"""
+    target = get_control_target()
+    stop_instance(target.plcsim_instance, cleanup=True)
 
 
 # ── 上下文管理器 ──
@@ -420,13 +435,14 @@ class PlcSimInstance:
     """PLCSIM Advanced 实例上下文管理器 — with 语句自动创建/清理。
 
     Example:
-        with PlcSimInstance("factory io1", "10.0.0.1") as inst:
+        with PlcSimInstance("factoryio") as inst:
             inst.run()
     """
 
-    def __init__(self, name: str, ip: str = "10.0.0.1", cpu_type: str = "1511"):
-        self._name = name
-        self._ip = ip
+    def __init__(self, name: str, ip: str = "", cpu_type: str = "1511"):
+        target = _require_isolated_target(name, ip)
+        self._name = target.plcsim_instance
+        self._ip = target.plc_ip
         self._cpu_type = cpu_type
         self._instance: Optional[IInstance] = None
 

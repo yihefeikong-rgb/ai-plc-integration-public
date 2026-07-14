@@ -14,6 +14,8 @@ import json
 import subprocess
 import pytest
 
+pytestmark = pytest.mark.hardware
+
 # 添加路径
 TEST_DIR = os.path.dirname(__file__)
 PROJECT_DIR = os.path.dirname(TEST_DIR)
@@ -311,13 +313,14 @@ class TestP3Flow:
         assert 'from uiautomation' not in content
 
     def test_uses_config_loader(self):
-        """p3_flow.py 使用 config_loader 而非硬编码路径"""
+        """p3_flow.py 通过唯一 target 配置而非硬编码路径取值"""
         p3_path = os.path.join(PROJECT_DIR, 'scripts', 'p3_flow.py')
         with open(p3_path, encoding='utf-8') as f:
             content = f.read()
         assert 'from config_loader import cfg' in content
-        assert 'cfg.tia.project_path' in content
-        assert 'cfg.simulation.advanced.plc_ip' in content
+        assert 'validate_control_target' in content
+        assert 'target.project_path' in content
+        assert 'target.plc_ip' in content
 
     def test_all_operations_via_subprocess(self):
         """p3_flow.py 所有操作通过 subprocess.run"""

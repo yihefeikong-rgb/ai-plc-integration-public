@@ -5,7 +5,18 @@
 供编排层在连接真实 MCP 服务器时使用。
 """
 
+import sys
+from pathlib import Path
+
 from orchestrator.registry import ServerInfo
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PYTHON_EXECUTABLE = sys.executable
+
+
+def _server_cwd(*parts: str) -> str:
+    return str(PROJECT_ROOT.joinpath(*parts))
 
 # ============================================================================
 # MCP 服务器配置
@@ -14,57 +25,57 @@ from orchestrator.registry import ServerInfo
 PLC_MCP_BRIDGE = ServerInfo(
     name="plc-mcp-bridge",
     description="S7 运行态读写 + TIA 工程态 + PLCSIM + FIO 配置（65 工具）",
-    command=r"D:\Python3\python.exe",
+    command=PYTHON_EXECUTABLE,
     args=["server.py"],
-    cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\plc-mcp-bridge",
+    cwd=_server_cwd("mcp-servers", "plc-mcp-bridge"),
 )
 
 TIA_MCP = ServerInfo(
     name="tia-mcp",
     description="TIA Portal Openness 工程态操作（16 工具）",
-    command=r"D:\Python3\python.exe",
+    command=PYTHON_EXECUTABLE,
     args=["server.py"],
-    cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\tia-mcp",
+    cwd=_server_cwd("mcp-servers", "tia-mcp"),
 )
 
 OPCUA_MCP = ServerInfo(
     name="opcua-mcp",
     description="OPC UA 协议读写（7 工具）",
-    command=r"D:\Python3\python.exe",
+    command=PYTHON_EXECUTABLE,
     args=["server.py"],
-    cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\opcua-mcp",
+    cwd=_server_cwd("mcp-servers", "opcua-mcp"),
 )
 
 MODBUS_MCP = ServerInfo(
     name="modbus-mcp",
     description="Modbus TCP 协议读写（6 工具）",
-    command=r"D:\Python3\python.exe",
+    command=PYTHON_EXECUTABLE,
     args=["server.py"],
-    cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\modbus-mcp",
+    cwd=_server_cwd("mcp-servers", "modbus-mcp"),
 )
 
 MITSUBISHI_MCP = ServerInfo(
     name="mitsubishi-mcp",
     description="三菱 MC 协议读写（3 工具）",
-    command=r"D:\Python3\python.exe",
+    command=PYTHON_EXECUTABLE,
     args=["server.py"],
-    cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\mitsubishi-mcp",
+    cwd=_server_cwd("mcp-servers", "mitsubishi-mcp"),
 )
 
 ROBOT_MCP = ServerInfo(
     name="robot-mcp",
     description="工业机器人控制 — FIO Pick & Place（7 工具）",
-    command=r"D:\Python3\python.exe",
+    command=PYTHON_EXECUTABLE,
     args=["server.py"],
-    cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\robot-mcp",
+    cwd=_server_cwd("mcp-servers", "robot-mcp"),
 )
 
 DESKTOP_MCP = ServerInfo(
     name="desktop-mcp",
     description="桌面控制 — 鼠标键盘 + 截图（13 工具）",
-    command=r"D:\Python3\python.exe",
+    command=PYTHON_EXECUTABLE,
     args=["server.py"],
-    cwd=r"D:\claude code xiangmu\AI 接入PLC\mcp-servers\desktop-mcp",
+    cwd=_server_cwd("mcp-servers", "desktop-mcp"),
 )
 
 # ============================================================================
@@ -74,9 +85,9 @@ DESKTOP_MCP = ServerInfo(
 TEST_ECHO = ServerInfo(
     name="test-echo",
     description="集成测试用最小 MCP 服务器（3 工具）",
-    command=r"D:\Python3\python.exe",
-    args=[r"orchestrator\tests\test_echo_server.py"],
-    cwd=r"D:\claude code xiangmu\AI 接入PLC",
+    command=PYTHON_EXECUTABLE,
+    args=[str(PROJECT_ROOT / "orchestrator" / "tests" / "test_echo_server.py")],
+    cwd=str(PROJECT_ROOT),
 )
 
 # ============================================================================

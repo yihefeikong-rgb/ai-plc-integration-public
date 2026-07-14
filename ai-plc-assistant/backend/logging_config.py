@@ -4,7 +4,8 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-LOG_DIR = os.path.join(os.path.dirname(__file__), "data", "logs")
+# 测试运行可显式重定向日志，避免导入应用时在工作区产生输出文件。
+LOG_DIR = os.environ.get("AI_PLC_LOG_DIR", os.path.join(os.path.dirname(__file__), "data", "logs"))
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"

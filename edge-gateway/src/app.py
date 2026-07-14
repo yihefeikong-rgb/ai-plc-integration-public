@@ -142,9 +142,12 @@ class EdgeGateway:
                         audit.log("blocked", decision.get("target", ""),
                                   str(decision.get("value")), operator="ai",
                                   detail=result.reason)
+                    elif result.needs_confirmation:
+                        print(f"[安全] 阻断写入 {decision['target']} = {decision['value']}: 需要人工确认")
+                        audit.log("blocked", decision.get("target", ""),
+                                  str(decision.get("value")), operator="ai",
+                                  detail=f"需要人工确认: {result.reason}")
                     else:
-                        if result.needs_confirmation:
-                            print(f"[安全] 警告: {decision['target']} 需要人工确认")
                         print(f"[决策] 写入 {decision['target']} = {decision['value']}")
                         print(f"[原因] {decision.get('reason', 'N/A')}")
                         # 执行真实写入

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from orchestrator.core import StepResult, WorkflowResult, get_engine
@@ -11,6 +11,7 @@ from orchestrator.workflows.nl_to_plcsim_pipeline import (
     DEFAULT_ACCEPTANCE_PROMPT,
     register_nl_to_plcsim_pipeline_workflow,
 )
+from security import require_local_session
 
 router = APIRouter()
 
@@ -30,9 +31,9 @@ STEP_NAMES = {
 
 
 class NlToSimRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     description: str = DEFAULT_ACCEPTANCE_PROMPT
-    project_path: str = ""
-    plc_ip: str = "192.168.0.110"
     block_name: str = "AutoGen"
     launch_fio: bool = False
 
@@ -50,7 +51,7 @@ def _step_payload(step: StepResult) -> dict[str, Any]:
 def _snap7_summary(result: WorkflowResult) -> dict[str, Any]:
     read_step = next((s for s in result.steps if s.tool == "plc-mcp-bridge.s7_read" and s.ok), None)
     return {
-        "verified": read_step is not None,
+        "verified": result.ok and read_step is not None,
         "readback": read_step.data if read_step else "",
     }
 
@@ -72,7 +73,10 @@ def _ensure_workflow_registered() -> None:
 
 
 @router.post("/nl-to-sim")
-async def run_nl_to_sim(req: NlToSimRequest) -> dict[str, Any]:
+async def run_nl_to_sim(
+    req: NlToSimRequest,
+    actor: str = Depends(require_local_session),
+) -> dict[str, Any]:
     """自然语言需求 → TIA/PLCSIM/FIO 主链入口。"""
     if not req.description.strip():
         raise HTTPException(status_code=400, detail="请输入自然语言控制需求")
@@ -83,10 +87,9 @@ async def run_nl_to_sim(req: NlToSimRequest) -> dict[str, Any]:
         WORKFLOW_NAME,
         input={
             "description": req.description,
-            "project_path": req.project_path,
-            "plc_ip": req.plc_ip,
             "block_name": req.block_name,
             "launch_fio": req.launch_fio,
+            "authenticated_operator": actor,
         },
     )
 

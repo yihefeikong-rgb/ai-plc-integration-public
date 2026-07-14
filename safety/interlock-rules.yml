@@ -1,4 +1,19 @@
+# 仅这些原始 S7 地址可由 s7_write 写入。地址和名称来自
+# edge-gateway/config/tags_s7.json；未映射地址一律拒绝。
+# M1.2 仅标为“急停状态”而未定义极性，不能映射为 SafetyOK 或
+# EmergencyStopOff。因此下列控制项在安全位无法独立确认时仍会 fail-closed。
+s7_write_addresses:
+  "M0.1":
+    target: "DB1.MOTOR_RUN"
+    type: "bool"
+  "MW14":
+    target: "DB1.MotorSpeed"
+    type: "int16"
+
 write_rules:
+  - target: "DB1.MOTOR_RUN"
+    require_bits: ["DB1.SafetyOK", "DB1.EmergencyStopOff"]
+
   - target: "DB1.MotorSpeed"
     max_value: 3000
     min_value: 0

@@ -20,7 +20,7 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 PLCSIM_API = TIA_MCP_DIR / "plcsim_api.py"
 TIAWORKER_EXE = TIA_MCP_DIR / "bin" / "TiaWorker.exe"
 DOWNLOAD_SCRIPT = TIA_MCP_DIR / "download_to_plcsim.py"
-P3_SCRIPT = PROJECT_ROOT / "p3_flow.py"
+P3_SCRIPT = SCRIPTS_DIR / "p3_flow.py"
 
 # ── 配置 ──
 # 追加到 sys.path 尾部，避免覆盖标准库同名模块
@@ -29,12 +29,13 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(TIA_MCP_DIR) not in sys.path:
     sys.path.append(str(TIA_MCP_DIR))
 try:
-    from config_loader import cfg
-    PROJECT_PATH = cfg.tia.project_path
-    PLC_IP = cfg.simulation.advanced.plc_ip
-    PLCSIM_INSTANCE = cfg.factory_io.plcsim_instance
-    GOLDEN_ZIP = os.path.join(os.path.dirname(PROJECT_PATH), 'factory_io1_golden.zip')
-    STORAGE_PATH = os.path.join(os.path.dirname(PROJECT_PATH), 'plcsim_storage')
+    from config_loader import cfg, validate_control_target
+    _target = validate_control_target()
+    PROJECT_PATH = str(_target.project_path)
+    PLC_IP = _target.plc_ip
+    PLCSIM_INSTANCE = _target.plcsim_instance
+    GOLDEN_ZIP = cfg.simulation.golden_backup.zip_path
+    STORAGE_PATH = cfg.simulation.golden_backup.storage_path
 except Exception as e:
     raise RuntimeError(
         f"无法加载 TIA 配置文件 (mcp-servers/tia-mcp/config.yaml): {e}\n"
@@ -84,6 +85,12 @@ _tiaworker_client = TiaWorkerClient(
 
 def _run_tiaworker(command: str, data: dict, timeout: int = 180, tia_version: str | None = None, max_retries: int = 1, dry_run: bool = False) -> dict:
     """运行 TiaWorker.exe 子进程，带超时重试（委托给共享客户端）"""
+    global _tiaworker_client
+    if _tiaworker_client.exe_path != Path(TIAWORKER_EXE):
+        _tiaworker_client = TiaWorkerClient(
+            exe_path=TIAWORKER_EXE,
+            tia_version=tia_version or _tia_version,
+        )
     return _tiaworker_client.run(
         command=command,
         data=data,

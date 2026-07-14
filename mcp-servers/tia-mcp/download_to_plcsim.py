@@ -19,11 +19,46 @@
   python download_to_plcsim.py --golden-restore       # 从 golden backup 快速恢复（不下载）
 """
 
-import sys, os, json, subprocess as _sp, tempfile
+import sys, os, json, subprocess as _sp, tempfile, uuid
 from pathlib import Path
 
-from config_loader import cfg
+from config_loader import TargetConfigurationError, cfg, validate_control_target
 TIA_PROJECT = cfg.tia.project_path
+
+
+def is_confirmed_device_download(result: dict) -> bool:
+    """只认可 TiaWorker 给出的设备级成功回执，未知格式一律失败。"""
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        return False
+    data = result.get("result")
+    return (
+        isinstance(data, dict)
+        and data.get("success") is True
+        and data.get("deviceState") == "downloaded"
+        and isinstance(data.get("operationId"), str)
+        and bool(data["operationId"].strip())
+    )
+
+
+def _verified_plcsim_target(requested_ip: str = "") -> str:
+    """在任何下载动作前，验证唯一的预配置 PLCSIM Advanced 目标。"""
+    target = validate_control_target()
+    if cfg.simulation.backend != "advanced":
+        raise ValueError("仅允许下载到已配置的 PLCSIM Advanced 实例")
+
+    configured_ip = target.plc_ip
+    if requested_ip and requested_ip != configured_ip:
+        raise ValueError("不接受自由下载 IP；只能使用配置目标")
+
+    from plcsim_api import get_instances
+
+    instances = get_instances()
+    expected_name = target.plcsim_instance
+    if len(instances) != 1:
+        raise ValueError("PLCSIM 实例数量不是唯一值，拒绝下载")
+    if instances[0].get("name") != expected_name:
+        raise ValueError(f"PLCSIM 实例身份不匹配，期望 {expected_name}")
+    return configured_ip
 
 
 def _ensure_tia_gui_running(timeout_sec: int = 120) -> bool:
@@ -105,6 +140,7 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
       - 始终使用 GUI 模式而非 headless，因为 WithoutUserInterface 需要管理员权限
       - 编译和下载在同一个 GUI 会话中完成，避免重复 attach/detach
     """
+    target_ip = _verified_plcsim_target(target_ip)
     from tia_session import tia_session
 
     print('🔌 通过 Python API 下载到 PLCSIM...')
@@ -188,17 +224,19 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
                     # 记住第一个候选（可能在列表前面）
                     if pc_iface is None:
                         pc_iface = i
-            pc_iface = pc_iface or (mode.PcInterfaces[0] if mode.PcInterfaces.Count > 0 else None)
             if pc_iface is None:
-                print('❌ 未找到可用网卡')
+                print('❌ 未找到唯一的 PLCSIM 接口')
                 return -1
 
-            target = pc_iface.TargetInterfaces[0] if pc_iface.TargetInterfaces.Count > 0 else None
+            if pc_iface.TargetInterfaces.Count != 1:
+                print('❌ PLCSIM 目标数量不是唯一值')
+                return -1
+            target = pc_iface.TargetInterfaces[0]
             if target is None:
                 print('❌ 未找到目标 PLC')
                 return -1
 
-            ip = target_ip or '192.168.0.1'
+            ip = target_ip
             addr = target.Addresses.Create(ip)
 
             print(f'   网卡: {pc_iface.Name}')
@@ -254,20 +292,20 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
                 _update_golden_backup()
                 return 0
             else:
-                print(f'⚠ 下载状态: {result.State}')
-                project.Save()
-                return 0
+                print(f'❌ 下载未得到设备级成功状态: {result.State}')
+                return 1
     except Exception as e:
         msg = str(e)
-        print(f'⚠ 下载异常: {msg[:200]}')
+        print(f'❌ 下载异常，结果未知，禁止回退或重试: {msg[:200]}')
         if 'Connection to TiaPortal failed' in msg:
             print('   TIA Portal GUI 连接失败（可能未完全启动）')
-        return -1
+        return 1
 
 
 def download_via_ui(compile_first: bool = False) -> int:
     from pathlib import Path as _Path
 
+    _verified_plcsim_target()
     dl_script = _Path(__file__).parent / 'dl_plcsim_gui.py'
     project_name = os.path.basename(TIA_PROJECT)
 
@@ -290,7 +328,7 @@ def download_via_ui(compile_first: bool = False) -> int:
         print(f'   ❌ UI Automation 异常: {e}')
         return 1
 
-    if result.get('success'):
+    if result.get('success') is True and result.get('deviceState') == 'downloaded':
         print('   ✅ TIA Portal GUI 下载完成')
 
         # Step 3: 自动更新 golden backup
@@ -313,7 +351,7 @@ def download_via_ui(compile_first: bool = False) -> int:
         print('=' * 60)
         return 0
     else:
-        error_msg = result.get('error', '未知错误')
+        error_msg = result.get('error', '未获得设备级下载成功回执')
         print(f'   ❌ UI Automation 下载失败: {error_msg}')
         print()
         print('📋 手动下载: 打开 TIA Portal GUI → 右键 PLC_1 → 下载到设备 → 软件')
@@ -346,7 +384,7 @@ def _golden_restore(target_ip: str = "") -> int:
         project_dir = os.path.dirname(TIA_PROJECT)
         golden_zip = os.path.join(project_dir, 'factory_io1_golden.zip')
         storage_path = os.path.join(project_dir, 'plcsim_storage')
-        ip = target_ip or '192.168.0.1'
+        ip = _verified_plcsim_target(target_ip)
 
         if not os.path.exists(golden_zip):
             print(f'   ❌ Golden backup 不存在: {golden_zip}')
@@ -376,6 +414,7 @@ def _try_download_via_tiaworker_gui(target_ip: str = "") -> int:
     Returns:
         0: 成功, 1: 失败, -1: 不可用（触发 fallback）
     """
+    target_ip = _verified_plcsim_target(target_ip)
     tiaworker_exe = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), 'bin', 'TiaWorker.exe'
     )
@@ -396,9 +435,10 @@ def _try_download_via_tiaworker_gui(target_ip: str = "") -> int:
     input_data = {
         "ProjectPath": project_path,
         "InterfaceName": "PN/IE",
-        "TargetIp": target_ip or "192.168.0.1",
+        "TargetIp": target_ip,
         "DeviceName": "",
         "TimeoutSec": 180,
+        "OperationId": f"download-gui-{uuid.uuid4().hex}",
     }
 
     import tempfile as _tf
@@ -421,35 +461,28 @@ def _try_download_via_tiaworker_gui(target_ip: str = "") -> int:
 
         if stdout:
             result = json.loads(stdout)
-            if result.get('status') == 'ok':
-                data = result.get('data', {})
+            if is_confirmed_device_download(result):
+                data = result['result']
                 if data.get('success'):
                     print(f'   ✅ TiaWorker (GUI) 下载成功！')
                     _update_golden_backup()
                     return 0
-                elif data.get('note') in ('gui_confirm', 'auto'):
-                    print(f'   ⚠ TiaWorker (GUI): {data.get("message", "需要 GUI 确认")}')
-                    print(f'   回退到其他下载方式...')
-                    return -1
-                else:
-                    print(f'   ❌ TiaWorker (GUI) 失败: {data.get("message", "未知错误")}')
-                    return 1
             else:
-                print(f'   ❌ TiaWorker (GUI) 错误: {result.get("error", "未知")}')
+                print(f'   ❌ TiaWorker (GUI) 未确认设备下载成功: {result}')
                 return 1
         else:
-            print('   ⚠ TiaWorker (GUI) 无输出，回退')
-            return -1
+            print('   ❌ TiaWorker (GUI) 无输出，下载结果未知，禁止回退或重试')
+            return 1
     except json.JSONDecodeError as e:
-        print(f'   ⚠ TiaWorker (GUI) 输出解析失败: {e}')
+        print(f'   ❌ TiaWorker (GUI) 输出解析失败，下载结果未知: {e}')
         print(f'   原始输出: {stdout[:200] if stdout else "(空)"}')
-        return -1
+        return 1
     except subprocess.TimeoutExpired:
         print('   ❌ TiaWorker (GUI) 超时（200s）')
         return 1
     except Exception as e:
-        print(f'   ⚠ TiaWorker (GUI) 异常: {e}')
-        return -1
+        print(f'   ❌ TiaWorker (GUI) 异常，下载结果未知: {e}')
+        return 1
     finally:
         try: os.unlink(tmp_path)
         except: pass
@@ -464,6 +497,7 @@ def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = ""
     Returns:
         0: 成功, 1: 失败, -1: TiaWorker 不可用（触发 fallback）
     """
+    target_ip = _verified_plcsim_target(target_ip)
     tiaworker_exe = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), 'bin', 'TiaWorker.exe'
     )
@@ -488,9 +522,10 @@ def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = ""
     input_data = {
         "ProjectPath": project_path,
         "InterfaceName": "PN/IE",
-        "TargetIp": target_ip or "192.168.0.1",
+        "TargetIp": target_ip,
         "DeviceName": "",
         "TimeoutSec": 120,
+        "OperationId": f"download-{uuid.uuid4().hex}",
     }
 
     # 写入临时文件
@@ -514,35 +549,28 @@ def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = ""
 
         if stdout:
             result = json.loads(stdout)
-            if result.get('status') == 'ok':
-                data = result.get('data', {})
+            if is_confirmed_device_download(result):
+                data = result['result']
                 if data.get('success'):
                     print(f'   ✅ TiaWorker 下载成功！')
                     _update_golden_backup()
                     return 0
-                elif data.get('note') == 'auto':
-                    print(f'   ⚠ TiaWorker: {data.get("message", "需要手动确认")}')
-                    print(f'   回退到其他下载方式...')
-                    return -1
-                else:
-                    print(f'   ❌ TiaWorker 下载失败: {data.get("message", "未知错误")}')
-                    return 1
             else:
-                print(f'   ❌ TiaWorker 返回错误: {result.get("error", "未知")}')
+                print(f'   ❌ TiaWorker 未确认设备下载成功: {result}')
                 return 1
         else:
-            print('   ⚠ TiaWorker 无输出，回退')
-            return -1
+            print('   ❌ TiaWorker 无输出，下载结果未知，禁止回退或重试')
+            return 1
     except json.JSONDecodeError as e:
-        print(f'   ⚠ TiaWorker 输出解析失败: {e}')
+        print(f'   ❌ TiaWorker 输出解析失败，下载结果未知: {e}')
         print(f'   原始输出: {stdout[:200] if stdout else "(空)"}')
-        return -1
+        return 1
     except _sp.TimeoutExpired:
         print('   ❌ TiaWorker 超时（180s）')
         return 1
     except Exception as e:
-        print(f'   ⚠ TiaWorker 异常: {e}')
-        return -1
+        print(f'   ❌ TiaWorker 异常，下载结果未知: {e}')
+        return 1
     finally:
         try:
             os.unlink(tmp_path)
@@ -590,6 +618,13 @@ def _ensure_admin() -> bool:
 
 
 def main():
+    global TIA_PROJECT
+    try:
+        TIA_PROJECT = str(validate_control_target().project_path)
+    except TargetConfigurationError as exc:
+        print(f'❌ 控制目标配置无效: {exc}')
+        return 1
+
     # 检查管理员权限 — TIA Portal Openness API 需要管理员权限
     if not _ensure_admin():
         return 1

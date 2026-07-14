@@ -67,6 +67,19 @@ class SupervisedBatchTests(unittest.TestCase):
         self.assertTrue(gate["allowed"])
         self.assertEqual(gate["code"], "READY")
 
+    def test_gate_blocks_active_state_even_if_it_claims_pass(self):
+        state = {
+            "stage": "NEED_CLAUDE",
+            "review_status": "PASS",
+            "stop_rule": "NONE",
+            "session_id": "session-1",
+        }
+
+        gate = supervised_batch.evaluate_supervised_gate(state)
+
+        self.assertFalse(gate["allowed"])
+        self.assertEqual(gate["code"], "REVIEW_NOT_FINALIZED")
+
     def test_load_task_queue_ignores_comments_and_blank_lines(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             task_file = Path(temp_dir) / "tasks.txt"

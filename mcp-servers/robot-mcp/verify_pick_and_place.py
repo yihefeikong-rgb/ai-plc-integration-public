@@ -20,8 +20,14 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 ROBOT_DIR = Path(__file__).parent
 PROJECT_ROOT = ROBOT_DIR.parent.parent
 sys.path.insert(0, str(ROBOT_DIR))
+TIA_MCP_DIR = PROJECT_ROOT / "mcp-servers" / "tia-mcp"
+sys.path.insert(0, str(TIA_MCP_DIR))
 
-PLC_IP = "192.168.0.1"
+from config_loader import validate_control_target
+
+TARGET = validate_control_target()
+
+PLC_IP = TARGET.plc_ip
 OPCUA_PORT = 4840
 OPCUA_URL = f"opc.tcp://{PLC_IP}:{OPCUA_PORT}"
 
@@ -54,7 +60,7 @@ async def test_opcua_connectivity():
         print("\n  可能原因:")
         print("    - PLCSIM 未启动或实例未 RUN")
         print("    - PLC 程序中未启用 OPC UA 服务器")
-        print("    - IP 地址不匹配 (当前设 192.168.0.1)")
+        print(f"    - IP 地址不匹配（唯一隔离目标为 {PLC_IP}）")
         print("    - 防火墙阻止端口 4840")
         print("\n  建议方案 (二选一):")
         print("    A) 在 TIA Portal 中启用 OPC UA: CPU 属性 → OPC UA → 勾选激活")

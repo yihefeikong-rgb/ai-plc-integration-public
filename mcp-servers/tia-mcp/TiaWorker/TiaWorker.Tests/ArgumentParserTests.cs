@@ -13,7 +13,7 @@ namespace TiaWorker.Tests
 
             parser.IsDryRun.Should().BeFalse();
             parser.IsAutoBackup.Should().BeTrue();
-            parser.TiaMajorVersion.Should().Be("V18");
+            parser.TiaMajorVersion.Should().Be("V21");
             parser.RemainingArgs.Should().BeEmpty();
         }
 
@@ -77,7 +77,7 @@ namespace TiaWorker.Tests
             var parser = new ArgumentParser();
             parser.Parse(new[] { "--tia-major-version" }); // no value after
 
-            parser.TiaMajorVersion.Should().Be("V18"); // unchanged
+            parser.TiaMajorVersion.Should().Be("V21"); // unchanged
         }
 
         [Fact]

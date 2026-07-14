@@ -6,11 +6,14 @@ echo   AI PLC Assistant
 echo ============================================
 echo.
 
-:: 清理端口 8005（后端）和 5173（前端）
-echo Cleaning ports...
-powershell -Command "Get-NetTCPConnection -LocalPort 8005 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-:: 等待端口释放
-timeout /t 2 /nobreak >nul
+:: 端口被占用时拒绝启动，绝不终止未知进程。
+echo Checking ports...
+powershell -NoProfile -Command "$ports = @(8005, 5173); $busy = @($ports | Where-Object { Get-NetTCPConnection -LocalPort $_ -State Listen -ErrorAction SilentlyContinue }); if ($busy.Count -gt 0) { Write-Host ('[FAIL] Port(s) already in use: ' + ($busy -join ', ')); exit 1 }"
+if errorlevel 1 (
+    echo [FAIL] 端口 8005 或 5173 已被占用；请确认并手动关闭对应服务后重试。
+    pause
+    exit /b 1
+)
 
 cd /d "%~dp0backend"
 start "backend" cmd /k "D:\Python3\python.exe" main.py

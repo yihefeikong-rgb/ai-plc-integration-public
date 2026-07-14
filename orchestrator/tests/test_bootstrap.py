@@ -124,13 +124,16 @@ async def test_bootstrap_all_failure(fresh_engine):
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_registers_workflows(fresh_engine):
-    """工作流自动注册 → engine.list_workflows() 包含 'tia_download'"""
+async def test_bootstrap_registers_only_controlled_workflows(fresh_engine):
+    """启动入口不暴露带自由工程路径/IP 的历史工作流。"""
     pool = _mock_pool(connect_ok=set())
 
     await bootstrap(pool=pool, engine=fresh_engine, server_list=[])
 
-    assert "tia_download" in fresh_engine.list_workflows()
+    workflows = fresh_engine.list_workflows()
+    assert "nl_to_plcsim_pipeline" in workflows
+    assert "tia_download" not in workflows
+    assert "tia_full_pipeline" not in workflows
 
 
 @pytest.mark.asyncio

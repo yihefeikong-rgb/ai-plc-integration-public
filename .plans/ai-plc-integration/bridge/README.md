@@ -5,12 +5,11 @@
 ## 第一阶段用途
 
 - 提供最小状态文件
-- 提供占位锁文件
+- 提供原子状态锁与审查证据绑定
 - 提供任务包、结果、审阅、下一步动作模板
 
 ## 第一阶段明确不做
 
-- 不启用自动锁
 - 不启用自动编排
 - 不启用 hooks
 - 不启用无人值守执行
@@ -34,7 +33,7 @@ bridge/
 │       ├── codex_review.md
 │       └── next_action.md
 ├── state.json          ← 当前状态快照（含 run_id 指向本轮 runs/ 子目录）
-├── lock.json           ← 占位锁
+├── state.json.lock     ← 运行时独占锁（仅运行期间存在）
 ├── README.md
 ├── agent-protocol.md
 ├── runner_readme.md
@@ -66,20 +65,19 @@ bridge/
   - `owner` → `"codex"`
   - `last_actor` → `"claude_code"`
   - `run_id` 保持不变
+  - 写入 `claude_result_sha256`，绑定本轮结果证据
 
 ### 4. Codex 审查
 
 - Codex 读取 `bridge/runs/{run_id}/claude_result.md`，对比 `task_packet.md` 的验收标准
-- Codex 写入 `bridge/runs/{run_id}/codex_review.md`，给出审查结论：PASS / CONDITIONAL PASS / BLOCK
+- Codex 写入 `bridge/runs/{run_id}/codex_review.md`，给出审查草案；草案本身不能改变状态
 
 ### 5. 人工作出决定
 
-- 人工读取 `bridge/runs/{run_id}/codex_review.md`
-- 根据审查结论决定下一步：
-  - **PASS** → 本轮闭环完成，可进入下一任务
-  - **CONDITIONAL PASS** → 人工判断是否接受，接受则闭环完成，不接受则进入返工
-  - **BLOCK** → 进入返工，从步骤 1 重新开始
-- 人工写入 `bridge/runs/{run_id}/next_action.md`，记录下一步指令
+- 人工读取 `bridge/runs/{run_id}/claude_result.md` 和 `codex_review.md`
+- 通过 `ack_review.py --reviewer human:<id>` 作出最终决定；命令会核验当前 run、结果哈希和审查文件。
+  - 仅 `stop_rule=NONE` 的运行可标记为 **PASS** 并进入 `DONE`
+  - 超时、权限拒绝、会话异常或元数据未验证必须标记为 **BLOCK**
 
 ### 流程图
 
@@ -92,9 +90,9 @@ Claude Code 写入 runs/{run_id}/claude_result.md + state.json → NEED_CODEX_RE
     ↓
 Codex 审查 runs/{run_id}/ → 写入 codex_review.md
     ↓
-人工读取 runs/{run_id}/codex_review.md → 决定 PASS / 返工 / BLOCK
+人工核验 runs/{run_id}/ 的结果与审查证据 → ack_review.py 决定 PASS / BLOCK
     ↓
-人工写入 runs/{run_id}/next_action.md → 闭环完成
+ack_review.py 原子写入 next_action.md + state.json → 闭环完成或阻断
 ```
 
 ### 关键约束
@@ -102,7 +100,7 @@ Codex 审查 runs/{run_id}/ → 写入 codex_review.md
 - 每个闭环只处理一个任务包（single slice）
 - Claude Code 和 Codex 必须为不同的 agent，禁止自我审查
 - 不启用 hooks、orchestrator、无人值守、自动轮询（第一阶段禁止）
-- 所有状态变更通过 `state.json` 显式记录，不依赖记忆或环境变量
+- 所有状态变更通过 `state.json` 显式记录，并由 `state.json.lock` 互斥和原子替换保护
 
 ## 协作层文件纳入 Git 的说明
 
@@ -126,7 +124,7 @@ Codex 审查 runs/{run_id}/ → 写入 codex_review.md
 | 文件 | 类型 |
 |------|------|
 | `state.json` | 当前状态快照（含 run_id 指向本轮 runs/ 子目录） |
-| `lock.json` | 占位锁 |
+| `bridge_state.py` | 状态枚举、锁与原子写入 |
 | `README.md` | 目录说明 |
 | `agent-protocol.md` | Agent 通信协议 |
 | `runner_readme.md` | Runner 使用文档 |
@@ -491,7 +489,7 @@ D:/Python3/python.exe .plans/ai-plc-integration/bridge/check_sidecar.py
 - 不调用任何外部 agent
 - 不自动循环
 - 不自动 git add / commit / push
-- 不写入 `state.json`、`lock.json`、`task_packet.md`、`claude_result.md`、`codex_review.md`、`next_action.md`
+- 不写入 `state.json`、`state.json.lock`、`task_packet.md`、`claude_result.md`、`codex_review.md`、`next_action.md`
 
 ### runner 支持状态
 

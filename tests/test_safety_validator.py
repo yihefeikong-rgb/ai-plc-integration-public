@@ -37,6 +37,13 @@ def test_blocks_out_of_range_value(v):
     assert not r.allowed
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_blocks_non_finite_value(v, value):
+    r = v.validate("DB1.MotorSpeed", value)
+    assert not r.allowed
+    assert "有限数值" in r.reason
+
+
 def test_blocks_value_jump(v):
     r = v.validate("DB1.MotorSpeed", 2000, current_value=100)
     assert not r.allowed

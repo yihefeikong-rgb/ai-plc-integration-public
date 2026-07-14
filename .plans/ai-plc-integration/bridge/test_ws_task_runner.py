@@ -63,8 +63,18 @@ class CreateSessionTests(unittest.TestCase):
 
     def test_resolve_session_reuses_existing_session_without_post(self):
         create_session_mock = Mock()
+        metadata = {
+            "ok": True,
+            "session_id": "existing-session",
+            "work_dir": str(ws_task_runner.PROJECT_ROOT),
+            "permission_mode": "default",
+            "verified": True,
+        }
 
-        with patch.object(ws_task_runner, "create_session", create_session_mock):
+        with (
+            patch.object(ws_task_runner, "create_session", create_session_mock),
+            patch.object(ws_task_runner, "get_session_metadata", return_value=metadata),
+        ):
             result = ws_task_runner.resolve_session(
                 "http://127.0.0.1:3456",
                 reuse_session_id="existing-session",
@@ -75,9 +85,57 @@ class CreateSessionTests(unittest.TestCase):
         self.assertTrue(result["reused"])
         self.assertEqual(result["session_id"], "existing-session")
 
+    def test_resolve_session_rejects_unverified_reused_session_without_post(self):
+        create_session_mock = Mock()
+        with (
+            patch.object(ws_task_runner, "create_session", create_session_mock),
+            patch.object(
+                ws_task_runner,
+                "get_session_metadata",
+                return_value={"ok": False, "error": "metadata unavailable"},
+            ),
+        ):
+            result = ws_task_runner.resolve_session(
+                "http://127.0.0.1:3456",
+                reuse_session_id="existing-session",
+            )
+
+        create_session_mock.assert_not_called()
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["reused"])
+
+    def test_resolve_session_verifies_new_session_metadata(self):
+        with (
+            patch.object(
+                ws_task_runner,
+                "create_session",
+                return_value={"ok": True, "session_id": "new-session"},
+            ),
+            patch.object(
+                ws_task_runner,
+                "get_session_metadata",
+                return_value={
+                    "ok": True,
+                    "session_id": "new-session",
+                    "work_dir": str(ws_task_runner.PROJECT_ROOT),
+                    "permission_mode": "default",
+                    "verified": True,
+                },
+            ) as metadata_mock,
+        ):
+            result = ws_task_runner.resolve_session("http://127.0.0.1:3456")
+
+        metadata_mock.assert_called_once_with("http://127.0.0.1:3456", "new-session", timeout=10)
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["reused"])
+        self.assertTrue(result["verified"])
+
     def test_update_state_json_records_session_id(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             state_file = Path(temp_dir) / "state.json"
+            result_file = Path(temp_dir) / "claude_result.md"
+            result_file.write_text("review evidence", encoding="utf-8")
+            result_hash = ws_task_runner.artifact_sha256(result_file)
 
             with patch.object(ws_task_runner, "STATE_FILE", state_file):
                 ws_task_runner.update_state_json(
@@ -85,12 +143,17 @@ class CreateSessionTests(unittest.TestCase):
                     "run-1",
                     session_id="session-1",
                     session_reused=True,
+                    result_file=result_file,
                 )
 
             state = json.loads(state_file.read_text(encoding="utf-8"))
 
         self.assertEqual(state["session_id"], "session-1")
         self.assertTrue(state["session_reused"])
+        self.assertEqual(
+            state["claude_result_sha256"],
+            result_hash,
+        )
 
     def test_update_state_json_leaves_blocked_reason_empty_without_stop(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -195,7 +258,11 @@ class StopRuleTests(unittest.TestCase):
     def test_classify_stop_rule_returns_none_for_success(self):
         rule = ws_task_runner.classify_stop_rule(
             {"found": True},
-            {"ok": True, "work_dir": str(ws_task_runner.PROJECT_ROOT)},
+            {
+                "ok": True,
+                "verified": True,
+                "work_dir": str(ws_task_runner.PROJECT_ROOT),
+            },
             {"ok": True, "error": None, "permission_requests": []},
         )
 
@@ -232,6 +299,22 @@ class StopRuleTests(unittest.TestCase):
         self.assertEqual(rule["code"], "CWD_DRIFT")
         self.assertTrue(rule["stop"])
 
+    def test_classify_stop_rule_detects_unverified_session_metadata(self):
+        rule = ws_task_runner.classify_stop_rule(
+            {"found": True},
+            {
+                "ok": False,
+                "reused": True,
+                "metadata_checked": True,
+                "verified": False,
+                "error": "metadata unavailable",
+            },
+            {"ok": False},
+        )
+
+        self.assertEqual(rule["code"], "SESSION_METADATA_UNVERIFIED")
+        self.assertTrue(rule["stop"])
+
     def test_classify_stop_rule_detects_ws_timeout(self):
         rule = ws_task_runner.classify_stop_rule(
             {"found": True},
@@ -260,6 +343,41 @@ class StopRuleTests(unittest.TestCase):
 
 
 class WriteClaudeResultTests(unittest.TestCase):
+    def test_write_claude_result_retains_bounded_redacted_output(self):
+        sidecar_info = {"found": True, "url": "http://127.0.0.1:8889", "source": "test"}
+        session_info = {
+            "ok": True,
+            "session_id": "session-1",
+            "work_dir": str(ws_task_runner.PROJECT_ROOT),
+            "verified": True,
+        }
+        session_result = {
+            "ok": True,
+            "session_id": "session-1",
+            "permission_requests": [],
+            "events": [],
+            "thinking_count": 0,
+            "output_text": "token=super-secret\n" + ("x" * 25000),
+            "usage": {},
+            "error": None,
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result_file = ws_task_runner.write_claude_result(
+                sidecar_info,
+                session_result,
+                "test task",
+                session_info,
+                elapsed=1.0,
+                run_dir=Path(temp_dir),
+            )
+            content = result_file.read_text(encoding="utf-8")
+
+        self.assertIn("## Claude Output (retained)", content)
+        self.assertIn("token=[REDACTED]", content)
+        self.assertNotIn("super-secret", content)
+        self.assertLess(len(content), 23000)
+
     def test_write_claude_result_summary_mentions_denied_permissions_on_completed_session(self):
         sidecar_info = {
             "found": True,

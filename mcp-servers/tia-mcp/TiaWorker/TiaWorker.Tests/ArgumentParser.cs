@@ -10,7 +10,7 @@ namespace TiaWorker
         public bool IsDryRun { get; private set; }
         public bool IsAutoBackup { get; private set; } = true;
         public string BackupDir { get; private set; } = "";
-        public string TiaMajorVersion { get; private set; } = "V18";
+        public string TiaMajorVersion { get; private set; } = "V21";
         public string[] RemainingArgs { get; private set; } = Array.Empty<string>();
 
         /// <summary>
@@ -41,7 +41,7 @@ namespace TiaWorker
                 }
                 else if (arg.Equals("--tia-major-version", StringComparison.OrdinalIgnoreCase))
                 {
-                    // --tia-major-version V18 格式（取下一个 arg 作为值）
+                    // --tia-major-version V21 格式（取下一个 arg 作为值）
                     if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
                     {
                         TiaMajorVersion = args[i + 1];

@@ -1,47 +1,29 @@
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 
 BRIDGE_DIR = Path(__file__).resolve().parent
 STATE_PATH = BRIDGE_DIR / "state.json"
+if str(BRIDGE_DIR) not in sys.path:
+    sys.path.insert(0, str(BRIDGE_DIR))
 
-ACTIVE_STAGES = {
-    "NEED_CODEX_PLAN",
-    "NEED_CLAUDE",
-    "NEED_CODEX_REVIEW",
-}
-STOP_STAGES = {
-    "DONE",
-    "BLOCKED",
-    "SAFETY_BLOCK",
-}
-KNOWN_STAGES = ACTIVE_STAGES | STOP_STAGES
+from bridge_state import ACTIVE_STAGES, KNOWN_STAGES, STOP_STAGES, BridgeStateError, read_state, validate_state_shape
 
 
 def load_state() -> dict:
     try:
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SystemExit(f"[runner] state.json 不存在: {STATE_PATH}") from exc
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"[runner] state.json 不是合法 JSON: {exc}") from exc
+        return read_state(STATE_PATH)
+    except BridgeStateError as exc:
+        raise SystemExit(f"[runner] {exc}") from exc
 
 
 def validate_state(state: dict) -> tuple[str, str]:
-    stage = state.get("stage")
-    owner = state.get("owner")
-
-    if not isinstance(stage, str) or not stage:
-        raise SystemExit("[runner] state.json 缺少有效的 stage")
-    if not isinstance(owner, str) or not owner:
-        raise SystemExit("[runner] state.json 缺少有效的 owner")
-    if stage not in KNOWN_STAGES:
-        raise SystemExit(f"[runner] 不支持的 stage: {stage}")
-
-    return stage, owner
+    try:
+        return validate_state_shape(state)
+    except BridgeStateError as exc:
+        raise SystemExit(f"[runner] {exc}") from exc
 
 
 def _runs_path(run_id: str, filename: str) -> str:
@@ -81,8 +63,8 @@ def build_claude_prompt(state: dict, run_id: str = "") -> str:
 2. 再读取 {_runs_path(run_id, "task_packet.md")}
 3. 严格按任务包的 Scope 和 Out of Scope 执行
 4. 禁止触碰业务目录和禁止文件
-5. 完成后只按协议回填 {_runs_path(run_id, "claude_result.md")}
-6. 将 `state.json` 更新为 `NEED_CODEX_REVIEW`（含 run_id）
+5. 完成后只按协议回填 {_runs_path(run_id, "claude_result.md")}；不得直接修改 `state.json`
+6. 由受控 Bridge 运行者以原子锁将状态切换为 `NEED_CODEX_REVIEW`（含 run_id 和结果哈希）
 7. 不做 Codex Review，不自动调用任何 CLI，不自动提交 Git
 """
 
@@ -97,9 +79,9 @@ def build_codex_review_prompt(state: dict, run_id: str = "") -> str:
 执行要求：
 1. 读取 {_runs_path(run_id, "task_packet.md")}、{_runs_path(run_id, "claude_result.md")}、`state.json`
 2. 对照验收标准审查范围、产出和状态是否一致
-3. 只允许写 {_runs_path(run_id, "codex_review.md")}、{_runs_path(run_id, "next_action.md")}、`state.json`
-4. 如果通过，写 PASS 并把状态收敛到 DONE
-5. 如果失败，写 BLOCK 并给出明确返工要求
+3. 只允许写 {_runs_path(run_id, "codex_review.md")}；不得直接修改 `next_action.md` 或 `state.json`
+4. 写出可供人工核验的审查草案，不得自行宣布最终 PASS 或将状态收敛到 DONE
+5. 由人类审查人使用 `ack_review.py` 绑定结果哈希、审查产物和决策后，才能进入 DONE 或 BLOCKED
 6. 不修改业务代码，不调用任何 CLI，不自动提交 Git
 """
 

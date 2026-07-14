@@ -1,7 +1,38 @@
 """LLM 调用服务 — 支持 OpenAI 兼容接口 + Anthropic Claude"""
 
+import os
+from urllib.parse import urlparse
+
 from openai import OpenAI
 from storage.app_settings import get_settings_store
+
+
+TRUSTED_PROVIDER_HOSTS = {
+    "deepseek": {"api.deepseek.com"},
+    "openai": {"api.openai.com"},
+    "kimi": {"api.moonshot.ai", "api.moonshot.cn"},
+    "claude": {"api.anthropic.com"},
+}
+
+
+def _validate_provider_endpoint(provider: str, base_url: str) -> None:
+    """控制密钥只能发送到明确允许的 HTTPS 供应商端点。"""
+    parsed = urlparse(base_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("模型服务地址必须是受信任的 HTTPS 地址")
+
+    if provider == "custom":
+        allowed = {
+            value.strip().rstrip("/")
+            for value in os.environ.get("LLM_CUSTOM_BASE_URLS", "").split(",")
+            if value.strip()
+        }
+        if base_url.rstrip("/") not in allowed:
+            raise ValueError("自定义模型服务地址未获显式批准")
+        return
+
+    if parsed.hostname.lower() not in TRUSTED_PROVIDER_HOSTS.get(provider, set()):
+        raise ValueError("模型服务地址不在供应商 HTTPS 白名单中")
 
 
 def _get_provider_config(provider: str) -> dict:
@@ -37,6 +68,7 @@ def chat(
 
     if not cfg["api_key"]:
         raise ValueError(f"模型 {model_id} 未配置 API Key，请在设置中配置")
+    _validate_provider_endpoint(provider, cfg["base_url"])
 
     # Claude 使用 Anthropic SDK
     if provider == "claude":
@@ -47,7 +79,12 @@ def chat(
 
 
 def _call_openai_compatible(cfg: dict, messages: list, temperature: float, max_tokens: int) -> str:
-    client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+    client = OpenAI(
+        api_key=cfg["api_key"],
+        base_url=cfg["base_url"],
+        timeout=30.0,
+        max_retries=0,
+    )
     response = client.chat.completions.create(
         model=cfg["model"],
         messages=messages,
@@ -66,7 +103,7 @@ def _call_anthropic(cfg: dict, messages: list, temperature: float, max_tokens: i
     except ImportError:
         raise ImportError("请安装 anthropic SDK: pip install anthropic")
 
-    client = Anthropic(api_key=cfg["api_key"])
+    client = Anthropic(api_key=cfg["api_key"], timeout=30.0, max_retries=0)
 
     # 分离 system prompt 和对话消息
     system_text = ""
@@ -112,8 +149,9 @@ def chat_with_fallback(
     messages: list[dict] | None = None,
     temperature: float = 0.3,
     max_tokens: int = 4096,
+    allow_fallback: bool = False,
 ) -> dict:
-    """带自动切换的聊天 — 主模型失败时尝试下一个
+    """可选的显式切换聊天 — 默认绝不把密钥发送到另一供应商。
 
     Returns:
         {"content": str, "model": str, "fallback": bool}
@@ -126,7 +164,8 @@ def chat_with_fallback(
         content = chat(model_id, messages, temperature, max_tokens)
         return {"content": content, "model": model_id, "fallback": False}
     except Exception as primary_err:
-        pass
+        if not allow_fallback:
+            raise
 
     # 主模型失败 → 尝试其他已配置模型
     available = get_available_providers()
@@ -169,6 +208,7 @@ def chat_stream(
 
     if not cfg["api_key"]:
         raise ValueError(f"模型 {model_id} 未配置 API Key，请在设置中配置")
+    _validate_provider_endpoint(provider, cfg["base_url"])
 
     if provider == "claude":
         yield from _stream_anthropic(cfg, messages, temperature, max_tokens)
@@ -177,7 +217,12 @@ def chat_stream(
 
 
 def _stream_openai_compatible(cfg: dict, messages: list, temperature: float, max_tokens: int):
-    client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+    client = OpenAI(
+        api_key=cfg["api_key"],
+        base_url=cfg["base_url"],
+        timeout=30.0,
+        max_retries=0,
+    )
     response = client.chat.completions.create(
         model=cfg["model"],
         messages=messages,
@@ -196,7 +241,7 @@ def _stream_anthropic(cfg: dict, messages: list, temperature: float, max_tokens:
     except ImportError:
         raise ImportError("请安装 anthropic SDK: pip install anthropic")
 
-    client = Anthropic(api_key=cfg["api_key"])
+    client = Anthropic(api_key=cfg["api_key"], timeout=30.0, max_retries=0)
 
     system_text = ""
     chat_messages = []

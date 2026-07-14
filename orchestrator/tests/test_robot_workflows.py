@@ -130,8 +130,9 @@ class TestRobotPickPlace:
         result = asyncio.run(
             engine.run_async("robot_pick_place", input={})
         )
-        # 工作流本身 ok（没有异常），但只执行了 get_status
-        assert result.ok is True
+        # 急停是必须向调用方暴露的失败状态，不能被误报为成功。
+        assert result.ok is False
+        assert "急停已触发" in result.error
         tools_called = [s.tool for s in result.steps]
         assert "robot-mcp.get_status" in tools_called
         # 不应执行 go_home / pick / place

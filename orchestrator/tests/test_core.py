@@ -390,22 +390,25 @@ from unittest.mock import MagicMock
 
 
 class TestWriteToolDetection:
-    """测试 _is_write_tool 写入工具名模式匹配"""
+    """只对最终变量写入启用运行态 SafetyGate。"""
 
-    def test_write_tool_detected(self):
+    def test_final_variable_write_tools_are_detected(self):
         ctx = WorkflowContext()
         assert ctx._is_write_tool("plc-mcp-bridge.s7_write") is True
-        assert ctx._is_write_tool("plc-mcp-bridge.plc_write") is True
-        assert ctx._is_write_tool("plc-mcp-bridge.plc_apply") is True
-        assert ctx._is_write_tool("plc-mcp-bridge.plc_download_project") is True
-        assert ctx._is_write_tool("plc-mcp-bridge.plc_compile_project") is True
-        assert ctx._is_write_tool("plc-mcp-bridge.plc_create_block") is True
-        assert ctx._is_write_tool("plc-mcp-bridge.plc_delete_db") is True
-        assert ctx._is_write_tool("plc-mcp-bridge.plc_import_block") is True
-        assert ctx._is_write_tool("plc-mcp-bridge.plc_golden_restore") is True
+        assert ctx._is_write_tool("opcua-mcp.opcua_write") is True
+        assert ctx._is_write_tool("modbus-mcp.write_coil") is True
+        assert ctx._is_write_tool("modbus-mcp.write_register") is True
+        assert ctx._is_write_tool("mitsubishi-mcp.write_device") is True
 
-    def test_read_tool_not_detected(self):
+    def test_engineering_operations_do_not_use_runtime_tag_safety_gate(self):
         ctx = WorkflowContext()
+        assert ctx._is_write_tool("plc-mcp-bridge.plc_apply") is False
+        assert ctx._is_write_tool("plc-mcp-bridge.plc_download_project") is False
+        assert ctx._is_write_tool("plc-mcp-bridge.plc_compile_project") is False
+        assert ctx._is_write_tool("plc-mcp-bridge.plc_create_block") is False
+        assert ctx._is_write_tool("plc-mcp-bridge.plc_delete_db") is False
+        assert ctx._is_write_tool("plc-mcp-bridge.plc_import_block") is False
+        assert ctx._is_write_tool("plc-mcp-bridge.plc_golden_restore") is False
         assert ctx._is_write_tool("plc-mcp-bridge.s7_read") is False
         assert ctx._is_write_tool("plc-mcp-bridge.plc_list_blocks") is False
         assert ctx._is_write_tool("plc-mcp-bridge.plc_get_project_info") is False
@@ -415,6 +418,7 @@ class TestWriteToolDetection:
     def test_case_insensitive(self):
         ctx = WorkflowContext()
         assert ctx._is_write_tool("PLC-MCP-BRIDGE.S7_WRITE") is True
+        assert ctx._is_write_tool("MODBUS-MCP.WRITE_COIL") is True
         assert ctx._is_write_tool("PLC-MCP-BRIDGE.S7_READ") is False
 
 
@@ -443,29 +447,33 @@ class TestSafetyGateIntegration:
                 {"tag_name": "ESTOP_MAIN", "value": 1},
             )
 
-    def test_write_tool_passes_safety_gate(self):
-        """SafetyGate 通过后应正常继续"""
+    def test_write_tool_requires_a_confirmation_token_when_gate_requires_it(self):
+        """核心仅放行携带令牌的最终写入，令牌真实性由最终工具消费。"""
         from orchestrator.safety_gate import SafetyGate
 
         gate = SafetyGate()
         ctx = WorkflowContext(_safety_gate=gate)
 
-        # 正常标签不应被拒绝
+        with pytest.raises(RuntimeError, match="需要人工确认"):
+            ctx._check_safety_gate(
+                "plc-mcp-bridge.s7_write",
+                {"tag_name": "MotorSpeed", "value": 1500},
+            )
+
         ctx._check_safety_gate(
             "plc-mcp-bridge.s7_write",
-            {"tag_name": "MotorSpeed", "value": 1500},
+            {"tag_name": "MotorSpeed", "value": 1500, "confirmation_token": "opaque-token"},
         )
-        # 不抛异常即通过
 
-    def test_write_tool_no_gate_warns(self):
-        """未配置 SafetyGate 时写入操作应警告但放行"""
+    def test_write_tool_no_gate_rejects(self):
+        """未配置 SafetyGate 时写入操作必须失败关闭。"""
         ctx = WorkflowContext(_safety_gate=None)
 
-        # 不应抛异常，只是警告
-        ctx._check_safety_gate(
-            "plc-mcp-bridge.s7_write",
-            {"tag_name": "MotorSpeed", "value": 1500},
-        )
+        with pytest.raises(RuntimeError, match="安全门未配置"):
+            ctx._check_safety_gate(
+                "plc-mcp-bridge.s7_write",
+                {"tag_name": "MotorSpeed", "value": 1500},
+            )
 
     def test_safety_gate_uses_arg_aliases(self):
         """SafetyGate 应能从不同参数名提取 tag_name 和 value"""
@@ -477,7 +485,7 @@ class TestSafetyGateIntegration:
         # 使用 address 替代 tag_name
         ctx._check_safety_gate(
             "plc-mcp-bridge.s7_write",
-            {"address": "MotorSpeed", "value": 1500},
+            {"address": "MotorSpeed", "value": 1500, "confirmation_token": "opaque-token"},
         )
 
         # 使用 block_name 替代 tag_name
@@ -486,15 +494,12 @@ class TestSafetyGateIntegration:
             {"block_name": "MyBlock", "data": "scl code"},
         )
 
-    def test_audit_tool_call_does_not_raise(self):
-        """审计日志记录失败不应影响主流程"""
+    def test_readonly_audit_failure_does_not_raise(self):
+        """只读工具的审计异常不会影响主流程。"""
+        from unittest.mock import patch
         ctx = WorkflowContext()
-        # 即使 safety.audit 不可用也不应抛出异常
-        ctx._audit_tool_call(
-            "plc-mcp-bridge.s7_write",
-            {"tag_name": "MotorSpeed", "value": 1500},
-            {"ok": True},
-        )
+        with patch("mcp_common.audit.get_audit_logger", side_effect=OSError("unavailable")):
+            ctx._audit_tool_call("plc-mcp-bridge.s7_read", {"address": "M0.0"}, {"ok": True})
 
 
 class TestOrchestratorEngineSafetyGate:

@@ -32,6 +32,39 @@ class TestS7WriteSafetyGuard:
 class TestS7WriteInterlockCheck:
     """测试互锁校验"""
 
+    def test_confirmation_required_rejects_before_adapter_write(self, monkeypatch):
+        """需要人工确认的写入不得到达 S7 适配器。"""
+        import tools_s7
+
+        mock_adapter = MagicMock()
+        mock_adapter.parse_write_value.return_value = True
+        mock_adapter.write_address.return_value = "不应写入"
+        mock_validator = MagicMock()
+        mock_validator.resolve_s7_write_address.return_value = {
+            "target": "DB1.MOTOR_RUN",
+            "type": "bool",
+        }
+        mock_validator.validate.return_value = MagicMock(
+            allowed=True,
+            needs_confirmation=True,
+            reason="需要人工确认",
+        )
+
+        monkeypatch.setattr(tools_s7, "SAFETY_AVAILABLE", True)
+        monkeypatch.setattr(tools_s7, "adapter", mock_adapter)
+        monkeypatch.setattr(tools_s7, "safety_val", mock_validator)
+        monkeypatch.setattr(
+            tools_s7,
+            "shadow_sim",
+            MagicMock(simulate_write=AsyncMock(return_value=MagicMock(safe=True))),
+        )
+        monkeypatch.setattr(tools_s7, "_audit", MagicMock())
+
+        result = asyncio.run(tools_s7.s7_write("M0.1", "true"))
+
+        assert "需要人工确认" in result
+        mock_adapter.write_address.assert_not_called()
+
     @patch("tools_s7.adapter")
     def test_forbidden_tag_rejected(self, mock_adapter):
         """安全标签（ESTOP 等）写入必须被拒绝"""
@@ -48,22 +81,21 @@ class TestS7WriteInterlockCheck:
         import tools_s7
         tools_s7.SAFETY_AVAILABLE = True
 
-        # DB1.MotorSpeed 在 interlock-rules.yml 中 max_value=3000
-        result = asyncio.run(tools_s7.s7_write("DB1.MotorSpeed", "5000"))
+        # MW14 映射到 DB1.MotorSpeed，后者 max_value=3000
+        result = asyncio.run(tools_s7.s7_write("MW14", "5000"))
         assert "拒绝" in result or "超出" in result
         mock_adapter.write_address.assert_not_called()
 
     @patch("tools_s7.adapter")
-    def test_normal_write_succeeds(self, mock_adapter):
-        """正常值写入应成功"""
+    def test_unmapped_address_is_rejected(self, mock_adapter):
+        """未映射的原始地址不得因数值正常而写入。"""
         import tools_s7
         tools_s7.SAFETY_AVAILABLE = True
         mock_adapter.write_address.return_value = "✅ 写入成功"
 
         result = asyncio.run(tools_s7.s7_write("MW10", "100"))
-        # 如果影子仿真和互锁都通过，应该成功
-        # 注意：如果 shadow_sim 在测试环境不可用，写入仍应基于 validator 结果
-        assert "失败" not in result or "成功" in result
+        assert "未映射" in result
+        mock_adapter.write_address.assert_not_called()
 
 
 class TestS7WriteFuse:
@@ -79,12 +111,12 @@ class TestS7WriteFuse:
         # 重置计数器
         validator.consecutive_errors = 0
 
-        # 触发 3 次安全标签写入（每次 +1 错误）
+        # 原始地址在映射前就会拒绝；直接触发三次安全标签校验以建立熔断状态。
         for _ in range(3):
-            asyncio.run(tools_s7.s7_write("SAFETY_TAG_1", "1"))
+            validator.validate("SAFETY_TAG_1", 1)
 
-        # 第 4 次应触发熔断（即使是普通标签）
-        result = asyncio.run(tools_s7.s7_write("DB1.NormalTag", "100"))
+        # 原始地址映射先于联锁；将熔断状态置入校验器后，映射地址也必须被阻断。
+        result = asyncio.run(tools_s7.s7_write("MW14", "100"))
         assert "熔断" in result
 
         # 清理
@@ -97,18 +129,34 @@ class TestS7WriteAudit:
     @patch("tools_s7._audit")
     @patch("tools_s7.adapter")
     @patch("tools_s7.shadow_sim")
-    def test_successful_write_logged(self, mock_sim, mock_adapter, mock_audit):
+    def test_successful_write_logged(self, mock_sim, mock_adapter, mock_audit, monkeypatch):
         """成功写入应记录审计日志"""
         import tools_s7
         tools_s7.SAFETY_AVAILABLE = True
 
         mock_adapter.write_address.return_value = "✅ OK"
+        mock_adapter.parse_write_value.return_value = 50
         mock_sim.simulate_write = AsyncMock(
             return_value=MagicMock(safe=True)
         )
+        mock_validator = MagicMock()
+        mock_validator.resolve_s7_write_address.return_value = {
+            "target": "DB1.MotorSpeed",
+            "type": "int16",
+        }
+        mock_validator.validate.return_value = MagicMock(
+            allowed=True,
+            needs_confirmation=False,
+            reason="OK",
+        )
+        monkeypatch.setattr(tools_s7, "safety_val", mock_validator)
 
-        asyncio.run(tools_s7.s7_write("MW10", "50"))
-        mock_audit.log.assert_called_with("write", "MW10", "50", success=True)
+        asyncio.run(tools_s7.s7_write("MW14", "50"))
+        mock_audit.begin_control_operation.assert_called_once()
+        mock_audit.log.assert_called_with(
+            "write", "MW14", "50", operator="", success=True,
+            detail="semantic_target=DB1.MotorSpeed",
+        )
 
     @patch("tools_s7._audit")
     @patch("tools_s7.adapter")

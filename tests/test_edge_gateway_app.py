@@ -22,6 +22,19 @@ for p in [str(_EDGE_ROOT), str(_EDGE_SRC),
         sys.path.insert(0, p)
 
 # ── Mock 所有 app.py 的外部依赖 ──
+_SHADOWED_MODULES = (
+    "mcp_common",
+    "mcp_common.config",
+    "mcp_common.audit",
+    "safety",
+    "safety.validator",
+    "influxdb_client",
+    "influxdb_client.client.write_api",
+    "src",
+    "src.ai_client",
+)
+_ORIGINAL_MODULES = {name: sys.modules.get(name) for name in _SHADOWED_MODULES}
+
 sys.modules["mcp_common"] = MagicMock()
 sys.modules["mcp_common.config"] = MagicMock()
 
@@ -64,6 +77,12 @@ sys.modules["src.ai_client"].ai = _ai_mock
 # ── 最后导入 app ──
 import app as edge_app
 from app import EdgeGateway, HAS_INFLUX
+
+for _module_name, _original_module in _ORIGINAL_MODULES.items():
+    if _original_module is None:
+        sys.modules.pop(_module_name, None)
+    else:
+        sys.modules[_module_name] = _original_module
 
 
 # ===== 夹具 =====
@@ -162,6 +181,36 @@ class TestChange:
 # ===== AI 循环 =====
 
 class TestAiLoop:
+    @pytest.mark.asyncio
+    async def test_confirmation_required_skips_write_function(self, gw, monkeypatch):
+        edge_app.ai = MagicMock(
+            analyze_data=AsyncMock(return_value="analysis"),
+            decide_control=AsyncMock(
+                return_value='{"action":"write","target":"MOTOR_1","value":1}'
+            ),
+        )
+        monkeypatch.setattr(
+            edge_app.safety_validator,
+            "validate",
+            MagicMock(
+                return_value=MagicMock(
+                    allowed=True,
+                    needs_confirmation=True,
+                    reason="需要人工确认",
+                )
+            ),
+        )
+        write_func = MagicMock()
+
+        with patch.object(gw, "_has_significant_change", return_value=True):
+            with patch.object(gw, "_is_out_of_bounds", return_value=False):
+                await gw.ai_control_loop(
+                    [{"tag": "MW10", "name": "T", "value": 50, "status": "ok"}],
+                    write_func=write_func,
+                )
+
+        write_func.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_normal_skips_ai(self, gw):
         with patch.object(gw, "_has_significant_change", return_value=False):

@@ -1,10 +1,12 @@
 """设置 API — 前端读写 + 模型测试"""
 
 import time
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from security import require_local_session
 from storage.app_settings import get_settings_store
 
 router = APIRouter()
@@ -42,6 +44,24 @@ PROVIDER_MODELS = {
     },
 }
 
+TRUSTED_BASE_URLS = {
+    config["base_url"]
+    for config in PROVIDER_MODELS.values()
+    if config["base_url"]
+}
+
+
+def _validate_base_urls(updates: dict[str, str], store) -> None:
+    for key, value in updates.items():
+        if not key.endswith("_base_url") or not value:
+            continue
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or value not in TRUSTED_BASE_URLS:
+            raise HTTPException(status_code=422, detail="模型服务地址不在 HTTPS 白名单中")
+        api_key_name = key.replace("_base_url", "_api_key")
+        if value != store.get(key) and store.get(api_key_name) and not updates.get(api_key_name):
+            raise HTTPException(status_code=422, detail="修改模型服务地址时必须重新提供 API Key")
+
 
 class SettingsUpdate(BaseModel):
     deepseek_api_key: str = ""
@@ -73,11 +93,12 @@ async def get_settings():
 
 
 @router.put("")
-async def update_settings(data: SettingsUpdate):
+async def update_settings(data: SettingsUpdate, _: None = Depends(require_local_session)):
     store = get_settings_store()
     if store is None:
         raise HTTPException(status_code=503, detail="设置存储未初始化")
     updates = {k: v for k, v in data.model_dump().items() if v}
+    _validate_base_urls(updates, store)
     result = store.update(updates)
     return {"settings": result, "status": "saved"}
 
@@ -88,7 +109,7 @@ async def get_providers():
 
 
 @router.post("/test/{provider}")
-async def test_provider(provider: str):
+async def test_provider(provider: str, _: None = Depends(require_local_session)):
     store = get_settings_store()
     if store is None:
         raise HTTPException(status_code=503, detail="设置存储未初始化")

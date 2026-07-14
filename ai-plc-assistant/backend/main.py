@@ -30,6 +30,8 @@ from storage.conversations import ConversationStore
 from storage.projects import ProjectStore
 from storage.app_settings import AppSettings, set_settings_store
 from orchestrator.bootstrap import bootstrap, shutdown as orchestrator_shutdown
+from orchestrator.core import get_engine
+from orchestrator.mcp_owner import McpOwnerBusyError, McpOwnerLock
 from orchestrator.mcp_pool import McpConnectionPool
 
 # 知识库引擎（全局单例）
@@ -45,7 +47,7 @@ conv_store = ConversationStore(db_path=app_config.conversations_db)
 project_store = ProjectStore(db_path=app_config.conversations_db.replace("conversations", "projects"))
 
 # 应用设置（全局单例）
-app_settings_store = AppSettings(file_path="data/settings.json")
+app_settings_store = AppSettings(file_path=app_config.app_settings_path)
 
 
 @asynccontextmanager
@@ -63,26 +65,40 @@ async def lifespan(app: FastAPI):
     app_settings_store.initialize()
     set_settings_store(app_settings_store)
 
-    # 编排层初始化
-    pool = McpConnectionPool()
+    # 后端是默认 MCP 生命周期所有者；第二个进程必须失败关闭，不能重复拉起子进程。
+    owner_lock = McpOwnerLock("ai-plc-assistant-backend")
     try:
-        await bootstrap(pool=pool)
-        logger.info("编排层初始化完成")
-    except Exception as e:
-        logger.warning(f"编排层初始化失败（非致命）: {e}")
-    app.state.orchestrator_pool = pool
+        owner_lock.acquire()
+    except McpOwnerBusyError as exc:
+        logger.error("MCP 所有者冲突: %s", exc)
+        raise
 
-    logger.info("所有引擎初始化完成")
-    yield
-
-    # 编排层关闭
     try:
-        await orchestrator_shutdown(pool=app.state.orchestrator_pool)
-        logger.info("编排层已关闭")
-    except Exception as e:
-        logger.warning(f"编排层关闭失败: {e}")
+        # 编排层初始化
+        pool = McpConnectionPool()
+        engine = get_engine()
+        try:
+            await bootstrap(pool=pool, engine=engine)
+            logger.info("编排层初始化完成")
+        except Exception as e:
+            logger.warning(f"编排层初始化失败（非致命）: {e}")
+        app.state.orchestrator_pool = pool
+        app.state.orchestrator_engine = engine
 
-    logger.info("后端服务已关闭")
+        logger.info("所有引擎初始化完成")
+        yield
+    finally:
+        # 编排层关闭
+        try:
+            if hasattr(app.state, "orchestrator_pool"):
+                await orchestrator_shutdown(pool=app.state.orchestrator_pool)
+                logger.info("编排层已关闭")
+        except Exception as e:
+            logger.warning(f"编排层关闭失败: {e}")
+        finally:
+            owner_lock.release()
+
+        logger.info("后端服务已关闭")
 
 
 app = FastAPI(
@@ -95,7 +111,7 @@ app = FastAPI(
 # CORS — 允许 Electron 前端访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "null"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

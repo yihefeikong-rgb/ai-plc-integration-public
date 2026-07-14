@@ -5,20 +5,20 @@ PLCSIM Advanced .NET API 封装 — 入口模块，从子模块 re-export 所有
     from plcsim_api import create_instance, get_instances, stop_instance
 
     # 创建并启动实例
-    inst = create_instance("factory io1", "10.0.0.1", "255.255.255.0")
+    inst = create_instance("factoryio")
 
     # 从黄金备份克隆
-    restore_instance("new_plc", "golden.zip", "D:\\persist\\new_plc", "10.0.0.2")
+    restore_instance("factoryio", "golden.zip", "D:\\persist\\factoryio")
 
     # 查看所有已注册实例
     for info in get_instances():
         print(f"{info['name']} → {info['state']}")
 
     # 停止并删除
-    stop_instance("factory io1")
+    stop_instance("factoryio")
 
     # 上下文管理器（自动清理）
-    with PlcSimInstance("test", "10.0.0.1") as inst:
+    with PlcSimInstance("factoryio") as inst:
         inst.run()
 
 依赖:
@@ -27,6 +27,13 @@ PLCSIM Advanced .NET API 封装 — 入口模块，从子模块 re-export 所有
     - DLL: C:\\Program Files (x86)\\Common Files\\Siemens\\PLCSIMADV\\API\\8.0\\...
 """
 import sys
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from mcp_common.control_target import get_control_target
 
 # ── 从子模块 re-export 所有公开函数 ──
 from plcsim_common import (
@@ -70,6 +77,7 @@ if __name__ == "__main__":
 
     cmd = sys.argv[1]
     try:
+        target = get_control_target()
         if cmd == "list":
             instances = get_instances()
             if instances:
@@ -79,35 +87,35 @@ if __name__ == "__main__":
                 print("  无运行实例")
 
         elif cmd == "create":
-            name = sys.argv[2] if len(sys.argv) > 2 else "test"
-            ip = sys.argv[3] if len(sys.argv) > 3 else "192.168.0.1"
+            name = sys.argv[2] if len(sys.argv) > 2 else target.plcsim_instance
+            ip = sys.argv[3] if len(sys.argv) > 3 else target.plc_ip
             cpu = sys.argv[4] if len(sys.argv) > 4 else "1511"
             create_instance(name, ip, cpu_type=cpu)
 
         elif cmd == "stop":
-            stop_instance(sys.argv[2])
+            stop_instance(sys.argv[2] if len(sys.argv) > 2 else target.plcsim_instance)
 
         elif cmd == "stop-all":
             stop_all()
 
         elif cmd == "purge":
-            force_cleanup(sys.argv[2])
+            force_cleanup(sys.argv[2] if len(sys.argv) > 2 else target.plcsim_instance)
 
         elif cmd == "archive":
-            name = sys.argv[2]
+            name = sys.argv[2] if len(sys.argv) > 2 else target.plcsim_instance
             zip_path = sys.argv[3]
             archive_instance(name, zip_path)
 
         elif cmd == "restore":
-            name = sys.argv[2]
+            name = sys.argv[2] if len(sys.argv) > 2 else target.plcsim_instance
             zip_path = sys.argv[3]
             sp = sys.argv[4]
-            ip = sys.argv[5] if len(sys.argv) > 5 else "192.168.0.1"
+            ip = sys.argv[5] if len(sys.argv) > 5 else target.plc_ip
             restore_instance(name, zip_path, sp, ip)
 
         elif cmd == "tcpip":
-            name = sys.argv[2]
-            ip = sys.argv[3] if len(sys.argv) > 3 else "192.168.0.1"
+            name = sys.argv[2] if len(sys.argv) > 2 else target.plcsim_instance
+            ip = sys.argv[3] if len(sys.argv) > 3 else target.plc_ip
             switch_to_tcpip(name, ip)
 
         else:

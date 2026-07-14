@@ -352,8 +352,8 @@ class TestBuildPipelineSteps:
 # ============================================================================
 
 
-class TestCompileRetry:
-    """步骤 5 编译失败时自动重试（最多 3 次）"""
+class TestCompileFailure:
+    """编译工具明确失败时，工作流必须停止而非盲目重试。"""
 
     def _make_retry_engine(self, compile_results: list[dict]):
         """创建引擎用于测试重试逻辑。
@@ -409,7 +409,7 @@ class TestCompileRetry:
 
     @pytest.mark.asyncio
     async def test_compile_fail_once_then_pass(self):
-        """第 1 次编译失败，第 2 次通过 — 共执行 3+4+5 两次"""
+        """明确编译失败后不得重试或继续下载。"""
         engine = self._make_retry_engine([
             {"ok": False, "success": False, "errors": 2, "error_list": [
                 {"line": 5, "file": "RetryFB.scl", "text": "语法错误", "severity": "error"},
@@ -422,13 +422,14 @@ class TestCompileRetry:
             "tia_full_pipeline",
             input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
         )
-        assert result.ok is True
-        # 步骤: 1, 2, 3, 4, 5(fail), 3, 4, 5(pass), 6 = 9 步
-        assert len(result.steps) == 9
+        assert result.ok is False
+        assert len(result.steps) == 5
+        assert result.steps[-1].ok is False
+        assert "plc-mcp-bridge.plc_download_project" not in [s.tool for s in result.steps]
 
     @pytest.mark.asyncio
     async def test_compile_fail_three_times(self):
-        """3 次编译全部失败 — 只有 3 组步骤(3-4-5)，步骤 6 未执行"""
+        """第一次明确失败即停止，后续编译结果不得被消费。"""
         error_list = [
             {"line": 5, "file": "X.scl", "text": "语法错误", "severity": "error"},
         ]
@@ -442,15 +443,14 @@ class TestCompileRetry:
             "tia_full_pipeline",
             input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
         )
-        # 步骤: 1, 2, 3, 4, 5(fail), 3, 4, 5(fail), 3, 4, 5(fail) = 11 步（无步骤 6）
-        assert len(result.steps) == 11
-        # 验证最后 3 步是 compile 失败（步骤 6 未执行）
+        assert result.ok is False
+        assert len(result.steps) == 5
         tools_executed = [s.tool for s in result.steps]
         assert "plc-mcp-bridge.plc_download_project" not in tools_executed
 
     @pytest.mark.asyncio
     async def test_retry_preserves_error_details(self):
-        """重试过程中保留错误明细，步骤数正确反映重试次数"""
+        """失败细节不能触发自动重试或下载。"""
         first_errors = [
             {"line": 5, "file": "A.scl", "text": "语法错误: 意外的 '}',", "severity": "error"},
             {"line": 8, "file": "A.scl", "text": "变量未声明", "severity": "error"},
@@ -470,15 +470,14 @@ class TestCompileRetry:
             "tia_full_pipeline",
             input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
         )
-        # 步骤: 1, 2, 3, 4, 5, 3, 4, 5, 3, 4, 5 = 11 步（3 次尝试全部失败）
-        assert len(result.steps) == 11
-        # 未执行下载步骤
+        assert result.ok is False
+        assert len(result.steps) == 5
         tools_executed = [s.tool for s in result.steps]
         assert "plc-mcp-bridge.plc_download_project" not in tools_executed
 
     @pytest.mark.asyncio
     async def test_compile_fail_no_error_list_fallback(self):
-        """编译失败但无 error_list — 回退构造基本错误信息，仍正确重试"""
+        """编译失败但无错误明细时也必须停止。"""
         engine = self._make_retry_engine([
             {"ok": False, "success": False, "errors": 5},
             {"ok": False, "success": False, "errors": 3},
@@ -489,8 +488,8 @@ class TestCompileRetry:
             "tia_full_pipeline",
             input={"project_name": "T", "project_path": "C:/T", "scl_prompt": "test"},
         )
-        assert len(result.steps) == 11  # 3 次尝试全部失败
-        # 确认没有执行到步骤 6
+        assert result.ok is False
+        assert len(result.steps) == 5
         tools_executed = [s.tool for s in result.steps]
         assert "plc-mcp-bridge.plc_download_project" not in tools_executed
 

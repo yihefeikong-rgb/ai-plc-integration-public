@@ -95,12 +95,18 @@ def ensure_service_initialized(timeout_sec: int = 120) -> bool:
     """
     import subprocess, time, sys
 
+    try:
+        from config_loader import TargetConfigurationError, cfg, validate_control_target
+        target = validate_control_target()
+    except (AttributeError, TargetConfigurationError) as exc:
+        print(f'   ❌ 控制目标配置无效: {exc}')
+        return False
+
     # 1) 先试探 headless 连接
     try:
         import clr
-        from config_loader import cfg
         _tia_dir = cfg.tia.install_dir
-        _tia_ver = cfg.tia.version
+        _tia_ver = target.tia_version
         # V21 使用模块化 DLL（Base + Step7），V18 使用单一 DLL
         if _tia_ver >= "V21":
             clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\net48\Siemens.Engineering.Base.dll')
@@ -124,10 +130,10 @@ def ensure_service_initialized(timeout_sec: int = 120) -> bool:
     # 2) 连接失败 → 启动 TIA Portal GUI 初始化服务
     print('   🚀 TIA Portal 服务未初始化，启动 GUI 来初始化...')
     try:
-        from config_loader import cfg
         tia_bin = os.path.join(cfg.tia.install_dir, 'Bin', 'Siemens.Automation.Portal.exe')
-    except Exception:
-        tia_bin = r'D:\TIA BEN TI\Portal V18\Bin\Siemens.Automation.Portal.exe'
+    except Exception as exc:
+        print(f'   ❌ 无法从唯一配置读取 TIA 安装目录: {exc}')
+        return False
 
     if not os.path.exists(tia_bin):
         print(f'   ❌ 未找到 TIA Portal: {tia_bin}')
@@ -190,22 +196,20 @@ def tia_session(project_path: str = None, mode: str = "headless"):
     """
     import clr
 
-    # 解析项目路径
-    if not project_path:
-        try:
-            from config_loader import cfg
-            project_path = cfg.tia.project_path
-        except Exception:
-            raise ValueError("未指定 project_path 且无法从 config.yaml 读取")
+    try:
+        from config_loader import TargetConfigurationError, cfg, validate_control_target
+        target = validate_control_target()
+        _tia_dir = cfg.tia.install_dir
+        _tia_ver = target.tia_version
+    except (AttributeError, TargetConfigurationError) as exc:
+        raise ValueError(f"控制目标配置无效: {exc}") from exc
+
+    configured_project = str(target.project_path)
+    if project_path and os.path.normcase(os.path.normpath(project_path)) != os.path.normcase(os.path.normpath(configured_project)):
+        raise ValueError("拒绝非唯一配置中的 TIA 项目路径")
+    project_path = configured_project
 
     # 加载 TIA Openness DLL（V21 使用模块化 DLL）
-    try:
-        from config_loader import cfg
-        _tia_dir = cfg.tia.install_dir
-        _tia_ver = cfg.tia.version
-    except Exception:
-        _tia_dir = r'D:\TIA BEN TI\Portal V21'
-        _tia_ver = 'V21'
 
     if _tia_ver >= "V21":
         clr.AddReference(rf'{_tia_dir}\PublicAPI\{_tia_ver}\net48\Siemens.Engineering.Base.dll')

@@ -6,14 +6,18 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import hmac
+import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field
 
 from orchestrator.bootstrap import bootstrap, shutdown
 from orchestrator.core import WorkflowResult, get_engine
+from orchestrator.mcp_owner import McpOwnerBusyError, McpOwnerLock
 from orchestrator.mcp_pool import McpConnectionPool
 from orchestrator.registry import get_registry
 
@@ -23,13 +27,24 @@ _logger = logging.getLogger(__name__)
 _pool: McpConnectionPool | None = None
 
 
+async def require_local_session(x_local_api_token: str | None = Header(default=None)) -> str:
+    """独立编排 API 的本地控制鉴权，未配置令牌时失败关闭。"""
+    expected = os.environ.get("LOCAL_API_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="本地控制未配置 LOCAL_API_TOKEN")
+    if not x_local_api_token or not hmac.compare_digest(x_local_api_token, expected):
+        raise HTTPException(status_code=401, detail="本地控制会话令牌无效")
+    fingerprint = hashlib.sha256(x_local_api_token.encode("utf-8")).hexdigest()[:16]
+    return f"local-session:{fingerprint}"
+
+
 # ============================================================================
 # 请求/响应模型
 # ============================================================================
 
 class RunWorkflowRequest(BaseModel):
     """工作流执行请求"""
-    input: dict[str, Any] = {}
+    input: dict[str, Any] = Field(default_factory=dict)
 
 
 class StepResultResponse(BaseModel):
@@ -121,20 +136,33 @@ def _serialize_workflow_result(result: WorkflowResult) -> WorkflowResultResponse
 async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时 bootstrap，关闭时 shutdown"""
     global _pool
+    owner_lock = McpOwnerLock("standalone-orchestrator")
+    try:
+        owner_lock.acquire()
+    except McpOwnerBusyError as exc:
+        _logger.error("MCP 所有者冲突: %s", exc)
+        raise
+
     _pool = McpConnectionPool()
     try:
-        await bootstrap(pool=_pool)
+        await bootstrap(pool=_pool, engine=get_engine())
         _logger.info("编排层 HTTP API 启动完成")
     except Exception as e:
         _logger.error(f"编排层启动失败: {e}")
+        _pool = None
+        owner_lock.release()
         raise
-    yield
     try:
-        await shutdown(pool=_pool)
-        _logger.info("编排层 HTTP API 已关闭")
-    except Exception as e:
-        _logger.error(f"编排层关闭失败: {e}")
-    _pool = None
+        yield
+    finally:
+        try:
+            await shutdown(pool=_pool)
+            _logger.info("编排层 HTTP API 已关闭")
+        except Exception as e:
+            _logger.error(f"编排层关闭失败: {e}")
+        finally:
+            _pool = None
+            owner_lock.release()
 
 
 # ============================================================================
@@ -169,13 +197,20 @@ async def list_workflows() -> WorkflowListResponse:
 
 
 @app.post("/workflows/{name}/run", response_model=WorkflowResultResponse)
-async def run_workflow(name: str, body: RunWorkflowRequest) -> WorkflowResultResponse:
+async def run_workflow(
+    name: str,
+    body: RunWorkflowRequest,
+    actor: str = Depends(require_local_session),
+) -> WorkflowResultResponse:
     """执行指定工作流"""
     engine = get_engine()
     if name not in engine.list_workflows():
         raise HTTPException(status_code=404, detail=f"未找到工作流: {name}")
 
-    result = await engine.run_async(name, input=body.input)
+    input_data = dict(body.input)
+    # 不能信任 HTTP body 中自报的 operator；审计仅接受鉴权层生成的指纹。
+    input_data["authenticated_operator"] = actor
+    result = await engine.run_async(name, input=input_data)
     return _serialize_workflow_result(result)
 
 

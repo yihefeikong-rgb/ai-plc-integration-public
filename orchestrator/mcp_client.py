@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from mcp import ClientSession
@@ -18,6 +19,36 @@ from mcp.types import CallToolResult, ListToolsResult, TextContent
 from orchestrator.registry import ServerInfo, ToolInfo
 
 _logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    """统一的 MCP 工具调用结果。
+
+    所有经由 MCP 连接的调用都会先归一化为此结构；只有 ``ok=True``
+    的结果才允许被编排层记为成功步骤。
+    """
+
+    ok: bool
+    kind: str
+    data: Any = None
+    error: str = ""
+
+    @classmethod
+    def success(cls, data: Any, *, kind: str = "success") -> "ToolResult":
+        return cls(ok=True, kind=kind, data=data)
+
+    @classmethod
+    def failure(cls, kind: str, error: str) -> "ToolResult":
+        return cls(ok=False, kind=kind, error=error)
+
+
+_ERROR_STATUSES = {
+    "error", "failed", "fail", "rejected", "blocked", "denied",
+    "forbidden", "cancelled", "canceled",
+}
+_TEXT_ERROR_MARKERS = ("❌", "🚫", "失败", "错误", "被拒绝", "未连接", "不存在", "未配置", "无效")
+_TEXT_SUCCESS_MARKERS = ("✅", "成功", "已连接", "已断开", "📍")
 
 
 class McpClientAdapter:
@@ -110,7 +141,7 @@ class McpClientAdapter:
             )
         return tools
 
-    async def call_tool(self, tool_name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any] | None = None) -> ToolResult:
         """调用 MCP 工具。
 
         Args:
@@ -118,7 +149,7 @@ class McpClientAdapter:
             arguments: 工具参数字典
 
         Returns:
-            工具的返回结果字典，包含成功时解析出的数据或错误信息
+            统一的 ToolResult。业务错误、超时、取消和无法判定的文本均为 ok=False。
         """
         self._ensure_connected()
 
@@ -127,55 +158,84 @@ class McpClientAdapter:
 
         _logger.debug(f"调用工具 {self._server.name}.{tool_name}, 参数: {arguments}")
 
-        result: CallToolResult = await self._session.call_tool(
-            name=tool_name,
-            arguments=arguments,
-        )
+        try:
+            result: CallToolResult = await self._session.call_tool(
+                name=tool_name,
+                arguments=arguments,
+            )
+        except asyncio.CancelledError:
+            return ToolResult.failure("cancelled", "MCP 工具调用已取消")
+        except asyncio.TimeoutError:
+            return ToolResult.failure("timeout", "MCP 工具调用超时")
+        except Exception as exc:
+            return ToolResult.failure("transport_error", f"MCP 工具调用异常: {type(exc).__name__}: {exc}")
 
         return self._extract_result(result)
 
-    def _extract_result(self, result: CallToolResult) -> dict[str, Any]:
-        """从 CallToolResult 中提取可用数据。
+    @staticmethod
+    def _payload_error(payload: dict[str, Any]) -> str:
+        error = payload.get("error")
+        if error not in (None, "", False, 0, [], {}):
+            return str(payload.get("message") or error)
+        if payload.get("ok") is False or payload.get("success") is False:
+            return str(payload.get("message") or payload.get("reason") or "工具报告执行失败")
+        if str(payload.get("status", "")).lower() in _ERROR_STATUSES:
+            return str(payload.get("message") or payload.get("reason") or payload.get("status"))
+        errors = payload.get("errors")
+        if isinstance(errors, int) and errors > 0:
+            return str(payload.get("message") or f"工具报告 {errors} 个错误")
+        return ""
 
-        MCP 工具返回 content 列表（TextContent/ImageContent 等），
-        我们优先提取 structuredContent，其次拼接文本内容。
-        """
-        # 如果有结构化内容，优先使用
-        if result.structuredContent:
-            return result.structuredContent
+    def _extract_result(self, result: CallToolResult) -> ToolResult:
+        """将 CallToolResult 归一化为唯一的 ToolResult 协议。"""
+        texts = [
+            item.text for item in result.content
+            if isinstance(item, TextContent)
+        ]
+        combined = "\n".join(texts).strip()
 
-        # 拼接所有文本内容
-        texts = []
-        for item in result.content:
-            if isinstance(item, TextContent):
-                texts.append(item.text)
-
+        # isError 是 MCP 协议层的最终失败标志，优先于 structuredContent。
         if result.isError:
-            return {"error": True, "message": "\n".join(texts) if texts else "未知错误"}
+            return ToolResult.failure("tool_error", combined or "MCP 工具报告未知错误")
 
-        # 尝试解析 JSON 文本
-        if texts:
-            import json
-            import re
+        if result.structuredContent is not None:
+            return self._from_payload(result.structuredContent)
 
-            combined = "\n".join(texts)
+        if not combined:
+            return ToolResult.failure("invalid_response", "MCP 工具返回为空，无法确认成功")
+
+        import json
+        import re
+
+        try:
+            return self._from_payload(json.loads(combined))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # MCP 真实模式下部分工具会返回“文字 + JSON code block”。
+        match = re.search(r'```(?:json)?\s*\n([\s\S]*?)\n\s*```', combined)
+        if match:
             try:
-                return json.loads(combined)
+                return self._from_payload(json.loads(match.group(1)))
             except (json.JSONDecodeError, ValueError):
                 pass
 
-            # 尝试从 markdown code block 中提取 JSON
-            # MCP 真实模式下某些工具返回格式为 "文字\n```json\n{...}\n```"
-            m = re.search(r'```(?:json)?\s*\n([\s\S]*?)\n\s*```', combined)
-            if m:
-                try:
-                    return json.loads(m.group(1))
-                except json.JSONDecodeError:
-                    pass
+        return self._from_text(combined)
 
-            return {"text": combined}
+    def _from_payload(self, payload: Any) -> ToolResult:
+        if not isinstance(payload, dict):
+            return ToolResult.failure("invalid_response", "MCP 工具未返回对象形式的结构化结果")
+        if error := self._payload_error(payload):
+            return ToolResult.failure("tool_error", error)
+        return ToolResult.success(payload)
 
-        return {"text": ""}
+    @staticmethod
+    def _from_text(text: str) -> ToolResult:
+        if text.startswith("!") or any(marker in text for marker in _TEXT_ERROR_MARKERS):
+            return ToolResult.failure("tool_error", text)
+        if any(marker in text for marker in _TEXT_SUCCESS_MARKERS):
+            return ToolResult.success(text, kind="text_success")
+        return ToolResult.failure("invalid_response", "MCP 工具返回未标记的非 JSON 文本")
 
     def _ensure_connected(self) -> None:
         """确保已连接，否则抛出明确错误"""

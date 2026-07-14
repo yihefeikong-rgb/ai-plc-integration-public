@@ -16,8 +16,46 @@ from .chunker import chunk_text
 logger = logging.getLogger(__name__)
 
 
+class KnowledgeMigrationRequiredError(RuntimeError):
+    """检测到旧集合不兼容，必须先备份并显式迁移。"""
+
+
 def _create_embedding_function(model_name: str):
     """创建基于 fastembed 的中文嵌入函数（ONNX, 无需 torch）"""
+    if os.environ.get("AI_PLC_OFFLINE_TESTING") == "1":
+        class OfflineEmbeddingFunction:
+            """仅供隔离测试使用的确定性向量，禁止下载模型或访问网络。"""
+
+            def __call__(self, input):
+                return self.embed_documents(input)
+
+            def embed_documents(self, input):
+                return [[float(len(text) % 97), 1.0, 0.0] for text in input]
+
+            def embed_query(self, input):
+                return self.embed_documents(input)
+
+            @staticmethod
+            def name():
+                return "ai-plc-offline-test-embedding"
+
+            @staticmethod
+            def build_from_config(_config):
+                return OfflineEmbeddingFunction()
+
+            def is_legacy(self):
+                return False
+
+            def default_space(self):
+                return "cosine"
+
+            def supported_spaces(self):
+                return ["cosine", "l2", "ip"]
+
+            def get_config(self):
+                return {}
+
+        return OfflineEmbeddingFunction()
     try:
         from fastembed import TextEmbedding
 
@@ -77,25 +115,15 @@ class KnowledgeEngine:
                 try:
                     self._collection.query(query_texts=["测试"], n_results=1)
                 except Exception:
-                    logger.warning("嵌入维度不匹配, 重建知识库索引 (旧文档需重新导入)")
-                    self._client.delete_collection("plc_knowledge")
-                    self._collection = self._client.create_collection(
-                        name="plc_knowledge",
-                        embedding_function=ef,
-                        metadata={"hnsw:space": "cosine"},
+                    raise KnowledgeMigrationRequiredError(
+                        "嵌入维度不匹配；为保护现有知识库已拒绝自动删除。"
+                        "请先备份并执行显式迁移。"
                     )
         except Exception as e:
             logger.error("知识库初始化失败: %s", e)
-            # 回退：删除并重建
-            try:
-                self._client.delete_collection("plc_knowledge")
-            except Exception:
-                pass
-            self._collection = self._client.get_or_create_collection(
-                name="plc_knowledge",
-                embedding_function=ef,
-                metadata={"hnsw:space": "cosine"},
-            )
+            # 初始化或迁移异常绝不能以删除用户集合作为“恢复”手段。
+            self._collection = None
+            raise
 
         return self
 

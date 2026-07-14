@@ -14,8 +14,9 @@ S7 运行时读写工具 — MCP 工具注册
   python-snap7, 以及运行中的 PLCSIM / 真机 S7-1200/1500
 """
 import logging
-from _helpers import mcp
-from s7_adapter import adapter
+from _helpers import mcp, PLC_IP
+from s7_adapter import S7Adapter, adapter
+from mcp_common.control_target import TargetConfigurationError, require_control_ip
 
 # ── 安全模块加载 ──
 _logger = logging.getLogger(__name__)
@@ -30,8 +31,11 @@ except ImportError:
 try:
     from safety.shadow_simulator import shadow_sim
 except ImportError:
-    _logger.critical("影子仿真模块加载失败！所有写入操作将被拒绝。")
+    _logger.critical("静态预检模块加载失败！所有写入操作将被拒绝。")
     shadow_sim = None
+
+from safety.confirmation import ConfirmationError, ConfirmationService
+confirmation_service = ConfirmationService()
 
 # ── 审计日志（强制） ──
 from mcp_common.audit import get_audit_logger
@@ -51,19 +55,30 @@ if SAFETY_AVAILABLE:
     safety_val.set_bit_reader(_read_safety_bit)
 
 
+def _confirmation_device_id() -> str:
+    device_id = getattr(adapter, "device_id", "")
+    if not isinstance(device_id, str) or not device_id:
+        raise ConfirmationError("S7 目标身份未知")
+    return device_id
+
+
 @mcp.tool(
     name="s7_connect",
     annotations={"destructiveHint": False},
 )
-def s7_connect(ip: str = "192.168.0.110", rack: int = 0, slot: int = 1) -> str:
+def s7_connect(ip: str = "", rack: int = 0, slot: int = 1) -> str:
     """连接到西门子 PLC (S7 协议)
 
     Args:
-        ip: PLC IP 地址（PLCSIM 默认 192.168.0.110）
+        ip: 仅允许为空或唯一隔离 PLCSIM 目标地址
         rack: 机架号（默认 0）
         slot: 插槽号（默认 1）
     """
-    return adapter.connect(ip, rack, slot)
+    try:
+        target = require_control_ip(ip or PLC_IP)
+    except TargetConfigurationError as exc:
+        return f"🚫 连接被拒绝: {exc}"
+    return adapter.connect(target.plc_ip, rack, slot)
 
 
 @mcp.tool(
@@ -109,7 +124,12 @@ def s7_read(address: str) -> str:
     name="s7_write",
     annotations={"destructiveHint": True},
 )
-async def s7_write(address: str, value: str) -> str:
+async def s7_write(
+    address: str,
+    value: str,
+    operator: str = "ai-agent",
+    confirmation_token: str = "",
+) -> str:
     """通过 S7 协议写入 PLC 变量（带安全互锁）
 
     Args:
@@ -121,47 +141,88 @@ async def s7_write(address: str, value: str) -> str:
         - 数值范围检查
         - 异常跳变检测
         - 连续异常自动熔断
-        - 影子仿真验证
+        - 静态预检（不模拟 PLC 扫描周期或真实逻辑，不能代替真实仿真）
         - 审计日志记录
     """
     # 安全模块不可用时，拒绝所有写入
     if not SAFETY_AVAILABLE or safety_val is None:
         return "🚫 写入被拒绝: 安全模块不可用，无法执行安全校验"
 
-    # 影子仿真模块不可用时，拒绝所有写入（安全红线）
+    # 静态预检模块不可用时，拒绝所有写入（安全红线）
     if shadow_sim is None:
-        return "🚫 写入被拒绝: 影子仿真模块不可用（违反安全红线），请检查 safety/ 目录"
+        return "🚫 写入被拒绝: 静态预检模块不可用（违反安全红线），请检查 safety/ 目录"
 
     try:
-        # 0. 转换数值类型（确保 validate 和 shadow_sim 接收到正确类型）
+        # S7 MCP 尚未提供已认证会话上下文；生产环境会由审计闸门拒绝
+        # 空主体，避免把调用方自报的 operator 伪装成可信身份。
+        audit_actor = ""
+        # 0. 原始地址必须显式映射到安全语义；不能靠地址字符串绕过联锁。
+        canonical_address = S7Adapter.canonicalize_address(address)
+        mapping = safety_val.resolve_s7_write_address(canonical_address)
+        if mapping is None:
+            reason = f"未映射的允许写入地址: {canonical_address}"
+            _audit.log("write_rejected", canonical_address, str(value), success=False, detail=reason)
+            return f"🚫 写入被拒绝: {reason}"
+
+        expected_type = S7Adapter.address_value_type(canonical_address)
+        if mapping["type"] != expected_type:
+            reason = f"地址映射类型不匹配: {canonical_address}（{mapping['type']} != {expected_type}）"
+            _audit.log("write_rejected", canonical_address, str(value), success=False, detail=reason)
+            return f"🚫 写入被拒绝: {reason}"
+
         try:
-            numeric_value = float(value)
-        except (ValueError, TypeError):
-            numeric_value = value
+            numeric_value = adapter.parse_write_value(canonical_address, value)
+        except ValueError as exc:
+            reason = f"写入值类型无效: {exc}"
+            _audit.log("write_rejected", canonical_address, str(value), success=False, detail=reason)
+            return f"🚫 写入被拒绝: {reason}"
 
         # 1. 读取当前值（用于跳变检测）
         try:
-            current_value = adapter.read_address(address)
+            current_value = adapter.read_address(canonical_address)
         except Exception:
             current_value = None
 
         # 2. 互锁校验
-        result = safety_val.validate(address, numeric_value, current_value=current_value)
+        semantic_target = mapping["target"]
+        result = safety_val.validate(semantic_target, numeric_value, current_value=current_value)
         if not result.allowed:
-            _audit.log("write_rejected", address, str(value), success=False, detail=result.reason)
+            _audit.log("write_rejected", canonical_address, str(value), success=False, detail=result.reason)
             return f"🚫 写入被拒绝: {result.reason}"
+        if result.needs_confirmation:
+            if not confirmation_token:
+                reason = f"需要人工确认: {result.reason}"
+                _audit.log("write_rejected", canonical_address, str(value), success=False, detail=reason)
+                return f"🚫 写入被拒绝: {reason}"
+            try:
+                confirmation_service.consume(
+                    confirmation_token,
+                    operator=operator,
+                    target=canonical_address,
+                    value=numeric_value,
+                    device_id=_confirmation_device_id(),
+                )
+            except ConfirmationError as exc:
+                reason = str(exc)
+                _audit.log("write_rejected", canonical_address, str(value), success=False, detail=reason)
+                return f"🚫 写入被拒绝: {reason}"
 
-        # 3. 影子仿真验证
-        sim_result = await shadow_sim.simulate_write(address, numeric_value, current_value=current_value)
+        # 3. 静态预检不模拟 PLC 扫描周期或真实逻辑，不能代替隔离 PLCSIM 验收。
+        sim_result = await shadow_sim.simulate_write(semantic_target, numeric_value, current_value=current_value)
         if not sim_result.safe:
-            _audit.log("shadow_rejected", address, str(value), success=False, detail=sim_result.reason)
-            return f"🚫 影子仿真拒绝: {sim_result.reason}"
+            _audit.log("static_precheck_rejected", canonical_address, str(value), success=False, detail=sim_result.reason)
+            return f"🚫 静态预检拒绝: {sim_result.reason}"
 
         # 4. 执行写入
-        write_result = adapter.write_address(address, value)
+        _audit.begin_control_operation(
+            "s7.write", canonical_address, audit_actor,
+            {"address": canonical_address, "value": numeric_value, "semantic_target": semantic_target},
+        )
+        write_result = adapter.write_address(canonical_address, numeric_value)
 
         # 5. 审计日志
-        _audit.log("write", address, str(value), success=True)
+        _audit.log("write", canonical_address, str(numeric_value), operator=audit_actor,
+                   success=True, detail=f"semantic_target={semantic_target}")
 
         return write_result
     except ConnectionError as e:

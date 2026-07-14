@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock, PropertyMock, ANY
 
 import pytest
@@ -92,6 +93,8 @@ def server():
     # Mock download_to_plcsim
     _mock_dl = MagicMock()
     _mock_dl._try_download_via_python = MagicMock(return_value=0)
+    _mock_dl._try_download_via_tiaworker = MagicMock(return_value=0)
+    _mock_dl._try_download_via_tiaworker_gui = MagicMock(return_value=-1)
     _mock_dl.download_via_ui = MagicMock(return_value=0)
     sys.modules["download_to_plcsim"] = _mock_dl
 
@@ -119,9 +122,18 @@ def server():
     _mock_cfg.deepseek.max_tokens = 4096
     _mock_cfg.deepseek.timeout_sec = 60
     _mock_cfg.generation.templates_dir = "C:\\test\\templates"
+    _target = SimpleNamespace(
+        tia_version="V21",
+        project_path=Path("C:\\test\\project.ap21"),
+        plc_ip="192.168.0.110",
+        plcsim_instance="factoryio",
+    )
+    _mock_cfg.target = _target
     sys.modules["config_loader"] = MagicMock()
     sys.modules["config_loader"].cfg = _mock_cfg
+    sys.modules["config_loader"].validate_control_target = MagicMock(return_value=_target)
     sys.modules["config_loader"].validate_ladder_spec = MagicMock(return_value={"valid": True})
+    sys.modules["config_loader"].safety_validate_ladder = MagicMock(return_value={"safe": True})
 
     # 删除可能缓存的 server 模块
     for mod_name in list(sys.modules.keys()):
@@ -129,6 +141,9 @@ def server():
             del sys.modules[mod_name]
 
     import server as tia_server
+    # 绝大多数工具测试只覆盖工具契约；认证门由 TestAuth 单独恢复真实实现验证。
+    tia_server._real_require_auth_for_test = tia_server._require_auth
+    tia_server._require_auth = MagicMock()
 
     yield tia_server
 
@@ -154,10 +169,12 @@ class TestRunWorker:
     def test_returns_parsed_json_on_success(self, server):
         """正常返回 JSON 时正确解析"""
         expected = {"ok": True, "result": {"devices": []}, "error": None}
-        with patch("subprocess.run") as mock_run:
+        with patch("subprocess.run") as mock_run, patch.object(Path, "exists", return_value=True):
             mock_run.return_value = _mock_subprocess_run(expected)
             with patch("os.unlink"):
-                result = server._run_worker("list-devices", {"ProjectPath": "test"})
+                result = server._run_worker(
+                    "list-devices", {"ProjectPath": "C:\\test\\project.ap21"}
+                )
         assert result == expected
 
     def test_returns_error_on_missing_exe(self, server):
@@ -170,7 +187,7 @@ class TestRunWorker:
     def test_returns_error_on_timeout(self, server):
         """超时时返回错误"""
         import subprocess as sp
-        with patch("subprocess.run") as mock_run:
+        with patch("subprocess.run") as mock_run, patch.object(Path, "exists", return_value=True):
             mock_run.side_effect = sp.TimeoutExpired(cmd="test", timeout=120)
             with patch("os.unlink"):
                 result = server._run_worker("compile", {})
@@ -179,7 +196,7 @@ class TestRunWorker:
 
     def test_returns_error_on_invalid_json(self, server):
         """TiaWorker 返回非 JSON 时返回错误"""
-        with patch("subprocess.run") as mock_run:
+        with patch("subprocess.run") as mock_run, patch.object(Path, "exists", return_value=True):
             mock = MagicMock()
             mock.stdout = "Not JSON output"
             mock.stderr = ""
@@ -188,6 +205,22 @@ class TestRunWorker:
                 result = server._run_worker("compile", {})
         assert result["status"] == "error"
         assert "Invalid JSON" in result["error"]
+
+    def test_forces_configured_v21_and_rejects_a_nonzero_worker_result(self, server):
+        worker_result = {"ok": True, "result": {"success": False}, "error": None}
+        with patch("subprocess.run") as mock_run, patch.object(Path, "exists", return_value=True):
+            mock_run.return_value = _mock_subprocess_run(worker_result, returncode=1)
+            with patch("os.unlink"):
+                result = server._run_worker("compile", {"ProjectPath": "C:\\test\\project.ap21"})
+
+        command = mock_run.call_args.args[0]
+        assert command[1] == "--tia-major-version=V21"
+        assert result["status"] == "error"
+        assert result["ok"] is False
+
+    def test_resolve_path_rejects_a_project_outside_the_single_target(self, server):
+        with pytest.raises(ValueError, match="唯一配置"):
+            server._resolve_path("C:\\other\\project.ap21")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -247,6 +280,25 @@ class TestImportSclFile:
             )
         assert result["ok"] is True
         assert result["result"]["blocks"] == ["MotorControl"]
+
+    def test_import_uses_cleaned_non_user_controlled_temp_path(self, server):
+        captured = {}
+
+        def fake_worker(_command, payload):
+            captured["path"] = Path(payload["SclFilePath"])
+            assert captured["path"].exists()
+            return {"status": "ok"}
+
+        with patch.object(server, "_run_worker", side_effect=fake_worker):
+            result = server.import_scl_file(
+                scl_code="FUNCTION_BLOCK SafeBlock END_FUNCTION_BLOCK",
+                block_name="..\\not-a-path",
+                project_path="C:\\test\\project.ap21",
+            )
+
+        assert result["status"] == "ok"
+        assert captured["path"].name.startswith("tia-scl-")
+        assert not captured["path"].exists()
 
     def test_imports_scl_with_tags(self, server):
         mock_response = {
@@ -412,6 +464,8 @@ class TestDownloadToPlcsim:
             method="tiaworker",
         )
         assert result["status"] == "ok"
+        sys.modules["download_to_plcsim"]._try_download_via_tiaworker.assert_called_once()
+        sys.modules["download_to_plcsim"]._try_download_via_python.assert_not_called()
 
     def test_ui_mode(self, server):
         result = server.download_to_plcsim(
@@ -421,6 +475,8 @@ class TestDownloadToPlcsim:
         assert result["status"] == "ok"
 
     def test_auto_fallback_to_ui(self, server):
+        sys.modules["download_to_plcsim"]._try_download_via_tiaworker.return_value = -1
+        sys.modules["download_to_plcsim"]._try_download_via_tiaworker_gui.return_value = -1
         sys.modules["download_to_plcsim"]._try_download_via_python.return_value = -1
         result = server.download_to_plcsim(
             project_path="C:\\test\\project.ap21",
@@ -428,6 +484,14 @@ class TestDownloadToPlcsim:
         )
         assert result["status"] == "ok"
         assert "UI Automation" in result["message"]
+
+    def test_rejects_an_unknown_download_method(self, server):
+        result = server.download_to_plcsim(
+            project_path="C:\\test\\project.ap21",
+            method="shell",
+        )
+        assert result["status"] == "error"
+        assert "method" in result["error"]
 
     def test_compile_first_flag(self, server):
         result = server.download_to_plcsim(
@@ -579,28 +643,60 @@ class TestGenerateAndImport:
 class TestCreateLadderBlock:
     """测试 create_ladder_block MCP 工具"""
 
-    def test_cart3cycle_fast_path(self, server):
-        mock_subprocess = MagicMock()
-        mock_subprocess.stdout = "LAD OK\nblockName: AutoCart3Cycle\n"
-        mock_subprocess.returncode = 0
-        with patch("subprocess.run", return_value=mock_subprocess):
-            result = server.create_ladder_block(
-                description="cart3cycle",
-                block_name="AutoCart3Cycle",
-            )
-        assert result["status"] == "ok"
-        assert result["returncode"] == 0
-
-    def test_cart3cycle_fast_path_fails(self, server):
-        mock_subprocess = MagicMock()
-        mock_subprocess.stdout = "Error: CartGen not found"
-        mock_subprocess.returncode = 1
-        with patch("subprocess.run", return_value=mock_subprocess):
+    def test_cart3cycle_fast_path_is_fail_closed_until_audited(self, server):
+        with patch("subprocess.run") as subprocess_run:
             result = server.create_ladder_block(
                 description="cart3cycle",
                 block_name="AutoCart3Cycle",
             )
         assert result["status"] == "error"
+        assert "安全阻断" in result["error"]
+        subprocess_run.assert_not_called()
+
+    def test_semantic_failure_blocks_cartgen_and_tia_import(self, server):
+        unsafe_spec = {"blockName": "UnsafeMotor", "networks": []}
+        with patch.object(server, "_gen_lad_spec", return_value=unsafe_spec), \
+             patch.object(server, "safety_validate_ladder", return_value={
+                 "safe": False, "warnings": ["缺少常闭急停互锁 iStop"],
+             }), \
+             patch.object(server, "_run_cartgen") as run_cartgen, \
+             patch.object(server, "_import_xml_into_tia") as import_tia:
+            result = server.create_ladder_block(
+                description="电机正反转",
+                block_name="UnsafeMotor",
+            )
+
+        assert result["status"] == "error"
+        assert "语义安全校验失败" in result["error"]
+        run_cartgen.assert_not_called()
+        import_tia.assert_not_called()
+
+    def test_cartgen_artifacts_require_an_exact_io_mapping_manifest(self, server, tmp_path):
+        spec = {
+            "blockName": "MappedBlock",
+            "interface": {
+                "inputs": [{
+                    "name": "iStart", "type": "Bool", "address": "%I0.0", "comment": "start",
+                }],
+                "outputs": [{
+                    "name": "oRun", "type": "Bool", "address": "%Q0.0", "comment": "run",
+                }],
+            },
+        }
+        xml_path = tmp_path / "MappedBlock.xml"
+        xml_path.write_text("<Document />", encoding="utf-8")
+
+        with pytest.raises(RuntimeError, match="I/O 映射清单"):
+            server._verify_cartgen_artifacts(spec, str(xml_path))
+
+        manifest_path = tmp_path / "MappedBlock.io-map.json"
+        manifest_path.write_text(json.dumps({
+            "blockName": "MappedBlock",
+            "inputs": [{"name": "iStart", "type": "Bool", "address": "%I0.0"}],
+            "outputs": [{"name": "oRun", "type": "Bool", "address": "%Q0.0"}],
+        }), encoding="utf-8")
+
+        server._verify_cartgen_artifacts(spec, str(xml_path))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -610,9 +706,9 @@ class TestCreateLadderBlock:
 class TestResolvePath:
     """测试 _resolve_path 辅助函数"""
 
-    def test_uses_provided_path(self, server):
-        result = server._resolve_path("C:\\custom\\project.ap21")
-        assert result == "C:\\custom\\project.ap21"
+    def test_rejects_a_project_path_outside_the_configured_target(self, server):
+        with pytest.raises(ValueError, match="唯一配置"):
+            server._resolve_path("C:\\custom\\project.ap21")
 
     def test_uses_default_when_empty(self, server):
         result = server._resolve_path("")
@@ -628,8 +724,8 @@ class TestAuth:
 
     def test_check_auth_empty_token(self, server):
         server._AUTH_TOKEN = ""
-        assert server._check_auth("") is True
-        assert server._check_auth("anything") is True
+        assert server._check_auth("") is False
+        assert server._check_auth("anything") is False
 
     def test_check_auth_correct(self, server):
         server._AUTH_TOKEN = "secret123"
@@ -640,13 +736,21 @@ class TestAuth:
         assert server._check_auth("wrong") is False
 
     def test_require_auth_passes(self, server):
-        server._AUTH_TOKEN = ""
-        server._require_auth("")
+        server._AUTH_TOKEN = "secret123"
+        server._real_require_auth_for_test("secret123")
 
     def test_require_auth_fails(self, server):
         server._AUTH_TOKEN = "secret123"
         with pytest.raises(PermissionError, match="认证失败"):
-            server._require_auth("wrong")
+            server._real_require_auth_for_test("wrong")
+
+    def test_unconfigured_auth_blocks_tool_before_worker(self, server):
+        server._AUTH_TOKEN = ""
+        server._require_auth = server._real_require_auth_for_test
+        with patch.object(server, "_run_worker") as worker:
+            with pytest.raises(PermissionError, match="MCP_AUTH_TOKEN"):
+                server.list_devices(project_path="C:\\test\\project.ap21")
+            worker.assert_not_called()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -778,43 +882,35 @@ class TestImportSclFileReplace:
 class TestBomDefense:
     """D-03: 写 .scl 文件前清除 BOM + UTF-8 无 BOM"""
 
+    @staticmethod
+    def _capture_temp_scl(server, scl_code: str) -> bytes:
+        captured = {}
+
+        def fake_worker(_command, payload):
+            captured["content"] = Path(payload["SclFilePath"]).read_bytes()
+            return {"ok": True}
+
+        with patch.object(server, "_run_worker", side_effect=fake_worker):
+            server.import_scl_file(
+                scl_code=scl_code,
+                block_name="Test",
+                project_path="C:\\test\\project.ap21",
+            )
+        return captured["content"]
+
     def test_bom_stripped_before_write(self, server):
         """包含 BOM 的 scl_code 写入时 BOM 被清除"""
         bom_scl = "\ufeffFUNCTION_BLOCK Test ..."
-        with patch.object(server, "_run_worker", return_value={"ok": True}):
-            with patch("pathlib.Path.write_text") as mock_write:
-                server.import_scl_file(
-                    scl_code=bom_scl,
-                    block_name="Test",
-                    project_path="C:\\test\\project.ap21",
-                )
-                # 确保写入的内容没有 BOM
-                written_text = mock_write.call_args[0][0]
-                assert written_text.startswith("FUNCTION_BLOCK"), f"写入内容以 BOM 开头: {written_text[:20]}"
-                assert not written_text.startswith("\ufeff"), "BOM 未被清除"
+        written = self._capture_temp_scl(server, bom_scl)
+        assert written.startswith(b"FUNCTION_BLOCK")
+        assert not written.startswith(b"\xef\xbb\xbf"), "BOM 未被清除"
 
     def test_no_bom_normal_code_unchanged(self, server):
         """不含 BOM 的正常 scl_code 不变"""
         normal_scl = "FUNCTION_BLOCK Normal ..."
-        with patch.object(server, "_run_worker", return_value={"ok": True}):
-            with patch("pathlib.Path.write_text") as mock_write:
-                server.import_scl_file(
-                    scl_code=normal_scl,
-                    block_name="Normal",
-                    project_path="C:\\test\\project.ap21",
-                )
-                written_text = mock_write.call_args[0][0]
-                assert written_text == normal_scl
+        assert self._capture_temp_scl(server, normal_scl) == normal_scl.encode("utf-8")
 
     def test_write_encoding_is_utf8(self, server):
         """写入时使用 utf-8 编码（无 BOM）"""
-        with patch.object(server, "_run_worker", return_value={"ok": True}):
-            with patch("pathlib.Path.write_text") as mock_write:
-                server.import_scl_file(
-                    scl_code="FUNCTION_BLOCK EncTest ...",
-                    block_name="EncTest",
-                    project_path="C:\\test\\project.ap21",
-                )
-                # verify encoding="utf-8" is passed
-                _, kwargs = mock_write.call_args
-                assert kwargs.get("encoding") == "utf-8"
+        source = "FUNCTION_BLOCK 中文编码 ..."
+        assert self._capture_temp_scl(server, source) == source.encode("utf-8")

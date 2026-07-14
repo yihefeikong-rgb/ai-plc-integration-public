@@ -69,6 +69,13 @@ def evaluate_supervised_gate(state: dict) -> dict:
             "reason": f"state stage is {stage}",
         }
 
+    if stage != "DONE":
+        return {
+            "allowed": False,
+            "code": "REVIEW_NOT_FINALIZED",
+            "reason": f"state stage must be DONE before supervised reuse, got {stage or '?'}",
+        }
+
     if review_status not in {"", "PASS"}:
         return {
             "allowed": False,

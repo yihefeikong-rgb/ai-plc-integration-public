@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orchestrator.core import StepResult, WorkflowResult, get_engine
+from orchestrator.mcp_owner import McpOwnerBusyError, McpOwnerLock
 from orchestrator.registry import ServerInfo, ToolInfo, get_registry
 
 
@@ -83,11 +84,13 @@ def _seed_workflows():
 
 
 @pytest.fixture
-def client(_seed_registry, _seed_workflows):
+def client(_seed_registry, _seed_workflows, monkeypatch):
     """创建 TestClient（触发 lifespan startup/shutdown）"""
     from orchestrator.api import app
 
+    monkeypatch.setenv("LOCAL_API_TOKEN", "orchestrator-test-token")
     with TestClient(app) as c:
+        c.headers.update({"X-Local-Api-Token": "orchestrator-test-token"})
         yield c
 
 
@@ -129,6 +132,32 @@ class TestWorkflows:
         assert data["ok"] is True
         assert isinstance(data["steps"], list)
         assert data["total_duration_ms"] >= 0
+
+    def test_run_workflow_requires_local_session(self, client):
+        resp = client.post(
+            "/workflows/tia_download/run",
+            headers={"X-Local-Api-Token": "wrong-token"},
+            json={"input": {}},
+        )
+        assert resp.status_code == 401
+
+    def test_authenticated_actor_overrides_client_claim(self, client):
+        engine = get_engine()
+        observed = {}
+
+        @engine.workflow("authenticated_actor")
+        def authenticated_actor(ctx):
+            observed["actor"] = ctx.input["authenticated_operator"]
+            return {"actor": ctx.input["authenticated_operator"]}
+
+        resp = client.post(
+            "/workflows/authenticated_actor/run",
+            json={"input": {"authenticated_operator": "forged"}},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert observed["actor"].startswith("local-session:")
+        assert observed["actor"] != "forged"
 
     def test_run_workflow_with_input(self, client):
         resp = client.post(
@@ -198,3 +227,26 @@ class TestBootstrapShutdown:
         with TestClient(app):
             pass
         _mock_bootstrap_shutdown[1].assert_awaited_once()
+
+    def test_rejects_second_mcp_owner_before_bootstrap(
+        self,
+        _mock_bootstrap_shutdown,
+        _seed_registry,
+        _seed_workflows,
+        monkeypatch,
+        tmp_path,
+    ):
+        """独立编排器不能与已有 MCP 所有者并行拉起子进程。"""
+        from orchestrator.api import app
+
+        lock_path = tmp_path / "mcp-owner.lock"
+        monkeypatch.setenv("AI_PLC_MCP_OWNER_LOCK", str(lock_path))
+        existing_owner = McpOwnerLock("existing", lock_path=lock_path)
+        existing_owner.acquire()
+        try:
+            with pytest.raises(McpOwnerBusyError):
+                with TestClient(app):
+                    pass
+            _mock_bootstrap_shutdown[0].assert_not_awaited()
+        finally:
+            existing_owner.release()

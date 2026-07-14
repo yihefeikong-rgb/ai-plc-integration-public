@@ -23,9 +23,11 @@ PNP_TAGS = ROBOT_MCP_DIR / "pnp_tags.json"
 
 # 从统一配置加载（支持环境变量覆盖）
 sys.path.insert(0, str(TIA_MCP_DIR))
-from config_loader import cfg
-PROJECT_PATH = getattr(cfg.tia, 'project_path', os.environ.get('TIA_PROJECT_PATH', ''))
-PLC_IP = getattr(getattr(cfg.simulation, 'advanced', None), 'plc_ip', os.environ.get('PLC_IP', '192.168.0.1'))
+from config_loader import cfg, validate_control_target
+TARGET = validate_control_target()
+PROJECT_PATH = str(TARGET.project_path)
+PLC_IP = TARGET.plc_ip
+PLCSIM_INSTANCE = TARGET.plcsim_instance
 FIO_EXE = getattr(getattr(cfg, 'factory_io', None), 'exe_path', os.environ.get('FACTORY_IO_DIR', r'D:\Factory IO\Factory IO.exe'))
 GOLDEN_ZIP = getattr(getattr(cfg.simulation, 'golden_backup', None), 'zip_path', '')
 if not GOLDEN_ZIP:

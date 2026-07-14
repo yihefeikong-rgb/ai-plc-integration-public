@@ -16,7 +16,7 @@ I/O 映射 (Pick & Place Basic):
   %I0.5  ← Start             (按钮)
   %I0.6  ← Reset             (按钮)
   %I0.7  ← Stop              (按钮)
-  %I0.8  ← Emergency stop    (急停)
+  %I0.8  ← Emergency-stop safety chain (TRUE=healthy, FALSE=active/fault)
   %I0.9  ← Auto / Manual     (模式选择)
 
   %Q0.0  → Entry conveyor    (执行器: 入口传送带)
@@ -46,6 +46,18 @@ from pathlib import Path
 from typing import Any
 from fastmcp import FastMCP
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from mcp_common.control_target import (
+    TargetConfigurationError,
+    approved_opcua_endpoint,
+    get_control_target,
+    require_control_ip,
+    require_opcua_endpoint,
+)
+
 # ── 通信后端: 优先 OPC UA, 回退 snap7 ──────────────────────────────
 HAS_ASYNCUA = False
 HAS_SNAP7 = False
@@ -63,20 +75,9 @@ except ImportError:
     pass
 
 # ── 配置 ─────────────────────────────────────────────────────────────
-PLC_IP = "192.168.0.1"
+PLC_IP = get_control_target().plc_ip
 OPCUA_PORT = 4840
-OPCUA_ENDPOINT = f"opc.tcp://{PLC_IP}:{OPCUA_PORT}"
-
-# 从 config/settings 读取（如果项目已配置）
-try:
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from config.settings import settings
-    OPCUA_ENDPOINT = settings.opcua_endpoint
-    # 从 endpoint 提取 IP
-    if "opc.tcp://" in OPCUA_ENDPOINT:
-        PLC_IP = OPCUA_ENDPOINT.replace("opc.tcp://", "").split(":")[0]
-except Exception:
-    pass
+OPCUA_ENDPOINT = approved_opcua_endpoint()
 
 # Pick & Place (Basic) 场景 I/O 映射
 # 每种 I/O 支持两种寻址方式:
@@ -92,7 +93,7 @@ IO_MAP = {
     "sensor_start":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.5", "byte": 0, "bit": 5, "desc": "启动按钮"},
     "sensor_reset":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.6", "byte": 0, "bit": 6, "desc": "复位按钮"},
     "sensor_stop":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.7", "byte": 0, "bit": 7, "desc": "停止按钮"},
-    "sensor_estop":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.8", "byte": 1, "bit": 0, "desc": "急停"},
+    "sensor_estop":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.8", "byte": 1, "bit": 0, "desc": "急停安全回路（TRUE=健康）"},
     # Outputs (actuators)
     "conveyor_entry":      {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.0", "byte": 0, "bit": 0, "desc": "入口传送带"},
     "conveyor_exit":       {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.1", "byte": 0, "bit": 1, "desc": "出口传送带"},
@@ -114,7 +115,7 @@ class RobotBackend:
         self._backend_type: str | None = None
         # 模拟状态存储（simulated 后端模式）
         self._sim_state: dict[str, Any] = {
-            "sensor_estop": False,
+            "sensor_estop": True,
             "sensor_entry": False,
             "sensor_exit": False,
             "sensor_moving_x": False,
@@ -132,6 +133,7 @@ class RobotBackend:
             "reset_light": False,
             "stop_light": False,
         }
+        self._estop_reset_required = False
 
     @property
     def backend_type(self) -> str | None:
@@ -237,14 +239,24 @@ class RobotBackend:
         except Exception:
             return None
 
+    async def motion_permission_error(self) -> str | None:
+        """返回动作使能前的安全阻断原因；安全停止命令不受此门禁影响。"""
+        estop = await self.read_io("sensor_estop")
+        if estop is not True:
+            self._estop_reset_required = True
+            return "急停安全回路未健康或状态未知，禁止使能输出"
+        if self._estop_reset_required:
+            return "急停恢复后必须重新确认，禁止使能输出"
+        return None
+
     async def write_io(self, name: str, value: bool) -> dict:
         if name not in IO_MAP:
             return {"status": "error", "error": f"未知 I/O: {name}"}
-        # 急停安全检查
-        if name.startswith("conveyor_") or name.startswith("arm_") or name == "grab":
-            estop = await self.read_io("sensor_estop")
-            if estop:
-                return {"status": "error", "error": "急停已触发，禁止写入输出"}
+        # 急停安全检查：TRUE 表示安全回路健康；FALSE、未知或通信失败均拒绝使能动作。
+        if value and (name.startswith("conveyor_") or name.startswith("arm_") or name == "grab"):
+            reason = await self.motion_permission_error()
+            if reason:
+                return {"status": "error", "error": reason}
         info = IO_MAP[name]
         try:
             if not await self.ensure_connected():
@@ -269,6 +281,15 @@ class RobotBackend:
             return {"status": "error", "error": "无可用后端"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
+
+    async def confirm_estop_recovery(self) -> dict:
+        """在人工确认急停已恢复后解除动作闭锁。"""
+        estop = await self.read_io("sensor_estop")
+        if estop is not True:
+            self._estop_reset_required = True
+            return {"status": "error", "error": "急停安全回路未健康或状态未知，不能确认恢复"}
+        self._estop_reset_required = False
+        return {"status": "ok", "message": "急停安全回路已确认恢复"}
 
     async def read_all_inputs(self) -> dict:
         inputs = {}
@@ -317,6 +338,7 @@ class RobotBackend:
             "has_simulated": True,
             "plc_ip": PLC_IP,
             "opcua_endpoint": OPCUA_ENDPOINT,
+            "estop_reconfirmation_required": self._estop_reset_required,
         }
 
 
@@ -339,14 +361,14 @@ _AUTH_TOKEN = ""
 
 
 def _check_auth(token: str = "") -> bool:
-    """验证 auth token（空 token 表示未启用认证，直接通过）"""
-    if not _AUTH_TOKEN:
-        return True
-    return token == _AUTH_TOKEN
+    """验证 auth token；未配置令牌时控制服务不可用。"""
+    return bool(_AUTH_TOKEN) and token == _AUTH_TOKEN
 
 
 def _require_auth(token: str = "") -> None:
     """如果认证未通过则抛出异常"""
+    if not _AUTH_TOKEN:
+        raise PermissionError("MCP_AUTH_TOKEN 未配置，服务不可用")
     if not _check_auth(token):
         raise PermissionError("认证失败：无效的 auth token")
 
@@ -402,8 +424,17 @@ async def get_status(auth_token: str = "") -> dict:
         "scene": "Pick & Place (Basic)",
         "sensors": sensors,
         "estimated_position": position,
-        "emergency_stop": sensors.get("sensor_estop"),
+        "emergency_stop": sensors.get("sensor_estop") is not True,
+        "emergency_stop_circuit_healthy": sensors.get("sensor_estop") is True,
+        "estop_reconfirmation_required": backend.get_backend_info()["estop_reconfirmation_required"],
     }
+
+
+@mcp.tool()
+async def confirm_estop_recovery(auth_token: str = "") -> dict:
+    """人工确认急停安全回路恢复后，解除机器人动作闭锁。"""
+    _require_auth(auth_token)
+    return await backend.confirm_estop_recovery()
 
 
 @mcp.tool()
@@ -448,9 +479,9 @@ async def pick_item(auth_token: str = "") -> dict:
     _require_auth(auth_token)
     try:
         # 检查急停
-        estop = await backend.read_io("sensor_estop")
-        if estop:
-            return {"status": "error", "error": "急停已触发，无法执行"}
+        reason = await backend.motion_permission_error()
+        if reason:
+            return {"status": "error", "error": reason}
 
         # 检查是否有物料已到位
         has_item = await backend.read_io("sensor_entry")
@@ -520,9 +551,9 @@ async def place_item(auth_token: str = "") -> dict:
     """
     _require_auth(auth_token)
     try:
-        estop = await backend.read_io("sensor_estop")
-        if estop:
-            return {"status": "error", "error": "急停已触发"}
+        reason = await backend.motion_permission_error()
+        if reason:
+            return {"status": "error", "error": reason}
 
         has_item = await backend.read_io("sensor_item_detected")
         if not has_item:
@@ -584,6 +615,10 @@ async def move_arm_to(position: str, auth_token: str = "") -> dict:
         return {"status": "error", "error": f"无效位置: {position}。可选: {', '.join(valid)}"}
 
     try:
+        if position in {"pick", "extend", "lower"}:
+            reason = await backend.motion_permission_error()
+            if reason:
+                return {"status": "error", "error": reason}
         if position == "home":
             await backend.write_io("grab", False)
             await asyncio.sleep(0.2)
@@ -667,6 +702,10 @@ async def control_conveyor(direction: str = "stop", auth_token: str = "") -> dic
     """
     _require_auth(auth_token)
     try:
+        if direction in {"entry", "exit"}:
+            reason = await backend.motion_permission_error()
+            if reason:
+                return {"status": "error", "error": reason}
         if direction == "entry":
             await backend.write_io("conveyor_entry", True)
             await backend.write_io("conveyor_exit", False)
@@ -691,8 +730,8 @@ if __name__ == "__main__":
                         help="认证令牌（可选）")
     parser.add_argument("--endpoint", default=None,
                         help=f"OPC UA 端点 (默认: {OPCUA_ENDPOINT})")
-    parser.add_argument("--ip", default=PLC_IP,
-                        help=f"PLC IP 地址 (默认: {PLC_IP})")
+    parser.add_argument("--ip", default=None,
+                        help=f"仅接受唯一隔离 PLC IP（默认: {PLC_IP}）")
     parser.add_argument("--backend", default=None,
                         choices=["auto", "opcua", "snap7", "simulated"],
                         help="通信后端 (默认: auto, 或从环境变量 ROBOT_BACKEND 读取)")
@@ -702,17 +741,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
     _AUTH_TOKEN = args.auth_token
 
-    if args.endpoint:
-        OPCUA_ENDPOINT = args.endpoint
-        if "opc.tcp://" in OPCUA_ENDPOINT:
-            PLC_IP = OPCUA_ENDPOINT.replace("opc.tcp://", "").split(":")[0]
-            if ":" in OPCUA_ENDPOINT.split(":")[-1]:
-                OPCUA_PORT = int(OPCUA_ENDPOINT.split(":")[-1])
-            else:
-                OPCUA_PORT = 4840
-    if args.ip:
-        PLC_IP = args.ip
-        OPCUA_ENDPOINT = f"opc.tcp://{PLC_IP}:4840"
+    try:
+        if args.endpoint:
+            require_opcua_endpoint(args.endpoint)
+        if args.ip:
+            require_control_ip(args.ip)
+    except TargetConfigurationError as exc:
+        parser.error(str(exc))
+    PLC_IP = get_control_target().plc_ip
+    OPCUA_ENDPOINT = approved_opcua_endpoint()
     if args.backend:
         BACKEND = args.backend
 

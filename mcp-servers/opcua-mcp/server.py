@@ -42,18 +42,25 @@ import opcua_safety as safety
 # 导入根安全链（validator + shadow_sim + audit）
 from safety.validator import validator as safety_validator
 from safety.shadow_simulator import shadow_sim
-from mcp_common.audit import get_audit_logger
+from safety.confirmation import ConfirmationError, ConfirmationService
+from mcp_common.audit import authenticated_actor, get_audit_logger
+from mcp_common.control_target import (
+    TargetConfigurationError,
+    approved_opcua_endpoint,
+    require_opcua_endpoint,
+)
 
 _audit = get_audit_logger()
 
 # ── 认证 ──
 _AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "")
+confirmation_service = ConfirmationService()
 
 
 def _require_auth(token: str = "") -> None:
-    """验证 auth token（空 _AUTH_TOKEN 表示未启用认证，直接通过）"""
+    """验证 auth token；未配置令牌时控制服务不可用。"""
     if not _AUTH_TOKEN:
-        return
+        raise PermissionError("MCP_AUTH_TOKEN 未配置，服务不可用")
     if token != _AUTH_TOKEN:
         raise PermissionError("认证失败：无效的 auth token")
 
@@ -64,6 +71,12 @@ _client: Optional[object] = None
 _endpoint: str = ""
 
 
+def _confirmation_device_id() -> str:
+    if not _endpoint:
+        raise ConfirmationError("OPC UA 目标身份未知")
+    return f"opcua:{_endpoint}"
+
+
 # ═══════════════════════════════════════
 #  连接管理
 # ═══════════════════════════════════════
@@ -72,15 +85,21 @@ _endpoint: str = ""
     name="opcua_connect",
     annotations={"destructiveHint": False},
 )
-async def connect(endpoint: str = "opc.tcp://192.168.0.1:4840", auth_token: str = "") -> str:
+async def connect(endpoint: str = "", auth_token: str = "") -> str:
     """连接到 OPC UA 服务器（西门子 PLC 默认端口 4840）
 
     Args:
-        endpoint: OPC UA 端点地址
+        endpoint: 仅允许为空或唯一隔离 PLCSIM 的 OPC UA 端点
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
     global _client, _endpoint
+
+    endpoint = endpoint or approved_opcua_endpoint()
+    try:
+        require_opcua_endpoint(endpoint)
+    except TargetConfigurationError as exc:
+        return f"🚫 连接被拒绝: {exc}"
 
     if not ASYNCUA_AVAILABLE:
         return "❌ asyncua 未安装。请运行: pip install asyncua"
@@ -225,7 +244,9 @@ async def write_node(
     node_id: str,
     value: str,
     data_type: str = "auto",
+    operator: str = "ai-agent",
     auth_token: str = "",
+    confirmation_token: str = "",
 ) -> str:
     """写入 OPC UA 节点值（自动检查安全互锁）
 
@@ -243,6 +264,7 @@ async def write_node(
         - 连续异常自动熔断
     """
     _require_auth(auth_token)
+    actor = authenticated_actor(auth_token, "opcua")
 
     if _client is None:
         return "❌ 未连接，请先调用 opcua_connect"
@@ -250,14 +272,33 @@ async def write_node(
     # 1. 根安全链 — validator 互锁检查
     val_result = safety_validator.validate(node_id, value)
     if not val_result.allowed:
-        _audit.log("write_blocked", node_id, str(value),
+        _audit.log("write_blocked", node_id, str(value), operator=actor,
                    success=False, detail=val_result.reason)
         return f"🚫 安全校验拒绝: {val_result.reason}"
+    if val_result.needs_confirmation:
+        if not confirmation_token:
+            reason = f"需要人工确认: {val_result.reason}"
+            _audit.log("write_blocked", node_id, str(value), operator=actor,
+                       success=False, detail=reason)
+            return f"🚫 安全校验拒绝: {reason}"
+        try:
+            confirmation_service.consume(
+                confirmation_token,
+                operator=operator,
+                target=node_id,
+                value=value,
+                device_id=_confirmation_device_id(),
+            )
+        except ConfirmationError as exc:
+            reason = str(exc)
+            _audit.log("write_blocked", node_id, str(value), operator=actor,
+                       success=False, detail=reason)
+            return f"🚫 安全校验拒绝: {reason}"
 
     # 2. 根安全链 — 影子仿真
     sim_result = await shadow_sim.simulate_write(node_id, value)
     if not sim_result.safe:
-        _audit.log("shadow_rejected", node_id, str(value),
+        _audit.log("shadow_rejected", node_id, str(value), operator=actor,
                    success=False, detail=sim_result.reason)
         return f"🚫 影子仿真拒绝: {sim_result.reason}"
 
@@ -265,7 +306,7 @@ async def write_node(
     interlock_ok, interlock_reason = await safety.check_interlock(_client)
     if not interlock_ok:
         safety.record_write(node_id, value, False, interlock_reason)
-        _audit.log("interlock_blocked", node_id, str(value),
+        _audit.log("interlock_blocked", node_id, str(value), operator=actor,
                    success=False, detail=interlock_reason)
         return f"🚫 写入被拒绝: {interlock_reason}"
 
@@ -273,7 +314,7 @@ async def write_node(
     range_ok, range_reason = safety.check_value_range(node_id, value)
     if not range_ok:
         safety.record_write(node_id, value, False, range_reason)
-        _audit.log("range_blocked", node_id, str(value),
+        _audit.log("range_blocked", node_id, str(value), operator=actor,
                    success=False, detail=range_reason)
         return f"🚫 值超出范围: {range_reason}"
 
@@ -282,6 +323,10 @@ async def write_node(
 
     # 6. 执行写入
     try:
+        _audit.begin_control_operation(
+            "opcua.write_node", node_id, actor,
+            {"node_id": node_id, "value": value, "data_type": data_type},
+        )
         node = _client.get_node(node_id)
         if data_type == "auto":
             vtype = await node.read_data_type_as_variant_type()
@@ -293,11 +338,11 @@ async def write_node(
         # 7. 读回验证
         readback = await node.read_value()
         safety.record_write(node_id, value, True)
-        _audit.log("write", node_id, str(value), success=True)
+        _audit.log("write", node_id, str(value), operator=actor, success=True)
         return f"✅ 已写入 {node_id} = {readback}"
     except Exception as e:
         safety.record_write(node_id, value, False, str(e))
-        _audit.log("write", node_id, str(value), success=False, detail=str(e))
+        _audit.log("write", node_id, str(value), operator=actor, success=False, detail=str(e))
         return f"❌ 写入失败: {e}"
 
 
