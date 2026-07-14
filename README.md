@@ -1,242 +1,273 @@
 # AI 接入 PLC 与工业机器人
 
-> 构建生产级 AI Agent 系统 + 本地工业自动化 AI 工作台。
-> 让 AI 通过自然语言监控、控制西门子 PLC，并自动生成 SCL/LAD 代码。
+[English](README_EN.md) · 中文
 
-**技术栈：** MCP + Python + C#/.NET + Electron + React + FastAPI + Docker
+> **项目定位：本地工业自动化 AI 工作台与受控仿真研发平台。**
+> 它把自然语言、PLC 代码生成、TIA Portal 工程操作、PLCSIM、MCP 和本地桌面界面放在同一条可审计的研发链路中。它**不是**安全 PLC、急停回路替代品，也不是已通过真实产线认证的控制系统。
 
-**版本：** TIA Portal V21 / PLCSIM Advanced V8.0
+## 目录
 
-> **当前状态说明（2026-07-13）**：本仓库尚未在本次整改中完成真实 TIA、PLCSIM、PLC 或 Factory I/O 动态验收。所有控制目标必须由 `mcp-servers/tia-mcp/config.yaml` 的 `target` 节校验为 V21、`demo_V21.ap21`、`factoryio`、`192.168.0.110`；下方历史描述不能替代代码、配置和离线测试证据。
+- [项目目标与边界](#项目目标与边界)
+- [当前状态](#当前状态)
+- [能力地图](#能力地图)
+- [系统架构](#系统架构)
+- [仓库结构](#仓库结构)
+- [安全模型](#安全模型)
+- [环境与配置](#环境与配置)
+- [本地启动与离线验证](#本地启动与离线验证)
+- [受控仿真验收](#受控仿真验收)
+- [API 与桌面工作台](#api-与桌面工作台)
+- [文档、公开镜像与许可](#文档公开镜像与许可)
 
----
+## 项目目标与边界
 
-## AI PLC Assistant（桌面应用）
+本项目面向 Windows 本地工程站，探索以下受控链路：
 
-本地运行的工业自动化 AI 编程工作台，位于 `ai-plc-assistant/`。
-
-**功能：** AI 聊天(DeepSeek/Claude/OpenAI/Kimi) | RAG 知识库 | PLC 工程搜索 | 梯形图生成 | SCL/XML/HMI 导出 | Prompt 模板 | 项目管理
-
-**启动：** 双击 `ai-plc-assistant/start.bat`
-
-**详细文档：** 见 [ai-plc-assistant/README.md](ai-plc-assistant/README.md)
-
----
-
-## 当前可验证入口
-
-| 入口 | 边界 |
-|---|---|
-| `D:/Python3/python.exe -m pytest` | 默认离线测试；不包含硬件、桌面或网络标记。 |
-| `D:/Python3/python.exe scripts/preflight.py --json` | 只读环境检查，不证明下载成功或 PLC 可读。 |
-| `start.bat` | 启动后端；其内嵌 orchestrator 是 MCP stdio 子进程的唯一生命周期所有者。 |
-| `D:/Python3/python.exe scripts/p3_flow.py` | 可能改变仿真环境；仅在隔离目标和人工确认后使用。 |
-
-## 历史结构草图（非命令来源）
-
-> 本节保留为历史索引，部分文件名和完成度已过期；不存在的文件不能按此创建或执行。
-
-```
-ai-plc-integration/
-├── mcp-servers/                    # MCP 服务器集合
-│   ├── tia-mcp/                    # ⭐ TIA Portal 工程态 MCP（核心）
-│   │   ├── server.py               # FastMCP 服务（8 个工具）
-│   │   ├── plcsim_api.py           # PLCSIM Advanced .NET API 封装
-│   │   ├── config_loader.py        # 统一配置加载（YAML + 环境变量）
-│   │   ├── config.yaml             # 主配置文件
-│   │   ├── CartGen/                # JSON → SimaticML LAD 生成器 (C# .NET 8)
-│   │   ├── TiaWorker/              # TIA Openness 桥接 (C# .NET 4.8)
-│   │   ├── tia_session.py          # TIA Portal Openness 会话管理（V21 模块化 DLL）
-│   │   ├── lad_creator.py          # LAD 块创建器
-│   │   ├── lad_creator.py / ladder_renderer.py  # 梯形图渲染
-│   │   ├── generate_scl.py         # SCL 代码生成
-│   │   ├── gen_io_map.py           # IO 映射生成
-│   │   ├── templates/              # LAD 模板（18 个已验证）
-│   │   ├── batch_gen_all.py        # 批量生成流水线
-│   │   ├── download_to_plcsim.py / dl_plcsim_gui.py  # 下载到 PLCSIM
-│   │   ├── test_dl_plcsim_gui.py / test_restore.py   # 测试
-│   │   └── diagnose_download.py    # 下载诊断工具
-│   ├── opcua-mcp/                  # OPC UA 运行时 MCP（西门子）
-│   ├── modbus-mcp/                 # Modbus TCP MCP
-│   └── mitsubishi-mcp/             # 三菱 MC 协议 MCP（✅ 已完成）
-├── edge-gateway/                   # 边缘网关（InfluxDB + 数据采集 + AI 决策）
-├── plc-code-templates/             # AI 生成 PLC 代码 Prompt 模板（SCL）
-│   └── siemens-scl/                # 电机控制/传送带/PID/搅拌器/交通灯等
-├── safety/                         # 安全策略与审计（互锁规则、审计日志）
-├── mcp_common/                     # MCP 公共库（配置、审计、DeepSeek 客户端）
-├── config/                         # 全局配置
-├── docs/                           # 技术文档
-├── scripts/                        # 运维脚本（自动启动、翻译、清理）
-├── tools/                          # 诊断工具（IO 标签诊断）
-├── tests/                          # 测试套件（pytest）
-├── 环境/                           # 仿真环境（Python venv）
-├── scripts/p3_flow.py              # P3 编排脚本（隔离目标下人工使用）
-├── mcp-servers/plc-mcp-bridge/     # MCP 桥接服务器
-├── docker-compose.yml              # InfluxDB + OpenPLC + Grafana
-├── Makefile                        # 常用命令
-├── .env                            # 环境变量（DEEPSEEK_API_KEY, TIA 路径等）
-├── AGENTS.md                       # Agent 指令
-├── claude.md                       # 项目总纲
+```text
+自然语言需求
+  → LLM 生成 LadderSpec / SCL 候选
+  → JSON Schema 与语义安全检查
+  → CartGen 生成 SimaticML / TIA Worker 操作工程
+  → 编译与受控下载到隔离 PLCSIM
+  → snap7 只读回读
+  → 可选 Factory I/O 可视化
 ```
 
-## 🚀 快速开始
+它同时包含一个 Electron + React 桌面工作台，用于 AI 对话、知识库检索、工程搜索、梯形图/代码生成、项目管理和受控工作流展示。
 
-### 前置条件
+本仓库不承诺以下事项：
 
-| 需求 | 版本 | 用途 |
-|------|------|------|
-| Python 3.10+ | — | MCP Server + 工具链 |
-| TIA Portal | V21 | 西门子工程态 |
-| PLCSIM Advanced | V8.0 | S7-1500 仿真（向后兼容 V5.0+）|
-| .NET SDK | 8.0 | CartGen LAD 生成器 |
-| .NET Framework | 4.8 | TiaWorker 桥接 |
-| Factory I/O | 最新 | 3D 工厂可视化 |
+- 不把 AI、软件互锁或“影子仿真”视为急停、安全回路、F-CPU 或功能安全认证的替代品。
+- 不允许将未验收的模型输出直接用于真实 PLC、生产网络或现场设备。
+- 不以“进程已启动”“测试通过”或“代码可生成”宣称已完成 PLC 下载、CPU RUN、PLC 可读或工艺安全验收。
+- 不提供任何 Siemens、Factory I/O、PLC 或工业机器人软件的许可证。
 
-### 环境设置
+## 当前状态
 
-```bash
-# 1. 克隆
-git clone https://github.com/yihefeikong-rgb/ai-plc-integration
-cd ai-plc-integration
+截至 **2026-07-14**，下表是本仓库的当前证据边界：
 
-# 2. 环境变量
-cp .env.example .env
-# 编辑 .env，填入 DEEPSEEK_API_KEY 和 TIA 路径
+| 范围 | 已确认的事实 | 不能据此推断的事实 |
+| --- | --- | --- |
+| 源码与离线回归 | 默认离线测试执行结果为 **306 passed，41 deselected**。默认配置排除了 `integration`、`hardware`、`desktop` 与 `network` 标记。 | 不代表 TIA、PLCSIM、Factory I/O、真实 PLC 或网络协议已动态通过。 |
+| 桌面/后端 | FastAPI、React/Vite、Electron 配置、路由与工作流代码存在；根 `start.bat` 仅启动本地后端。 | 不代表 Electron 打包、所有第三方模型或所有 UI 流程已在每台机器验证。 |
+| TIA/PLCSIM 主链 | 受控 V21 目标、TIA Worker、CartGen、下载与 snap7 回读代码路径存在。 | 当前整改版本尚未完成 TIA V21 → PLCSIM Advanced V8 → snap7 → Factory I/O 的完整动态验收。有效的本地 PLCSIM Advanced 许可证、项目加载、下载成功与 CPU 可读均是独立前提。 |
+| 真实现场 | 代码对控制目标、写入、确认和审计设置了防护。 | 不代表可连接真实 PLC、F-CPU、安全回路或生产环境。当前 README 不授予此类操作权限。 |
 
-# 3. 安装依赖
-pip install -r requirements.txt
+历史状态文件、旧计划和旧架构图仅可作为线索。发生冲突时，请优先相信当前代码、`mcp-servers/tia-mcp/config.yaml`、测试配置和实际运行证据。
 
-# 4. 启动本地服务（backend 内嵌 orchestrator 独占管理 stdio MCP 子进程）
-start.bat
+## 能力地图
+
+| 模块 | 当前实现 | 使用边界 |
+| --- | --- | --- |
+| `ai-plc-assistant/` | Electron/React 前端与 FastAPI 本地后端；提供模型、对话、知识库、工程搜索、模板、生成、项目、设置、编排与 pipeline 路由。 | 本地开发工作台；控制类 API 需要本地会话令牌。 |
+| `orchestrator/` | MCP 子进程连接池、工具注册、工作流引擎和单一生命周期所有者锁。运行时注册 S7 监测、TIA 多块、NL→PLCSIM、机器人 Pick & Place 与机器人监测工作流。 | 服务器连接失败会记录并继续；不应把“已注册工作流”误解为现场验收。 |
+| `mcp-servers/tia-mcp/` | FastMCP、TIA Openness 调用、C# `TiaWorker`、.NET 8 `CartGen`、LadderSpec 校验、SCL/LAD 生成和 PLCSIM 辅助脚本。 | 面向受控 TIA V21 / 隔离 PLCSIM 目标；运行需要本机安装、权限与许可证。 |
+| `mcp-servers/plc-mcp-bridge/` | S7 运行态、TIA 工程态、PLCSIM、Factory I/O、标签、块、UDT 与诊断工具的桥接层。 | 具有读写与工程变更能力的工具必须经安全门、目标约束和人工流程。 |
+| `mcp-servers/{opcua,modbus,mitsubishi,robot}-mcp/` | OPC UA、Modbus TCP、三菱 MC 协议和机器人场景的 MCP 实验实现。 | 没有在真实硬件上完成统一验收；默认不应连接现场设备。 |
+| `mcp_common/` 与 `safety/` | 统一配置、唯一控制目标、确认令牌、互锁、静态预检与链式审计日志。 | 是软件防护层，不构成功能安全认证。 |
+| `plc-code-templates/`、`plc-programs/` | SCL、LAD、PLCopen/XML 和示例程序资产。 | 生成或模板存在不代表已经导入、编译或下载成功。 |
+| `edge-gateway/` 与 `docker-compose.yml` | 可选的 Modbus、InfluxDB、Grafana、OpenPLC 与 AI 网关集成。 | 依赖独立环境变量、容器与网络配置；不属于默认离线启动路径。 |
+
+## 系统架构
+
+```mermaid
+flowchart LR
+    UI["Electron + React 工作台"] --> API["FastAPI 本地后端"]
+    API --> ORCH["Orchestrator\nMCP 生命周期所有者"]
+    API --> DATA["SQLite / ChromaDB\n设置、对话、项目、检索"]
+    ORCH --> TIA["TIA MCP\nTiaWorker + CartGen"]
+    ORCH --> PLC["PLC MCP Bridge\nS7 / 工程 / PLCSIM"]
+    ORCH --> PROTO["OPC UA / Modbus / Mitsubishi / Robot MCP"]
+    TIA --> SIM["隔离 PLCSIM / Factory I/O\n仅在人工验收时"]
+    PLC --> SAFE["目标契约、互锁、确认、审计"]
+    SAFE --> SIM
 ```
 
-### 历史 PLCSIM 示例（禁止直接执行）
+### 关键数据流
 
-```python
-from plcsim_api import restore_instance
+1. 桌面界面通过本地 `127.0.0.1` API 访问后端；Vite 开发代理指向端口 `8005`。
+2. 后端启动时初始化知识库、搜索索引、对话/项目存储、设置存储以及编排层。
+3. 后端取得 MCP 所有者锁后，编排层才可管理标准输入输出 MCP 子进程；第二个所有者必须失败关闭，避免重复拉起工具进程。
+4. `nl_to_plcsim_pipeline` 把 Ladder 块创建、OB1 接入、编译、下载、snap7 只读回读和可选 Factory I/O 串为一条受控工作流。
+5. 控制目标由 `mcp-servers/tia-mcp/config.yaml` 的 `target` 节统一定义。当前代码要求 V21、指定项目、`factoryio` 实例名和单一隔离 IP 一致；调用者不能通过任意 IP 或 OPC UA URL 绕过该契约。
 
-# 从黄金备份恢复（无需 TIA Portal GUI）
-# 历史示例已移除：旧的 IP/实例状态不能作为当前目标或已验收结论。
-# 下载、恢复和 RUN 状态均需独立的隔离验收与回读证据。
+### 梯形图与 TIA 路线
+
+- 自然语言首先成为 LadderSpec/代码候选，而非被直接视为 PLC 指令。
+- LadderSpec 经 JSON Schema 和语义规则检查后，`CartGen` 可生成 SimaticML；`TiaWorker` 是 C#/.NET Framework 4.8 的 TIA Openness 桥接入口。
+- 受控下载策略以 TiaWorker 为优先级较高的路径，并保留其他兼容路径。任何下载成功结论仍应以 TIA 结果、PLCSIM CPU 状态和独立回读证据确认。
+
+## 仓库结构
+
+```text
+.
+├── ai-plc-assistant/          # 本地桌面工作台：React/Vite/Electron + FastAPI
+├── orchestrator/              # MCP 连接池、工具注册、工作流与安全闸门
+├── mcp-servers/
+│   ├── tia-mcp/               # TIA V21、TiaWorker、CartGen、LAD/PLCSIM 相关路径
+│   ├── plc-mcp-bridge/        # S7、工程、标签、块、PLCSIM、Factory I/O 桥接工具
+│   ├── opcua-mcp/             # OPC UA MCP
+│   ├── modbus-mcp/            # Modbus TCP MCP
+│   ├── mitsubishi-mcp/        # 三菱 MC 协议 MCP
+│   └── robot-mcp/             # Pick & Place/机器人实验工作流
+├── mcp_common/                # 共享配置、控制目标、连接与审计
+├── safety/                    # 互锁、确认令牌、静态预检与审计兼容层
+├── plc-code-templates/        # SCL/LAD/PLCopen 等模板资产
+├── plc-programs/              # PLC/仿真示例资产
+├── edge-gateway/              # 可选边缘网关与监控集成
+├── scripts/                   # 只读预检、链路报告和受控辅助脚本
+├── tests/                     # 根级离线/安全回归测试
+├── docs/                      # 领域、环境与历史技术文档
+└── .plans/ai-plc-integration/ # 协作层、约束、历史计划与链路报告
 ```
 
-### MCP 工具调用（通过 Claude Code）
+## 安全模型
 
-PLC MCP Bridge 已作为 Claude Code 插件安装，AI 可直接调用 59 个工具：
-- `plc_list_instances` — 列出 PLCSIM 实例
-- `plc_compile_project` — 编译 TIA 项目
-- `plc_download_project` — 下载到 PLCSIM
-- `plc_run_pipeline` — 端到端流水线
-- `s7_read` / `s7_write` — 实时读写 PLC 变量
+### 不可突破的原则
 
-### 端到端下载（受控、非默认）
+1. **急停和功能安全属于硬件/安全 PLC 领域。** AI 不应控制急停、F-CPU 参数或安全回路。
+2. **唯一隔离目标。** `mcp_common/control_target.py` 只接受配置中的受控目标；S7 IP 与 OPC UA 端点漂移会被拒绝。
+3. **写入默认拒绝。** 原始 S7 地址必须在 `safety/interlock-rules.yml` 中映射到安全语义与类型；未映射地址、类型不符、越界、互锁失败或静态预检失败都会拒绝。
+4. **一次性人工确认。** 需要确认的操作必须使用签名、短时、绑定操作人/确认人/目标/值/设备身份的令牌；令牌消费后不可重用。
+5. **审计先于副作用。** 控制意图会先写入审计链。生产环境缺少持久 `AUDIT_HMAC_KEY` 或可信操作者身份时应失败关闭；日志会脱敏常见密钥字段。
+6. **软件护栏不是认证。** 影子预检不模拟真实 PLC 扫描周期、现场接线、机械惯性或安全等级，不能替代隔离仿真、风险评估和人工签核。
 
-```bash
-D:/Python3/python.exe scripts/p3_flow.py                 # 可能恢复、下载、启动仿真
-D:/Python3/python.exe scripts/p3_flow.py --download-only # 仍可能下载；需人工确认
+### 本地控制 API
+
+`POST /api/pipeline/nl-to-sim` 和编排层的控制路径要求 `X-Local-API-Token`，其值须与启动环境中的 `LOCAL_API_TOKEN` 相同。不要在浏览器、截图、日志、README 或 Git 中保存该令牌。
+
+## 环境与配置
+
+### 基础依赖
+
+- Windows 工程站（TIA/PLCSIM/Factory I/O 路径为 Windows 场景）。
+- Python 与 `requirements.txt` 中的依赖（FastAPI、FastMCP、python-snap7、asyncua、pymodbus、ChromaDB 等）。
+- Node.js/npm（用于 `ai-plc-assistant/frontend` 的 React、Vite、Electron）。
+- 仅在 TIA 路线需要：TIA Portal V21、匹配的 Openness 组件、PLCSIM Advanced V8、有效许可证，以及 CartGen 所需的 .NET 8 与 TiaWorker 所需的 .NET Framework 4.8。
+
+### 配置文件
+
+| 文件 | 用途 | 注意事项 |
+| --- | --- | --- |
+| `.env.example` | 根级环境变量模板，包含 TIA、PLCSIM、Factory I/O、协议和监控示例。 | 复制为 `.env` 后填写本机值；`.env` 已被 Git 忽略。不要提交。 |
+| `ai-plc-assistant/backend/.env.example` | 桌面后端模型与服务配置模板。 | API Key 由系统凭据库/环境变量管理，不要写进项目设置 JSON。 |
+| `mcp-servers/tia-mcp/config.yaml` | 受控目标与 TIA/仿真/安全配置源。 | 目标漂移会被校验拒绝；不要用历史 V18 配置替代当前 V21 目标。 |
+| `safety/interlock-rules.yml` | 允许写入地址、类型、范围与互锁规则。 | 改动前应经独立安全审查和隔离验证。 |
+
+最小本地变量示例（仅示意，使用你自己的随机值）：
+
+```dotenv
+DEEPSEEK_API_KEY=...
+LOCAL_API_TOKEN=long-random-local-token
+SAFETY_CONFIRMATION_SECRET=long-random-confirmation-secret
+# 生产控制环境还必须单独配置：
+AUDIT_HMAC_KEY=long-random-audit-key
 ```
 
-### 清理残留实例
+## 本地启动与离线验证
 
-```bash
-python plcsim_api.py purge factoryio   # 强制清理残留实例数据
+### 1. 安装 Python 依赖
+
+```powershell
+cd "AI 接入PLC"
+python -m pip install -r requirements.txt
 ```
 
-## 📊 历史进度快照（非当前验收结论）
+项目当前 Windows 脚本固定使用 `D:\Python3\python.exe`。如果你的 Python 位于其他路径，请先修改脚本或改用等价的手动命令。
 
-| 阶段 | 内容 | 状态 |
-|------|------|:----:|
-| **1** | OPC UA + Modbus 运行态基础 | ✅ 完成 |
-| **2** | AI 控制闭环 + 安全互锁 + Grafana | ✅ 完成 |
-| **3** | ⭐ TIA Portal 工程态 + LAD/SCL 生成 | ✅ 完成 |
-| └─ | PLCSIM 首次下载限制突破（golden.zip 归档/恢复）| ✅ |
-| └─ | CartGen 18 模板全通过 | ✅ |
-| └─ | TIA Portal V21 升级适配 + DLL 拆分 | ✅ |
-| └─ | TCP/IP 模式切换 + Factory I/O 连接 | ✅ |
-| └─ | TiaWorker C# 桥接 + 端到端脚本 p3_flow.py | ✅ |
-| **4** | 工业机器人 MCP (Pick & Place / OPC UA) | ⚪ 未开始（骨架） |
-| └─ | robot-mcp 服务器 (7 工具) | ✅ 完成 |
-| └─ | Pick & Place (Basic) 场景 I/O 映射 | ✅ 完成 |
-| └─ | 安全复位/急停互锁/异常恢复 | ✅ 完成 |
-| └─ | docs/phase-4-robot.md 文档 | ✅ 完成 |
-| └─ | 集成到 start_all.py --with-robot | ✅ 完成 |
-| └─ | 集成测试 tests/test_robot_mcp.py | ✅ 完成 |
-| └─ | 真实硬件/PyRI/RoboDK 升级 | 🔲 待定 |
-| **5** | 统一编排 + 安全加固 | 🔲 |
+### 2. 配置环境变量
 
-## 🖥️ TIA MCP 工具链架构
-
-### 通信链
-```
-Claude/Cursor AI
-  ↓ (MCP JSON-RPC)
-server.py (FastMCP)
-  ├── → 自然语言 → DeepSeek → SCL 代码 / LadderSpec JSON
-  ├── → JSON 临时文件 → TiaWorker.exe(C# .NET 4.8) → TIA Openness DLL
-  └── → CartGen(.NET 8) → SimaticML XML → 导入 TIA
+```powershell
+Copy-Item .env.example .env
+# 编辑 .env；只填写自己的 API Key、安装路径和隔离仿真目标。
+git check-ignore .env
 ```
 
-### LAD 生成流水线
-```
-自然语言描述
-  ↓ DeepSeek API
-LadderSpec JSON（IEC 61131-3 规范）
-  ↓ CartGen (.NET 8.0 / SimaticML)
-SimaticML XML（TIA Portal 原生格式）
-  ↓ _import_xml_into_tia()
-TIA Portal 项目 → 编译 → PLCSIM 仿真 → Factory I/O 可视化
+最后一条命令应表明 `.env` 被忽略。不要把实际 Key 粘贴到 issue、聊天记录、终端截图或提交信息中。
+
+### 3. 启动本地后端
+
+```powershell
+.\start.bat
+Invoke-RestMethod http://127.0.0.1:8005/api/health
 ```
 
-### 8 个 MCP 工具
+根 `start.bat` 会运行预检并启动 FastAPI 后端；它不会自动启动 Electron、TIA Portal、PLCSIM、Factory I/O，也不会自行连接真实设备。
 
-| 工具 | 功能 |
-|------|------|
-| `list_devices` | 列出 TIA 项目中的 PLC 设备 |
-| `import_scl_file` | 导入 SCL 源代码到 TIA 项目 |
-| `compile_project` | 编译 TIA 项目 |
-| `download_to_plcsim` | 下载到 PLCSIM 仿真器 |
-| `generate_scl_code` | AI 生成 SCL 代码 |
-| `generate_and_import` | 一站式 AI 生成 + 导入 |
-| `create_ladder_block` | AI 生成梯形图 LAD 块 |
-| `full_pipeline` | 全流水线：LAD + I/O 映射 + OB1 调用链 |
+### 4. 启动桌面工作台（可选）
 
-## 🧩 已知问题
-
-- **TCP/IP 模式**: 需先安装 PLCSIM 虚拟网卡（VirtualSwitchMisconfigured）
-- **ConveyorControl FB501**: 已在 TIA 项目中但未在 OB1 中调用
-- `start_all.py` 不存在；请使用“当前可验证入口”而非历史脚本名
-- **CartGen**: 不支持并联分支（parallelElements），自保持用 Set/Reset 模式
-- **三菱 MCP**: 无硬件测试环境
-- **Pick & Place (Basic)**: 机械臂 I/O 时序需根据实际场景微调（延迟等待时间）
-- **RoboDK 升级**: 后续阶段，当前聚焦 Factory I/O 内置场景
-
-## 🔒 安全
-
-- 所有写入操作需影子仿真验证（PLCSIM）
-- 生产环境写入需双人确认（操作人 + 确认人）
-- 连续 3 次异常值自动熔断（需双人确认后人工重置）
-- 审计日志不可篡改（HMAC 链式哈希 + 只追加模式）
-- 安全互锁规则配置（`safety/interlock-rules.yml`）
-
-### MCP 服务器认证
-
-所有 MCP 服务器（tia-mcp / opcua-mcp / modbus-mcp / mitsubishi-mcp / desktop-mcp / robot-mcp）均通过 `MCP_AUTH_TOKEN` 环境变量启用认证：
-
-```bash
-# .env 或环境变量中设置
-export MCP_AUTH_TOKEN="your-secret-token"
+```powershell
+cd ai-plc-assistant\frontend
+npm ci
+cd ..
+.\start.bat
 ```
 
-未设置此环境变量时，MCP 服务器将**拒绝所有请求**（默认拒绝策略）。部署前必须设置此变量。`plc-mcp-bridge` 作为内部桥接服务器不在此列。
+`ai-plc-assistant/start.bat` 需要端口 `8005` 与 `5173` 均未被占用，然后启动后端和 Vite/Electron 开发模式。打包命令位于前端 `package.json`：`npm run build`、`npm run pack` 与 `npm run dist`。
 
-## 📚 参考
+### 5. 运行默认离线测试
 
-- [FastMCP](https://github.com/jlowin/fastmcp)
-- [kukapay/opcua-mcp](https://github.com/kukapay/opcua-mcp)
-- [Siemens TIA Portal Openness](https://support.industry.siemens.com)
-- [Factory I/O](https://factoryio.com)
-- [OpenPLC](https://openplcproject.com)
+```powershell
+$env:PYTHONDONTWRITEBYTECODE = "1"
+D:\Python3\python.exe -m pytest -p no:cacheprovider -q
+```
 
-## License
+当前默认配置只运行离线范围；它主动排除可能访问硬件、Windows 桌面或网络的标记。若要运行被排除的测试，必须先审阅测试代码、目标配置和副作用，且只能针对隔离环境。
 
-MIT
+## 受控仿真验收
+
+`scripts/preflight.py --json` 是**只读环境门槛检查**，不是下载成功或 PLC 可读的证明：
+
+```powershell
+D:\Python3\python.exe scripts\preflight.py --json
+```
+
+只有在以下证据全部明确后，才可开展隔离仿真验收：
+
+1. TIA Portal V21 已由人工打开，并加载受控项目。
+2. `config.yaml` 的 V21、项目路径、PLCSIM 实例名和隔离 IP 与实际环境一致。
+3. PLCSIM Advanced 有效、实例已创建且 CPU 状态可确认。
+4. 下载结果在 TIA/PLCSIM 中可见，随后以 snap7 **只读**回读独立核验。
+5. Factory I/O 仅在上述步骤成功后进行连接和场景验证。
+
+任何一步失败，都应报告为“未验证”或“失败”，而不是以代码路径、测试数量或进程存在代替结论。
+
+## API 与桌面工作台
+
+FastAPI 在 `/api` 下注册以下能力组：
+
+| 路由前缀 | 用途 |
+| --- | --- |
+| `/api/health` | 本地服务健康检查。 |
+| `/api/models`、`/api/chat` | 本地模型配置与 AI 对话/SSE。 |
+| `/api/knowledge`、`/api/search` | 文档知识库、模板检索与 PLC 工程搜索。 |
+| `/api/prompts`、`/api/generate` | Prompt 模板、LAD/SCL/XML 候选生成与导出。 |
+| `/api/conversations`、`/api/projects`、`/api/settings` | 本地会话、项目与设置管理。 |
+| `/api/orchestrator` | MCP 服务器、工具、工作流、监控和确认相关接口。 |
+| `/api/pipeline/nl-to-sim` | 受会话令牌保护的 NL→受控仿真工作流入口。 |
+
+前端页面与 API 的存在仅说明功能入口已经实现。高风险操作仍需由后端、MCP 工具、安全模块和人工流程共同允许。
+
+## 文档、公开镜像与许可
+
+### 阅读顺序
+
+1. [AGENTS.md](AGENTS.md)：当前工作区约束与安全边界。
+2. [README_EN.md](README_EN.md)：本 README 的英文版。
+3. [mcp-servers/tia-mcp/config.yaml](mcp-servers/tia-mcp/config.yaml)：受控目标配置。
+4. [safety/interlock-rules.yml](safety/interlock-rules.yml)：写入允许范围与互锁。
+5. [docs/environment.md](docs/environment.md) 与 [AI_CONTEXT.md](AI_CONTEXT.md)：环境和 PLC 领域背景。
+6. `.plans/ai-plc-integration/docs/invariants.md`：不可破坏的工程约束。
+
+`CURRENT_STATUS.md`、`PROJECT_HANDOVER.md`、历史架构图和旧计划可能落后于当前代码；阅读时请结合本 README 的状态边界。
+
+### 两个仓库
+
+- 私有主仓库：`yihefeikong-rgb/ai-plc-integration`
+- 公开镜像：`yihefeikong-rgb/ai-plc-integration-public`
+
+两者同步代码和文档前都应执行凭据检查。`.env`、日志、构建产物、缓存、TIA 项目二进制和已知大文件均不应提交。公开镜像只应包含可公开的源代码、模板和示例配置。
+
+### 许可证
+
+当前仓库未提交 `LICENSE` 文件。因此，除非仓库所有者另行明确授权，不应推定获得生产使用、再分发或第三方软件许可。TIA Portal、PLCSIM、Factory I/O 和相关工业软件的许可由各自权利人管理。
