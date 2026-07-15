@@ -8,6 +8,26 @@
 
 ## 最新 Handoff
 
+### 2026-07-15：Pipeline 元数据与 MCP 凭据首批重构完成
+
+- **本次完成**：
+  - 修复后端注入 `authenticated_operator` 后 `nl_to_plcsim_pipeline` 在第 0 步拒参的问题；安全 actor 已从业务 input 分离为执行元数据。
+  - 为 TIA、OPC UA、Modbus、三菱和 Robot MCP 建立 adapter 内部凭据注入、调用方覆盖拒绝、缺失失败关闭和 stdio 子进程环境透传。
+  - Robot MCP 的认证默认值与 `MCP_AUTH_TOKEN` 对齐。
+  - 补齐凭据快照、异常脱敏、取消清理，以及 adapter 内与连接池跨实例的 connect/disconnect 并发生命周期测试。
+- **当前状态**：
+  - 分支：`codex/phase2a-pipeline-auth`
+  - 改动未暂存、未提交、未推送。
+  - 根默认离线 `338 passed / 41 deselected`；后端 `286 passed`；前端 `2 passed`；Robot 模拟后端 `23 passed`。
+  - Task 1、Task 2 的规格与代码质量审查均为 APPROVED；首次集成审查发现并阻断连接池跨实例竞态，修复后的最终复审为 APPROVED。
+- **证据边界**：
+  - 未启动真实 MCP/TIA/PLCSIM/Factory I/O；不能据此宣称项目已加载、下载完成、CPU RUN 或 PLC 可读。
+- **下一步**：
+  - 先由人工决定是否保留/提交本分支改动。
+  - 后续确认令牌、目标身份和 Robot 假成功问题必须另立计划与授权，不得从本阶段自动续跑。
+- **详细结果**：
+  - `.plans/ai-plc-integration/refactor_phase2a_red_test_results.md`
+
 ### 2026-07-04：Bridge 目标模式计划 C-14.2 ~ C-19 收口
 
 - **本次完成**：

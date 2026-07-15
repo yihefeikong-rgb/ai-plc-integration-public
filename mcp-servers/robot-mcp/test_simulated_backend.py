@@ -192,6 +192,17 @@ class TestSimulatedBackendInfo:
 class TestEnvVarControl:
     """测试环境变量控制"""
 
+    def test_default_auth_token_reads_exact_environment_value(self, monkeypatch):
+        token = "  robot-secret  "
+        monkeypatch.setenv("MCP_AUTH_TOKEN", token)
+
+        assert server._default_auth_token() == token
+
+    def test_default_auth_token_is_empty_when_environment_is_missing(self, monkeypatch):
+        monkeypatch.delenv("MCP_AUTH_TOKEN", raising=False)
+
+        assert server._default_auth_token() == ""
+
     def test_env_var_sets_backend(self, monkeypatch):
         monkeypatch.setenv("ROBOT_BACKEND", "simulated")
         # 重新导入以触发 env var 读取

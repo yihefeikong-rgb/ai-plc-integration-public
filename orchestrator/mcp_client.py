@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
 from mcp import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import StdioServerParameters, get_default_environment, stdio_client
 from mcp.types import CallToolResult, ListToolsResult, TextContent
 
 from orchestrator.registry import ServerInfo, ToolInfo
@@ -72,6 +73,8 @@ class McpClientAdapter:
         self._stdio_context = None  # 持有 stdio_client 的 async context manager
         self._session_context = None  # 持有 ClientSession 的 async context manager
         self._connected = False
+        self._credential: str | None = None
+        self._lifecycle_lock = asyncio.Lock()
 
     @property
     def server_name(self) -> str:
@@ -86,22 +89,42 @@ class McpClientAdapter:
 
         通过 stdio 协议启动子进程，创建 ClientSession 并完成初始化握手。
         """
+        async with self._lifecycle_lock:
+            await self._connect_impl()
+
+    async def _connect_impl(self) -> None:
         if self._connected:
             _logger.warning(f"服务器 {self._server.name} 已连接，跳过重复连接")
             return
 
-        params = StdioServerParameters(
-            command=self._server.command,
-            args=self._server.args,
-            cwd=self._server.cwd or None,
-        )
-
-        _logger.info(
-            f"正在启动 MCP 服务器: {self._server.name} "
-            f"({self._server.command} {' '.join(self._server.args)})"
-        )
+        self._credential = None
+        child_env: dict[str, str] | None = None
+        credential_env: dict[str, str] = {}
+        credential: str | None = None
+        if self._credential_envs():
+            credential_env, credential = self._resolve_credentials()
+            if credential is None:
+                raise RuntimeError(
+                    f"MCP 服务器 {self._server.name} 缺少启动凭据"
+                )
 
         try:
+            if credential is not None:
+                child_env = get_default_environment()
+                child_env.update(credential_env)
+            self._credential = credential
+            params = StdioServerParameters(
+                command=self._server.command,
+                args=self._server.args,
+                env=child_env,
+                cwd=self._server.cwd or None,
+            )
+
+            _logger.info(
+                f"正在启动 MCP 服务器: {self._server.name} "
+                f"({self._server.command} {' '.join(self._server.args)})"
+            )
+
             # 启动子进程，建立 stdio 双向流
             self._stdio_context = stdio_client(params)
             self._read_stream, self._write_stream = await self._stdio_context.__aenter__()
@@ -115,9 +138,14 @@ class McpClientAdapter:
 
             self._connected = True
             _logger.info(f"MCP 服务器 {self._server.name} 连接成功")
-        except Exception:
+        except BaseException as exc:
             # 连接失败时清理已创建的资源
             await self._cleanup_on_error()
+            if self._credential_envs() and isinstance(exc, Exception):
+                raise RuntimeError(
+                    f"MCP 服务器 {self._server.name} 连接失败: "
+                    f"{type(exc).__name__}"
+                ) from None
             raise
 
     async def list_tools(self) -> list[ToolInfo]:
@@ -153,24 +181,62 @@ class McpClientAdapter:
         """
         self._ensure_connected()
 
-        if arguments is None:
-            arguments = {}
+        call_arguments = dict(arguments) if arguments is not None else {}
 
-        _logger.debug(f"调用工具 {self._server.name}.{tool_name}, 参数: {arguments}")
+        _logger.debug("调用工具 %s.%s", self._server.name, tool_name)
+
+        if self._credential_envs():
+            credential_argument = self._credential_argument()
+            if credential_argument in call_arguments:
+                return ToolResult.failure(
+                    "credential_override",
+                    f"调用方不得提供服务器凭据参数: {credential_argument}",
+                )
+
+            credential = self._credential
+            if credential is None:
+                return ToolResult.failure(
+                    "credential_missing",
+                    f"MCP 服务器 {self._server.name} 缺少调用凭据",
+                )
+
+            call_arguments[credential_argument] = credential
 
         try:
             result: CallToolResult = await self._session.call_tool(
                 name=tool_name,
-                arguments=arguments,
+                arguments=call_arguments,
             )
         except asyncio.CancelledError:
             return ToolResult.failure("cancelled", "MCP 工具调用已取消")
         except asyncio.TimeoutError:
             return ToolResult.failure("timeout", "MCP 工具调用超时")
         except Exception as exc:
+            if self._credential_envs():
+                return ToolResult.failure(
+                    "transport_error",
+                    f"MCP 工具调用异常: session {type(exc).__name__}",
+                )
             return ToolResult.failure("transport_error", f"MCP 工具调用异常: {type(exc).__name__}: {exc}")
 
         return self._extract_result(result)
+
+    def _credential_envs(self) -> tuple[str, ...]:
+        return getattr(self._server, "credential_envs", ())
+
+    def _credential_argument(self) -> str:
+        return getattr(self._server, "credential_argument", "auth_token")
+
+    def _resolve_credentials(self) -> tuple[dict[str, str], str | None]:
+        credential_env = {}
+        credential = None
+        for env_name in self._credential_envs():
+            env_value = os.environ.get(env_name)
+            if isinstance(env_value, str) and env_value:
+                credential_env[env_name] = env_value
+                if credential is None:
+                    credential = env_value
+        return credential_env, credential
 
     @staticmethod
     def _payload_error(payload: dict[str, Any]) -> str:
@@ -246,33 +312,52 @@ class McpClientAdapter:
 
     async def disconnect(self) -> None:
         """断开连接并终止子进程。"""
+        async with self._lifecycle_lock:
+            await self._disconnect_impl()
+
+    async def _disconnect_impl(self) -> None:
         if not self._connected:
+            self._credential = None
             return
 
+        self._connected = False
+        self._credential = None
         _logger.info(f"正在断开 MCP 服务器: {self._server.name}")
 
         errors = []
+        cancellation = None
 
         # 关闭 session
         if self._session_context:
             try:
                 await self._session_context.__aexit__(None, None, None)
+            except asyncio.CancelledError as exc:
+                cancellation = exc
             except Exception as e:
-                errors.append(f"session: {e}")
-            self._session_context = None
+                detail = type(e).__name__ if self._credential_envs() else str(e)
+                errors.append(f"session: {detail}")
+            finally:
+                self._session_context = None
 
         # 关闭 stdio 流
         if self._stdio_context:
             try:
                 await self._stdio_context.__aexit__(None, None, None)
+            except asyncio.CancelledError as exc:
+                if cancellation is None:
+                    cancellation = exc
             except Exception as e:
-                errors.append(f"stdio: {e}")
-            self._stdio_context = None
+                detail = type(e).__name__ if self._credential_envs() else str(e)
+                errors.append(f"stdio: {detail}")
+            finally:
+                self._stdio_context = None
 
         self._session = None
         self._read_stream = None
         self._write_stream = None
-        self._connected = False
+
+        if cancellation is not None:
+            raise cancellation
 
         if errors:
             _logger.warning(f"断开 {self._server.name} 时有错误: {'; '.join(errors)}")
@@ -281,21 +366,25 @@ class McpClientAdapter:
 
     async def _cleanup_on_error(self) -> None:
         """连接失败时清理资源"""
+        self._credential = None
+
         # 尝试关闭 session
         if self._session_context:
             try:
                 await self._session_context.__aexit__(None, None, None)
-            except Exception:
+            except BaseException:
                 pass
-            self._session_context = None
+            finally:
+                self._session_context = None
 
         # 尝试关闭 stdio
         if self._stdio_context:
             try:
                 await self._stdio_context.__aexit__(None, None, None)
-            except Exception:
+            except BaseException:
                 pass
-            self._stdio_context = None
+            finally:
+                self._stdio_context = None
 
         self._session = None
         self._read_stream = None

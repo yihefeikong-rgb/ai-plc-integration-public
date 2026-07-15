@@ -55,6 +55,13 @@ class WorkflowResult:
     total_duration_ms: float = 0.0
 
 
+@dataclass(frozen=True)
+class WorkflowExecutionMetadata:
+    """由可信执行边界注入、不得混入工作流业务输入的元数据。"""
+
+    authenticated_operator: str = ""
+
+
 @dataclass
 class WorkflowContext:
     """工作流执行上下文。
@@ -71,6 +78,10 @@ class WorkflowContext:
     """
 
     input: dict[str, Any] = field(default_factory=dict)
+    _execution_metadata: WorkflowExecutionMetadata = field(
+        default_factory=WorkflowExecutionMetadata,
+        kw_only=True,
+    )
     _registry: Registry | None = None
     _mock_tools: dict[str, Callable] = field(default_factory=dict)
     _pool: Any = None  # McpConnectionPool | None，延迟导入以避免循环
@@ -92,8 +103,7 @@ class WorkflowContext:
 
     def _authenticated_actor(self) -> str:
         """只使用 API 鉴权层注入的操作者标识，绝不信任工具请求自报的 operator。"""
-        actor = self.input.get("authenticated_operator", "")
-        return actor.strip() if isinstance(actor, str) else ""
+        return self._execution_metadata.authenticated_operator
 
     @staticmethod
     def _audit_target(tool_full_name: str, arguments: dict[str, Any]) -> str:
@@ -582,8 +592,13 @@ class OrchestratorEngine:
 
     def _build_context(self, input: dict[str, Any] | None) -> WorkflowContext:
         """构建工作流执行上下文。"""
+        workflow_input = dict(input or {})
+        actor = workflow_input.pop("authenticated_operator", "")
         return WorkflowContext(
-            input=input or {},
+            input=workflow_input,
+            _execution_metadata=WorkflowExecutionMetadata(
+                authenticated_operator=actor.strip() if isinstance(actor, str) else ""
+            ),
             _registry=self._registry,
             _mock_tools=self._mock_tools,
             _pool=self._pool,

@@ -147,8 +147,9 @@ class TestWorkflows:
 
         @engine.workflow("authenticated_actor")
         def authenticated_actor(ctx):
-            observed["actor"] = ctx.input["authenticated_operator"]
-            return {"actor": ctx.input["authenticated_operator"]}
+            observed["actor"] = ctx._authenticated_actor()
+            observed["actor_in_input"] = "authenticated_operator" in ctx.input
+            return {"actor": observed["actor"]}
 
         resp = client.post(
             "/workflows/authenticated_actor/run",
@@ -156,6 +157,7 @@ class TestWorkflows:
         )
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
+        assert observed["actor_in_input"] is False
         assert observed["actor"].startswith("local-session:")
         assert observed["actor"] != "forged"
 

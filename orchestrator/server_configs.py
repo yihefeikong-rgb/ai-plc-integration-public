@@ -36,6 +36,7 @@ TIA_MCP = ServerInfo(
     command=PYTHON_EXECUTABLE,
     args=["server.py"],
     cwd=_server_cwd("mcp-servers", "tia-mcp"),
+    credential_envs=("TIA_MCP_AUTH_TOKEN", "MCP_AUTH_TOKEN"),
 )
 
 OPCUA_MCP = ServerInfo(
@@ -44,6 +45,7 @@ OPCUA_MCP = ServerInfo(
     command=PYTHON_EXECUTABLE,
     args=["server.py"],
     cwd=_server_cwd("mcp-servers", "opcua-mcp"),
+    credential_envs=("MCP_AUTH_TOKEN",),
 )
 
 MODBUS_MCP = ServerInfo(
@@ -52,6 +54,7 @@ MODBUS_MCP = ServerInfo(
     command=PYTHON_EXECUTABLE,
     args=["server.py"],
     cwd=_server_cwd("mcp-servers", "modbus-mcp"),
+    credential_envs=("MCP_AUTH_TOKEN",),
 )
 
 MITSUBISHI_MCP = ServerInfo(
@@ -60,6 +63,7 @@ MITSUBISHI_MCP = ServerInfo(
     command=PYTHON_EXECUTABLE,
     args=["server.py"],
     cwd=_server_cwd("mcp-servers", "mitsubishi-mcp"),
+    credential_envs=("MCP_AUTH_TOKEN",),
 )
 
 ROBOT_MCP = ServerInfo(
@@ -68,6 +72,7 @@ ROBOT_MCP = ServerInfo(
     command=PYTHON_EXECUTABLE,
     args=["server.py"],
     cwd=_server_cwd("mcp-servers", "robot-mcp"),
+    credential_envs=("MCP_AUTH_TOKEN",),
 )
 
 DESKTOP_MCP = ServerInfo(

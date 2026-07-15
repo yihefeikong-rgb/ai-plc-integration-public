@@ -129,3 +129,31 @@ async def test_nl_to_plcsim_rejects_target_overrides_before_calling_mcp():
     assert result.ok is False
     assert "不支持的工作流参数: plc_ip" in result.error
     assert pool.calls == []
+
+
+@pytest.mark.asyncio
+async def test_nl_to_plcsim_accepts_authenticated_actor_as_execution_metadata():
+    engine = OrchestratorEngine(registry=Registry())
+    pool = ContractPool()
+    engine.set_pool(pool)
+    engine.set_safety_gate(AllowSafetyGate())
+    register_nl_to_plcsim_pipeline_workflow(engine)
+    workflow_input = {
+        "description": "电机启停",
+        "block_name": "MotorControl",
+        "authenticated_operator": "local-session:test-actor",
+    }
+
+    result = await engine.run_async(
+        "nl_to_plcsim_pipeline",
+        input=workflow_input,
+    )
+
+    assert result.ok is True, f"{result.error}; MCP calls: {pool.calls!r}"
+    assert result.error == ""
+    assert pool.calls == ContractPool.expected_calls
+    assert workflow_input == {
+        "description": "电机启停",
+        "block_name": "MotorControl",
+        "authenticated_operator": "local-session:test-actor",
+    }

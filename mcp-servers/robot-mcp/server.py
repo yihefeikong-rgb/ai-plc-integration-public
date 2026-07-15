@@ -360,6 +360,10 @@ mcp = FastMCP("robot-mcp")
 _AUTH_TOKEN = ""
 
 
+def _default_auth_token() -> str:
+    return os.environ.get("MCP_AUTH_TOKEN", "")
+
+
 def _check_auth(token: str = "") -> bool:
     """验证 auth token；未配置令牌时控制服务不可用。"""
     return bool(_AUTH_TOKEN) and token == _AUTH_TOKEN
@@ -726,7 +730,7 @@ async def control_conveyor(direction: str = "stop", auth_token: str = "") -> dic
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Robot MCP Server — 工业机器人控制")
-    parser.add_argument("--auth-token", default="",
+    parser.add_argument("--auth-token", default=_default_auth_token(),
                         help="认证令牌（可选）")
     parser.add_argument("--endpoint", default=None,
                         help=f"OPC UA 端点 (默认: {OPCUA_ENDPOINT})")

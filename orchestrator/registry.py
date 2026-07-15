@@ -88,6 +88,8 @@ class ServerInfo:
     args: list[str] = field(default_factory=list)  # 启动参数（如 ["server.py"]）
     cwd: str = ""  # 工作目录
     tools: list[ToolInfo] = field(default_factory=list)
+    credential_envs: tuple[str, ...] = ()
+    credential_argument: str = "auth_token"
 
 
 class Registry:
