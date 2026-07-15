@@ -13,6 +13,45 @@
 
 本阶段只搭建规则文件、状态模板、Agent 协议和人工闭环文件。
 
+## 第二阶段 A：离线红测临时授权
+
+用户已于 2026-07-15 明确确认开始审查计划的执行。本节是对“第一阶段协作层边界”的**窄范围临时例外**，只用于由其他模型建立第一批失败契约测试；除本节列出的文件外，第一阶段限制继续有效。
+
+- 允许修改：
+  - `orchestrator/tests/test_nl_to_plcsim_live_contract.py`
+  - `orchestrator/tests/test_mcp_credentials_contract.py`（允许新建）
+  - `.plans/ai-plc-integration/refactor_phase2a_pipeline_auth_red_tests.md`
+  - `.plans/ai-plc-integration/refactor_phase2a_red_test_results.md`（允许新建）
+- 禁止修改：所有生产代码，包括 `orchestrator/*.py`、`orchestrator/workflows/*.py`、`backend`、`frontend`、`mcp-servers`、`safety`、`scripts` 和根 `tests/`。
+- 只允许运行计划文件中列出的纯离线测试；禁止启动 TIA、PLCSIM、Factory I/O、MCP 子进程、后端服务或桌面程序。
+- 本阶段目标是稳定复现失败，不得为了让测试通过而修改生产实现。
+- 完成红测后必须停止并交回 Codex 审查；不得自动 `git add`、`commit`、`push`，不得扩大授权目录。
+
+## 第二阶段 B：首批契约绿色实现授权
+
+用户已于 2026-07-15 进一步明确授权 Codex 使用子代理实施并由 Codex 审核。第二阶段 B 只允许把第二阶段 A 的两组契约从 RED 推进到 GREEN：
+
+- 允许修改：
+  - `orchestrator/core.py`
+  - `orchestrator/workflows/nl_to_plcsim_pipeline.py`
+  - `orchestrator/registry.py`
+  - `orchestrator/mcp_client.py`
+  - `orchestrator/mcp_pool.py`
+  - `orchestrator/server_configs.py`
+  - `orchestrator/tests/test_nl_to_plcsim_live_contract.py`
+  - `orchestrator/tests/test_api.py`
+  - `orchestrator/tests/test_core.py`
+  - `orchestrator/tests/test_mcp_credentials_contract.py`
+  - `orchestrator/tests/test_mcp_pool.py`
+  - `mcp-servers/robot-mcp/server.py`（仅允许修正认证令牌的环境默认值）
+  - `mcp-servers/robot-mcp/test_simulated_backend.py`（仅允许增加认证默认值测试）
+  - `.plans/ai-plc-integration/refactor_phase2a_red_test_results.md`
+- 目标 1：把 `authenticated_operator` 从用户业务输入中分离为受信执行元数据，工作流白名单仍只校验业务字段。
+- 目标 2：由 MCP adapter 在传输边界注入服务器凭据，拒绝调用者自带凭据，缺失凭据时在调用 session 前失败关闭，日志不得暴露令牌；连接池必须串行化断开与同名重连，避免旧、新 MCP 实例并存。
+- 禁止修改：上述清单之外的生产代码、测试和配置；禁止顺手重构、统一所有工具返回类型或扩大到确认令牌、Robot、设备身份等后续阶段。
+- 只允许运行纯离线单元/契约测试；禁止启动 TIA、PLCSIM、Factory I/O、真实 MCP 子进程、后端服务或桌面程序。
+- 子代理不得执行 `git add`、`commit`、`push`；每个任务必须先看到对应测试按预期失败，再做最小实现并交回 Codex 双重审查。
+
 ## 快速命令
 
 | 命令 | 操作 |

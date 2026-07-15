@@ -172,6 +172,94 @@ class TestMcpConnectionPool:
             adapter.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "disconnect_operation",
+        ["disconnect_server", "disconnect_all"],
+    )
+    async def test_connect_waits_for_in_progress_disconnect(
+        self,
+        disconnect_operation,
+    ):
+        """旧适配器退出完成前，不得启动同名新适配器。"""
+        pool = McpConnectionPool()
+        server_info = _make_server_info("srv-a")
+        old_adapter = _make_mock_adapter()
+        new_adapter = _make_mock_adapter()
+        old_disconnect_started = asyncio.Event()
+        release_old_disconnect = asyncio.Event()
+        old_disconnect_finished = asyncio.Event()
+        new_connect_started = asyncio.Event()
+
+        async def block_old_disconnect():
+            old_disconnect_started.set()
+            await release_old_disconnect.wait()
+            old_disconnect_finished.set()
+
+        async def record_new_connect():
+            new_connect_started.set()
+
+        old_adapter.disconnect.side_effect = block_old_disconnect
+        new_adapter.connect.side_effect = record_new_connect
+
+        disconnect_task = None
+        connect_task = None
+        observations = {}
+        results = []
+        with patch(
+            "orchestrator.mcp_pool.McpClientAdapter",
+            side_effect=[old_adapter, new_adapter],
+        ):
+            await pool.connect_server(server_info)
+            if disconnect_operation == "disconnect_server":
+                disconnect_task = asyncio.create_task(
+                    pool.disconnect_server(server_info.name)
+                )
+            else:
+                disconnect_task = asyncio.create_task(pool.disconnect_all())
+
+            try:
+                await asyncio.wait_for(old_disconnect_started.wait(), timeout=1)
+                connect_task = asyncio.create_task(pool.connect_server(server_info))
+                await asyncio.sleep(0)
+                observations = {
+                    "connect_completed_before_release": connect_task.done(),
+                    "new_connect_started_before_release": (
+                        new_connect_started.is_set()
+                    ),
+                }
+                release_old_disconnect.set()
+                results = await asyncio.gather(
+                    disconnect_task,
+                    connect_task,
+                    return_exceptions=True,
+                )
+            finally:
+                release_old_disconnect.set()
+                pending = [
+                    task
+                    for task in (disconnect_task, connect_task)
+                    if task is not None and not task.done()
+                ]
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+
+        assert results == [None, None]
+        assert {
+            **observations,
+            "old_disconnect_finished": old_disconnect_finished.is_set(),
+            "new_connect_started": new_connect_started.is_set(),
+            "pool_uses_new_adapter": (
+                pool.get_adapter(server_info.name) is new_adapter
+            ),
+        } == {
+            "connect_completed_before_release": False,
+            "new_connect_started_before_release": False,
+            "old_disconnect_finished": True,
+            "new_connect_started": True,
+            "pool_uses_new_adapter": True,
+        }
+
+    @pytest.mark.asyncio
     async def test_disconnect_nonexistent_server(self):
         """断开不存在的服务器不应报错"""
         pool = McpConnectionPool()

@@ -174,6 +174,14 @@ class TestWorkflowContext:
         assert ctx.input["prompt"] == "hello"
         assert ctx._steps == []
 
+    def test_positional_registry_argument_remains_compatible(self):
+        registry = Registry()
+        ctx = WorkflowContext({"prompt": "hello"}, registry)
+
+        assert ctx.input == {"prompt": "hello"}
+        assert ctx._registry is registry
+        assert ctx._authenticated_actor() == ""
+
     def test_call_mock_tool(self):
         ctx = WorkflowContext(
             _mock_tools={"test.tool": lambda x: {"result": x * 2}}
@@ -212,6 +220,18 @@ class TestWorkflowContext:
 
 class TestOrchestratorEngine:
     """OrchestratorEngine 编排引擎"""
+
+    @pytest.mark.parametrize("actor", [None, 123, "   "])
+    def test_build_context_normalizes_invalid_authenticated_actor(self, actor):
+        engine = OrchestratorEngine()
+
+        context = engine._build_context({
+            "description": "电机启停",
+            "authenticated_operator": actor,
+        })
+
+        assert context.input == {"description": "电机启停"}
+        assert context._authenticated_actor() == ""
 
     def test_register_workflow(self):
         engine = OrchestratorEngine()

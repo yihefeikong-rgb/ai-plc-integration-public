@@ -1,9 +1,27 @@
 # 进度日志 — AI 接入 PLC
 
-> 最后更新：2026-06-23
+> 最后更新：2026-07-15
 > 原则：记录阶段进度、已完成事项、阻塞项。过长时归档。
 
 ---
+
+## 2026-07-15：Pipeline 元数据与 MCP 凭据首批重构
+
+### 已完成
+
+- [x] 用真实 `OrchestratorEngine + ContractPool` 复现并修复 `authenticated_operator` 第 0 步拒参。
+- [x] 将安全 actor 从工作流业务 input 分离为可信执行元数据，保留 API 防伪造和旧位置参数兼容。
+- [x] 为五个需要认证的 MCP 服务配置 secret-free 凭据元数据。
+- [x] adapter 使用 SDK 安全默认环境透传凭据，并以连接快照注入工具参数。
+- [x] 覆盖 caller override、缺失凭据、异常脱敏、取消清理，以及 adapter 内和连接池跨实例的 disconnect/reconnect 并发资源所有权。
+- [x] Robot MCP 的 CLI 认证默认值改为读取 `MCP_AUTH_TOKEN`。
+- [x] 根离线 `338 passed / 41 deselected`、后端 `286 passed`、前端 `2 passed`、Robot 模拟 `23 passed`；未运行真实控制链。
+
+### 当前边界
+
+- 改动位于 `codex/phase2a-pipeline-auth`，未暂存、未提交、未推送。
+- 本阶段不包含确认令牌、PLCSIM 身份证明、Robot 动作状态机或桌面认证重构。
+- 离线测试通过不等于 TIA 项目已加载、下载完成或 PLC 可读。
 
 ## 2026-06-24：C-14.2 cc-haha session 工作目录绑定（进行中）
 

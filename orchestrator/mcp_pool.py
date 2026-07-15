@@ -29,6 +29,7 @@ class McpConnectionPool:
 
     def __init__(self):
         self._adapters: dict[str, McpClientAdapter] = {}
+        self._lifecycle_lock = asyncio.Lock()
 
     @property
     def server_names(self) -> list[str]:
@@ -48,15 +49,16 @@ class McpConnectionPool:
         Args:
             server_info: 服务器配置信息（含 command/args/cwd）
         """
-        if server_info.name in self._adapters:
-            _logger.warning(f"服务器 {server_info.name} 已在连接池中，跳过")
-            return
+        async with self._lifecycle_lock:
+            if server_info.name in self._adapters:
+                _logger.warning(f"服务器 {server_info.name} 已在连接池中，跳过")
+                return
 
-        adapter = McpClientAdapter(server_info)
-        await adapter.connect()
+            adapter = McpClientAdapter(server_info)
+            await adapter.connect()
 
-        self._adapters[server_info.name] = adapter
-        _logger.info(f"服务器 {server_info.name} 已加入连接池")
+            self._adapters[server_info.name] = adapter
+            _logger.info(f"服务器 {server_info.name} 已加入连接池")
 
     async def call_tool(
         self,
@@ -92,20 +94,22 @@ class McpConnectionPool:
 
     async def disconnect_server(self, server_name: str) -> None:
         """断开指定服务器的连接"""
-        adapter = self._adapters.pop(server_name, None)
-        if adapter:
-            await adapter.disconnect()
-            _logger.info(f"服务器 {server_name} 已从连接池移除")
+        async with self._lifecycle_lock:
+            adapter = self._adapters.pop(server_name, None)
+            if adapter:
+                await adapter.disconnect()
+                _logger.info(f"服务器 {server_name} 已从连接池移除")
 
     async def disconnect_all(self) -> None:
         """断开所有连接"""
-        _logger.info(f"正在断开所有 {len(self._adapters)} 个连接...")
-        adapters = list(self._adapters.values())
-        self._adapters.clear()
+        async with self._lifecycle_lock:
+            _logger.info(f"正在断开所有 {len(self._adapters)} 个连接...")
+            adapters = list(self._adapters.values())
+            self._adapters.clear()
 
-        # 并行断开所有连接
-        await asyncio.gather(
-            *(adapter.disconnect() for adapter in adapters),
-            return_exceptions=True,
-        )
-        _logger.info("所有连接已断开")
+            # 并行断开所有连接
+            await asyncio.gather(
+                *(adapter.disconnect() for adapter in adapters),
+                return_exceptions=True,
+            )
+            _logger.info("所有连接已断开")
