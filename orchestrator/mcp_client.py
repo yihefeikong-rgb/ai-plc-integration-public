@@ -47,7 +47,9 @@ _ERROR_STATUSES = {
     "error", "failed", "fail", "rejected", "blocked", "denied",
     "forbidden", "cancelled", "canceled",
 }
-_TEXT_ERROR_MARKERS = ("❌", "🚫", "失败", "错误", "被拒绝", "未连接", "不存在", "未配置", "无效")
+# 错误标记只在文本开头生效：诊断类文本中间可能出现"错误码: 0"等字样，
+# 不能据此把成功结果误判为失败。失败信号必须是工具显式给出的前缀。
+_TEXT_ERROR_PREFIXES = ("!", "❌", "🚫", "失败", "错误", "被拒绝", "未连接", "不存在", "未配置", "无效")
 _TEXT_SUCCESS_MARKERS = ("✅", "成功", "已连接", "已断开", "📍")
 
 
@@ -231,7 +233,7 @@ class McpClientAdapter:
 
     @staticmethod
     def _from_text(text: str) -> ToolResult:
-        if text.startswith("!") or any(marker in text for marker in _TEXT_ERROR_MARKERS):
+        if text.strip().startswith(_TEXT_ERROR_PREFIXES):
             return ToolResult.failure("tool_error", text)
         if any(marker in text for marker in _TEXT_SUCCESS_MARKERS):
             return ToolResult.success(text, kind="text_success")

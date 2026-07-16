@@ -444,7 +444,7 @@ class TestSafetyGateIntegration:
         with pytest.raises(RuntimeError, match="安全检查拒绝"):
             ctx._check_safety_gate(
                 "plc-mcp-bridge.s7_write",
-                {"tag_name": "ESTOP_MAIN", "value": 1},
+                {"address": "ESTOP_MAIN", "value": 1},
             )
 
     def test_write_tool_requires_a_confirmation_token_when_gate_requires_it(self):
@@ -457,12 +457,12 @@ class TestSafetyGateIntegration:
         with pytest.raises(RuntimeError, match="需要人工确认"):
             ctx._check_safety_gate(
                 "plc-mcp-bridge.s7_write",
-                {"tag_name": "MotorSpeed", "value": 1500},
+                {"address": "MotorSpeed", "value": 1500},
             )
 
         ctx._check_safety_gate(
             "plc-mcp-bridge.s7_write",
-            {"tag_name": "MotorSpeed", "value": 1500, "confirmation_token": "opaque-token"},
+            {"address": "MotorSpeed", "value": 1500, "confirmation_token": "opaque-token"},
         )
 
     def test_write_tool_no_gate_rejects(self):
@@ -475,24 +475,80 @@ class TestSafetyGateIntegration:
                 {"tag_name": "MotorSpeed", "value": 1500},
             )
 
-    def test_safety_gate_uses_arg_aliases(self):
-        """SafetyGate 应能从不同参数名提取 tag_name 和 value"""
+    def test_safety_gate_uses_registered_contracts(self):
+        """SafetyGate 应按登记的参数契约提取各写入工具的目标与值"""
         from orchestrator.safety_gate import SafetyGate
 
         gate = SafetyGate()
         ctx = WorkflowContext(_safety_gate=gate)
 
-        # 使用 address 替代 tag_name
+        # s7_write: address 直取
         ctx._check_safety_gate(
             "plc-mcp-bridge.s7_write",
             {"address": "MotorSpeed", "value": 1500, "confirmation_token": "opaque-token"},
         )
-
-        # 使用 block_name 替代 tag_name
+        # modbus write_coil: 整数 address 归一化为 coil.N 语义标签
         ctx._check_safety_gate(
-            "plc-mcp-bridge.plc_create_block",
-            {"block_name": "MyBlock", "data": "scl code"},
+            "modbus-mcp.write_coil",
+            {"address": 1, "value": True, "confirmation_token": "opaque-token"},
         )
+        # modbus write_register: 归一化为 register.N
+        ctx._check_safety_gate(
+            "modbus-mcp.write_register",
+            {"address": 2, "value": 8, "confirmation_token": "opaque-token"},
+        )
+        # mitsubishi write_device: addr 参数
+        ctx._check_safety_gate(
+            "mitsubishi-mcp.write_device",
+            {"addr": "M100", "value": 1, "confirmation_token": "opaque-token"},
+        )
+        # opcua write: node_id 参数
+        ctx._check_safety_gate(
+            "opcua-mcp.opcua_write",
+            {"node_id": "ns=2;s=Tag1", "value": "1", "confirmation_token": "opaque-token"},
+        )
+
+    def test_safety_gate_extracts_real_modbus_tag(self):
+        """modbus 写入的语义标签必须与服务端一致（coil.N/register.N）"""
+        from orchestrator.safety_gate import SafetyGate
+
+        captured = {}
+
+        class SpyGate(SafetyGate):
+            def check_write(self, tag_name, value, **kwargs):
+                captured["tag"] = tag_name
+                captured["value"] = value
+                from safety.validator import ValidationResult
+                return ValidationResult(True, "OK")
+
+        ctx = WorkflowContext(_safety_gate=SpyGate())
+        ctx._check_safety_gate("modbus-mcp.write_coil", {"address": 5, "value": True})
+        assert captured["tag"] == "coil.5"
+        assert captured["value"] is True
+
+    def test_unregistered_write_tool_fails_closed(self):
+        """未登记参数契约的写入工具必须被安全门拒绝"""
+        from orchestrator.safety_gate import SafetyGate
+
+        gate = SafetyGate()
+        ctx = WorkflowContext(_safety_gate=gate)
+        with pytest.raises(RuntimeError, match="未登记参数契约"):
+            ctx._check_safety_gate(
+                "plc-mcp-bridge.plc_create_block",
+                {"block_name": "MyBlock", "data": "scl code"},
+            )
+
+    def test_write_tool_missing_target_param_fails_closed(self):
+        """写入工具缺少契约要求的目标参数时必须拒绝"""
+        from orchestrator.safety_gate import SafetyGate
+
+        gate = SafetyGate()
+        ctx = WorkflowContext(_safety_gate=gate)
+        with pytest.raises(RuntimeError, match="缺少目标参数"):
+            ctx._check_safety_gate(
+                "mitsubishi-mcp.write_device",
+                {"value": 1},
+            )
 
     def test_readonly_audit_failure_does_not_raise(self):
         """只读工具的审计异常不会影响主流程。"""
