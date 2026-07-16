@@ -35,9 +35,19 @@ try:
 except ImportError:
     ASYNCUA_AVAILABLE = False
 
-# 导入本地安全模块（OPC UA 专用互锁检查）
-sys.path.insert(0, str(Path(__file__).parent))
-import opcua_safety as safety
+# 导入本地安全模块（OPC UA 专用互锁检查）。
+# 不得向 sys.path 插入本目录：本模块一旦被加载（包括测试以 importlib
+# 加载），position 0 的污染会让其他模块的 `import server` 解析到本文件。
+try:
+    import opcua_safety as safety
+except ModuleNotFoundError:
+    import importlib.util as _ilu
+
+    _safety_spec = _ilu.spec_from_file_location(
+        "opcua_safety", Path(__file__).parent / "opcua_safety.py"
+    )
+    safety = _ilu.module_from_spec(_safety_spec)
+    _safety_spec.loader.exec_module(safety)
 
 # 导入根安全链（validator + shadow_sim + audit）
 from safety.validator import validator as safety_validator
@@ -284,7 +294,7 @@ async def write_node(
         try:
             confirmation_service.consume(
                 confirmation_token,
-                operator=operator,
+                operator=actor,
                 target=node_id,
                 value=value,
                 device_id=_confirmation_device_id(),
@@ -350,14 +360,38 @@ async def write_node(
     name="opcua_reset_fuse",
     annotations={"destructiveHint": True},
 )
-async def reset_fuse(auth_token: str = "") -> str:
+async def reset_fuse(auth_token: str = "", confirmation_token: str = "") -> str:
     """重置安全熔断器（连续写入失败后自动触发熔断，需人工重置）
 
     Args:
         auth_token: 认证令牌
+        confirmation_token: 一次性人工确认令牌（必须为 fuse_reset 用途签发）
+
+    安全机制:
+        熔断的意义在于异常后强制人工介入。没有人工确认令牌就能远程重置，
+        熔断机制就形同虚设，因此必须消费一次性令牌后才允许重置。
     """
     _require_auth(auth_token)
+    actor = authenticated_actor(auth_token, "opcua")
+    if not confirmation_token:
+        reason = "重置熔断器需要一次性人工确认令牌"
+        _audit.log("fuse_reset_blocked", "opcua.fuse_reset", "", operator=actor,
+                   success=False, detail=reason)
+        return f"🚫 {reason}"
+    try:
+        confirmation_service.consume(
+            confirmation_token,
+            operator=actor,
+            target="opcua.fuse_reset",
+            value="reset",
+            device_id=_confirmation_device_id(),
+        )
+    except ConfirmationError as exc:
+        _audit.log("fuse_reset_blocked", "opcua.fuse_reset", "", operator=actor,
+                   success=False, detail=str(exc))
+        return f"🚫 熔断器重置被拒绝: {exc}"
     result = safety.reset_fuse()
+    _audit.log("fuse_reset", "opcua.fuse_reset", "reset", operator=actor)
     return result
 
 

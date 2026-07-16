@@ -14,6 +14,7 @@ from typing import Any
 from safety.validator import WriteValidator, ValidationResult
 from safety.shadow_simulator import PreWriteChecker, ShadowResult
 from safety.audit import audit
+from safety.confirmation import ConfirmationError
 
 _logger = logging.getLogger(__name__)
 
@@ -188,8 +189,41 @@ class SafetyGate:
         result = self._validator.validate(tag_name, None)
         return not result.allowed
 
-    def reset_fuse(self):
-        """重置熔断计数器（需要双人确认后调用）"""
+    def reset_fuse(
+        self,
+        *,
+        confirmation_token: str,
+        operator: str,
+        device_id: str,
+        confirmation_service: Any | None = None,
+    ) -> None:
+        """重置熔断计数器（必须消费一次性人工确认令牌）。
+
+        熔断的意义在于连续异常后强制人工介入；如果无需确认就能重置，
+        熔断机制形同虚设。令牌必须绑定 target="safety.fuse_reset"、
+        value="reset" 以及调用方身份与设备身份。
+
+        Args:
+            confirmation_token: 一次性人工确认令牌
+            operator: 已认证操作者标识（派生身份，非自报）
+            device_id: 设备身份（与令牌绑定一致）
+            confirmation_service: 可注入的确认服务（测试用）；默认按环境配置创建
+
+        Raises:
+            ConfirmationError: 令牌缺失、无效或不匹配时拒绝重置
+        """
+        from safety.confirmation import ConfirmationService
+
+        if not confirmation_token:
+            raise ConfirmationError("重置熔断器需要一次性人工确认令牌")
+        service = confirmation_service or ConfirmationService()
+        service.consume(
+            confirmation_token,
+            operator=operator,
+            target="safety.fuse_reset",
+            value="reset",
+            device_id=device_id,
+        )
         self._validator.reset_fuse()
 
 

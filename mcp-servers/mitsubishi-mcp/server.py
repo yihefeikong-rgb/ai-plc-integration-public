@@ -114,7 +114,7 @@ async def write_device(
         try:
             confirmation_service.consume(
                 confirmation_token,
-                operator=operator,
+                operator=actor,
                 target=addr,
                 value=value,
                 device_id=_confirmation_device_id(),

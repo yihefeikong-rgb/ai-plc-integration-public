@@ -137,8 +137,10 @@ async def test_modbus_write_accepts_an_exact_confirmation_token_once(tmp_path: P
     monkeypatch.setattr(module, "get_client", MagicMock(return_value=client))
     monkeypatch.setattr(module, "audit", MagicMock())
 
+    from mcp_common.audit import authenticated_actor
+    writer_actor = authenticated_actor("test-token", "modbus")
     token = service.issue(
-        operator="ai-agent",
+        operator=writer_actor,
         approver="local-human",
         target="coil.1",
         value=True,
@@ -172,8 +174,10 @@ async def test_modbus_register_rejects_a_token_for_a_different_target(tmp_path: 
     monkeypatch.setattr(module, "shadow_sim", MagicMock(simulate_write=AsyncMock(return_value=MagicMock(safe=True))))
     monkeypatch.setattr(module, "get_client", MagicMock(return_value=client))
     monkeypatch.setattr(module, "audit", MagicMock())
+    from mcp_common.audit import authenticated_actor
     token = service.issue(
-        operator="ai-agent", approver="local-human", target="register.2", value=8,
+        operator=authenticated_actor("test-token", "modbus"),
+        approver="local-human", target="register.2", value=8,
         device_id="modbus:test-host:502:unit-1", audit_id="audit-123",
     )
 
@@ -205,8 +209,10 @@ async def test_mitsubishi_write_accepts_an_exact_confirmation_token_once(tmp_pat
     monkeypatch.setattr(module, "build_write_request", MagicMock(return_value=b"request"))
     monkeypatch.setattr(module, "parse_write_response", MagicMock())
     monkeypatch.setattr(module, "audit", MagicMock())
+    from mcp_common.audit import authenticated_actor
     token = service.issue(
-        operator="ai-agent", approver="local-human", target="M100", value=1,
+        operator=authenticated_actor("test-token", "melsec"),
+        approver="local-human", target="M100", value=1,
         device_id="melsec:test-host:5000", audit_id="audit-123",
     )
 
@@ -244,8 +250,10 @@ async def test_opcua_write_accepts_an_exact_confirmation_token_once(tmp_path: Pa
         check_value_range=MagicMock(return_value=(True, "ok")),
     ))
     monkeypatch.setattr(module, "_audit", MagicMock())
+    from mcp_common.audit import authenticated_actor
     token = service.issue(
-        operator="ai-agent", approver="local-human", target="ns=2;s=MOTOR_1", value="1",
+        operator=authenticated_actor("test-token", "opcua"),
+        approver="local-human", target="ns=2;s=MOTOR_1", value="1",
         device_id="opcua:opc.tcp://test-host:4840", audit_id="audit-123",
     )
 
