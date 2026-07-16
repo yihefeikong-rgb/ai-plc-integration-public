@@ -1,21 +1,23 @@
-fastapi==0.111.0
-uvicorn==0.30.1
-pydantic==2.7.4
-python-multipart==0.0.9
-httpx==0.27.0
-python-dotenv==1.0.1
-pydantic-settings==2.3.4
-chromadb==0.5.5
-PyMuPDF==1.24.9
-python-docx==1.1.2
-openai==1.35.0
-anthropic==0.32.0
+# AI PLC Assistant 后端依赖（与仓库根 requirements.txt 对齐）
+# 注意: fastapi/starlette/httpx/pydantic 的版本下限不可单独下调，
+# 否则会与根环境的 fastmcp/mcp 产生不可调和冲突。
+fastapi>=0.139
+uvicorn>=0.30
+pydantic>=2.10
+python-multipart>=0.0.9
+httpx>=0.28
+python-dotenv>=1.0
+pydantic-settings>=2.4
+chromadb>=0.5.5
+PyMuPDF>=1.24
+python-docx>=1.1
+openai>=1.50
+anthropic>=0.60
 
 # Chinese Embedding (RAG)
-fastembed==0.4.1
+fastembed>=0.3
 
 # Testing
-pytest==8.2.2
-pytest-asyncio==0.23.7
-pytest-cov==5.0.0
-httpx==0.27.0
+pytest>=8.2
+pytest-asyncio>=0.23
+pytest-cov>=5.0
