@@ -18,7 +18,7 @@ import yaml
 import sys
 import ipaddress
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 
@@ -77,7 +77,14 @@ def _resolve_env(value: str, env: dict) -> str:
 
 
 def _resolve_path(value: str) -> str:
-    """将相对路径转为绝对路径（相对于项目根目录）"""
+    """将相对路径转为绝对路径（相对于项目根目录）。
+
+    控制目标路径是 Windows 语义（TIA 工程站）；在非 Windows 平台上
+    运行时，Windows 绝对路径必须按 PureWindowsPath 识别，否则会被
+    错误地拼接到项目根目录下。
+    """
+    if PureWindowsPath(value).is_absolute():
+        return value
     p = Path(value)
     if p.is_absolute():
         return str(p)
@@ -473,7 +480,7 @@ class TargetConfigurationError(RuntimeError):
 class ControlTarget:
     profile: str
     tia_version: str
-    project_path: Path
+    project_path: PureWindowsPath  # 控制目标为 Windows 路径语义，与运行平台无关
     plcsim_instance: str
     plc_ip: str
 
@@ -495,7 +502,7 @@ def validate_control_target(config: Any | None = None) -> ControlTarget:
         target = config.target
         profile = str(target.profile)
         tia_version = str(target.tia_version).upper()
-        project_path = Path(str(target.project_path))
+        project_path = PureWindowsPath(str(target.project_path))
         plcsim_instance = str(target.plcsim_instance)
         plc_ip = str(target.plc_ip)
     except AttributeError as exc:
