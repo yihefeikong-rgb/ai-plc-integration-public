@@ -34,6 +34,27 @@ CONTROL_OPERATION_MARKERS = (
     "save", "archive", "plc_apply", "go_online", "go_offline", "reset",
 )
 
+# 各写入工具的被写目标/值参数名映射。安全门必须拿到真实的地址与值，
+# 不能靠统一的参数名猜测——三菱用 addr，OPC UA 用 node_id，Modbus 用
+# 整数 address。未登记的工具一律 fail-closed。
+# 格式: tool_full_name -> (target_param, value_param, target_transform)
+# target_transform 为 None 表示直接使用 str(参数值)。
+WRITE_TOOL_PARAMS: dict[str, tuple[str, str, "Callable[[Any], str] | None"]] = {}
+
+
+def _register_write_tool_params() -> None:
+    """显式登记每个写入工具的目标/值参数契约。"""
+    WRITE_TOOL_PARAMS.update({
+        "plc-mcp-bridge.s7_write": ("address", "value", None),
+        "opcua-mcp.opcua_write": ("node_id", "value", None),
+        "modbus-mcp.write_coil": ("address", "value", lambda a: f"coil.{a}"),
+        "modbus-mcp.write_register": ("address", "value", lambda a: f"register.{a}"),
+        "mitsubishi-mcp.write_device": ("addr", "value", None),
+    })
+
+
+_register_write_tool_params()
+
 
 @dataclass
 class StepResult:
@@ -152,10 +173,13 @@ class WorkflowContext:
                 raise RuntimeError("工具返回空对象，无法确认成功")
         elif result is None or (isinstance(result, str) and not result.strip()):
             raise RuntimeError("工具返回为空，无法确认成功")
-        elif isinstance(result, str) and (
-            result.startswith("!") or any(marker in result for marker in ("❌", "🚫", "失败", "错误", "被拒绝"))
-        ):
-            raise RuntimeError(result)
+        elif isinstance(result, str):
+            # 只把"显式失败前缀"视为失败信号。诊断类工具可能正常返回
+            # "错误码: 0，无错误" 这类文本，不能因为串中出现关键词就误判。
+            stripped = result.strip()
+            failure_prefixes = ("!", "❌", "🚫", "失败", "错误", "被拒绝")
+            if stripped.startswith(failure_prefixes):
+                raise RuntimeError(result)
 
         return result
 
@@ -276,11 +300,20 @@ class WorkflowContext:
                 "请先在引擎上调用 engine.set_safety_gate()。"
             )
 
-        tag_name = arguments.get(
-            "tag_name",
-            arguments.get("address", arguments.get("block_name", tool_full_name)),
-        )
-        value = arguments.get("value", arguments.get("data", ""))
+        contract = WRITE_TOOL_PARAMS.get(tool_full_name.lower())
+        if contract is None:
+            raise RuntimeError(
+                f"写入工具 {tool_full_name} 未登记参数契约，拒绝执行。"
+                "请在 WRITE_TOOL_PARAMS 中登记其目标/值参数名。"
+            )
+        target_param, value_param, transform = contract
+        if target_param not in arguments:
+            raise RuntimeError(
+                f"写入工具 {tool_full_name} 缺少目标参数 {target_param}，拒绝执行"
+            )
+        raw_target = arguments[target_param]
+        tag_name = transform(raw_target) if transform else str(raw_target)
+        value = arguments.get(value_param, "")
         result = gate.check_write(tag_name, value, operator="ai")
 
         if not result.allowed:
@@ -552,6 +585,7 @@ class OrchestratorEngine:
         steps: list[dict[str, Any]],
         *,
         input: dict[str, Any] | None = None,
+        stop_on_error: bool = True,
     ) -> WorkflowResult:
         """执行一个临时工作流（步骤序列）。
 
@@ -560,6 +594,8 @@ class OrchestratorEngine:
         Args:
             steps: 步骤列表
             input: 输入参数
+            stop_on_error: 任一步骤失败时是否立即中止后续步骤（默认中止，
+                避免"下载失败后仍执行写入"这类危险序列）
 
         Returns:
             WorkflowResult 包含执行结果和步骤详情
@@ -578,7 +614,8 @@ class OrchestratorEngine:
             try:
                 await context.call_async(tool_full, **params)
             except Exception:
-                pass  # 错误已记录在 context._steps 中
+                if stop_on_error:
+                    break  # 错误已记录在 context._steps 中
 
         elapsed = (time.time() - start) * 1000
         all_ok = all(s.ok for s in context._steps) if context._steps else True
@@ -611,6 +648,7 @@ class OrchestratorEngine:
         *,
         input: dict[str, Any] | None = None,
         context: WorkflowContext | None = None,
+        stop_on_error: bool = True,
     ) -> WorkflowResult:
         """同步执行一个工作流。
 
@@ -621,6 +659,7 @@ class OrchestratorEngine:
             workflow_name: 工作流名称
             input: 输入参数
             context: 自定义上下文（可选）
+            stop_on_error: 动态工作流任一步骤失败时是否立即中止（默认中止）
 
         Returns:
             WorkflowResult 包含执行结果和步骤详情
@@ -644,7 +683,8 @@ class OrchestratorEngine:
                     try:
                         context.call(tool_full, **params)
                     except Exception:
-                        pass
+                        if stop_on_error:
+                            break
                 elapsed = (time.time() - start) * 1000
                 all_ok = all(s.ok for s in context._steps) if context._steps else True
                 return WorkflowResult(
@@ -696,6 +736,7 @@ class OrchestratorEngine:
         *,
         input: dict[str, Any] | None = None,
         context: WorkflowContext | None = None,
+        stop_on_error: bool = True,
     ) -> WorkflowResult:
         """异步执行一个工作流（支持 MCP 模式）。
 
@@ -706,6 +747,7 @@ class OrchestratorEngine:
             workflow_name: 工作流名称
             input: 输入参数
             context: 自定义上下文（可选）
+            stop_on_error: 动态工作流任一步骤失败时是否立即中止（默认中止）
 
         Returns:
             WorkflowResult 包含执行结果和步骤详情
@@ -717,7 +759,9 @@ class OrchestratorEngine:
             # 检查动态工作流
             dyn_steps = self._dynamic_workflows.get(workflow_name)
             if dyn_steps is not None:
-                return await self._run_dynamic(dyn_steps, workflow_name, input)
+                return await self._run_dynamic(
+                    dyn_steps, workflow_name, input, stop_on_error=stop_on_error
+                )
             return WorkflowResult(
                 workflow_name=workflow_name,
                 ok=False,
@@ -764,6 +808,8 @@ class OrchestratorEngine:
         steps: list[dict[str, Any]],
         workflow_name: str,
         input: dict[str, Any] | None = None,
+        *,
+        stop_on_error: bool = True,
     ) -> WorkflowResult:
         """执行动态工作流的步骤序列"""
         import time
@@ -780,7 +826,8 @@ class OrchestratorEngine:
             try:
                 await context.call_async(tool_full, **params)
             except Exception:
-                pass
+                if stop_on_error:
+                    break
 
         elapsed = (time.time() - start) * 1000
         all_ok = all(s.ok for s in context._steps) if context._steps else True

@@ -190,9 +190,7 @@ class TestCreateTagsFromJson:
 
     def test_reads_json_and_creates_tags(self):
         """从 JSON 文件读取并创建标签"""
-        # 需要 mock ctypes 管理员检查，避免实际 UAC 提权
-        with patch("ctypes.windll.shell32.IsUserAnAdmin", return_value=True):
-            from create_plc_tags import create_tags_from_json
+        from create_plc_tags import create_tags_from_json
 
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"
@@ -217,8 +215,7 @@ class TestCreateTagsFromJson:
 
     def test_uses_default_tag_table_name(self):
         """使用默认标签表名"""
-        with patch("ctypes.windll.shell32.IsUserAnAdmin", return_value=True):
-            from create_plc_tags import create_tags_from_json
+        from create_plc_tags import create_tags_from_json
 
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"
@@ -242,8 +239,7 @@ class TestCreateTagsFromJson:
 
     def test_no_project_path_uses_default(self):
         """无 project_path 时使用配置默认值"""
-        with patch("ctypes.windll.shell32.IsUserAnAdmin", return_value=True):
-            from create_plc_tags import create_tags_from_json
+        from create_plc_tags import create_tags_from_json
 
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"

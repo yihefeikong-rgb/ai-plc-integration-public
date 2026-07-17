@@ -98,6 +98,7 @@ def build_report() -> dict[str, Any]:
     cfg = _load_config()
 
     tia = cfg.get("tia", {}) or {}
+    target = cfg.get("target", {}) or {}
     simulation = cfg.get("simulation", {}) or {}
     factory_io = cfg.get("factory_io", {}) or {}
     advanced = simulation.get("advanced", {}) or {}
@@ -121,9 +122,10 @@ def build_report() -> dict[str, Any]:
         if not item.passed
     ]
 
-    project_path = _expand(tia.get("project_path", ""), env)
+    # target 段是唯一控制目标事实源；tia 段的同名字段仅为历史兼容兜底
+    project_path = _expand(tia.get("project_path") or target.get("project_path", ""), env)
     install_dir = _expand(tia.get("install_dir", ""), env)
-    configured_version = _expand(tia.get("version", ""), env)
+    configured_version = _expand(tia.get("version") or target.get("tia_version", ""), env)
 
     return {
         "tia": {
@@ -135,8 +137,8 @@ def build_report() -> dict[str, Any]:
         "plcsim": {
             "backend": _expand(simulation.get("backend", ""), env),
             "advanced_install_dir": _expand(simulation.get("advanced_install_dir", ""), env),
-            "plc_ip": env.get("S7_PLC_IP") or _expand(advanced.get("plc_ip", ""), env),
-            "config_plc_ip": _expand(advanced.get("plc_ip", ""), env),
+            "plc_ip": env.get("S7_PLC_IP") or _expand(advanced.get("plc_ip") or target.get("plc_ip", ""), env),
+            "config_plc_ip": _expand(advanced.get("plc_ip") or target.get("plc_ip", ""), env),
             "instance_name": factory_io.get("plcsim_instance", "factoryio"),
         },
         "factory_io": {

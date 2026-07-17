@@ -29,12 +29,29 @@ sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 # ═══════════════════════════════════════════════════════════════
 # 自提权：TIA Portal Openness API 需要管理员权限
+# 仅在作为脚本直接运行且处于 Windows 时执行；作为模块 import（例如
+# 测试收集）时不得触发 UAC 弹窗或 sys.exit。
 # ═══════════════════════════════════════════════════════════════
-if not ctypes.windll.shell32.IsUserAnAdmin():
+def _is_admin() -> bool:
+    """是否具备管理员权限（非 Windows 平台无 UAC 概念，按有权限处理）。"""
+    if sys.platform != "win32":
+        return True
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())
+
+
+def _self_elevate_if_needed() -> None:
+    if sys.platform != "win32":
+        return
+    if _is_admin():
+        return
     # 用 ShellExecuteW runas 弹出 UAC 提权
     args = " ".join(f'"{a}"' for a in sys.argv)
     ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, args, None, 1)
     sys.exit(0)
+
+
+if __name__ == "__main__":
+    _self_elevate_if_needed()
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -292,7 +309,7 @@ def create_tags_from_json(json_path: str, project_path: str = None) -> dict:
     print(f"  TIA Portal PLC 标签创建工具")
     print(f"{'=' * 55}")
     print(f"  Python:     {sys.executable}")
-    print(f"  管理员:     {'✅ 是' if ctypes.windll.shell32.IsUserAnAdmin() else '❌ 否'}")
+    print(f"  管理员:     {'✅ 是' if _is_admin() else '❌ 否'}")
     print(f"  标签文件:   {json_path}")
     print(f"  项目路径:   {project_path}")
     print(f"  标签表:     {tag_table_name}")

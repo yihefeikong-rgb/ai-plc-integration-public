@@ -65,7 +65,7 @@ Historical plans and status reports are clues only. When they conflict, prefer c
 | `mcp-servers/plc-mcp-bridge/` | Bridge tools for S7 runtime, TIA engineering, PLCSIM, Factory I/O, tags, blocks, UDTs, and diagnostics. | Read/write and engineering mutations require safety gates, target constraints, and human process. |
 | `mcp-servers/{opcua,modbus,mitsubishi,robot}-mcp/` | Experimental MCP implementations for OPC UA, Modbus TCP, Mitsubishi MC protocol, and robot scenarios. | They have no unified real-hardware acceptance claim. Do not connect them to field devices by default. |
 | `mcp_common/` and `safety/` | Shared configuration, single control target, confirmation tokens, interlocks, static pre-checks, and chained audit logging. | Engineering safeguards only; not a functional-safety certification. |
-| `plc-code-templates/` and `plc-programs/` | SCL, LAD, PLCopen/XML, and example PLC assets. | Presence of an asset does not prove import, compilation, or download success. |
+| `plc-code-templates/` | SCL, LAD, PLCopen/XML, and example PLC assets. | Presence of an asset does not prove import, compilation, or download success. |
 | `edge-gateway/` and `docker-compose.yml` | Optional Modbus, InfluxDB, Grafana, OpenPLC, and AI gateway integration. | Needs separate variables, containers, and network configuration; not part of the default offline startup path. |
 
 ## Architecture
@@ -113,7 +113,6 @@ flowchart LR
 ├── mcp_common/                # Shared config, target, connection, and audit utilities
 ├── safety/                    # Interlocks, confirmation, static pre-check, audit compatibility
 ├── plc-code-templates/        # SCL/LAD/PLCopen template assets
-├── plc-programs/              # PLC and simulation examples
 ├── edge-gateway/              # Optional gateway and monitoring integration
 ├── scripts/                   # Read-only preflight, chain report, controlled helpers
 ├── tests/                     # Offline and safety regression tests
@@ -270,4 +269,4 @@ Both repositories should undergo a credential check before synchronization. Do n
 
 ### License
 
-No `LICENSE` file is currently committed. Do not assume a production-use, redistribution, or third-party-software license unless the repository owner grants one explicitly. TIA Portal, PLCSIM, Factory I/O, and other industrial software remain subject to their respective licenses.
+The code in this repository is released under the MIT license (see `LICENSE`). TIA Portal, PLCSIM, Factory I/O, and other industrial software remain subject to their respective licenses, which this repository does not provide.

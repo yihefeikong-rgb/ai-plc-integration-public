@@ -123,7 +123,7 @@ async def write_coil(
         try:
             confirmation_service.consume(
                 confirmation_token,
-                operator=operator,
+                operator=actor,
                 target=tag,
                 value=value,
                 device_id=_confirmation_device_id(),
@@ -182,7 +182,7 @@ async def write_register(
         try:
             confirmation_service.consume(
                 confirmation_token,
-                operator=operator,
+                operator=actor,
                 target=tag,
                 value=value,
                 device_id=_confirmation_device_id(),

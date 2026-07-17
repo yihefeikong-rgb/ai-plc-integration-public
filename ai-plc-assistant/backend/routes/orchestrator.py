@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -22,12 +23,22 @@ from orchestrator.registry import get_registry
 from security import require_local_session
 from safety.confirmation import ConfirmationError, ConfirmationService
 from orchestrator.safety_gate import get_safety_gate
+from mcp_common.audit import authenticated_actor
 
 _logger = logging.getLogger(__name__)
 
 router = APIRouter()
 confirmation_service = ConfirmationService()
 _CONFIRMABLE_DEVICE_PREFIXES = ("s7:", "modbus:", "melsec:", "opcua:")
+# 设备身份前缀 -> MCP 服务器认证命名空间。服务器侧消费令牌时按
+# authenticated_actor(MCP_AUTH_TOKEN, namespace) 派生写入方身份，
+# 签发端必须用同一方式推导，否则"绑定操作人"只是一句自报文本。
+_DEVICE_NAMESPACE = {
+    "modbus:": "modbus",
+    "melsec:": "melsec",
+    "opcua:": "opcua",
+    "s7:": None,  # S7 MCP 暂无会话认证，保留自报 operator（已知缺口）
+}
 _CLIENT_WORKFLOW_TOOL_ALLOWLIST = frozenset({
     "plc-mcp-bridge.s7_read",
     "plc-mcp-bridge.s7_status",
@@ -130,6 +141,27 @@ class ConfirmationRequest(BaseModel):
     value: Any
     device_id: str
     ttl_seconds: int = 60
+    purpose: str = "write"  # write | fuse_reset
+
+
+def _derive_writer_actor(device_id: str) -> str | None:
+    """按设备身份推导写入方的已认证主体（与 MCP 服务器侧派生方式一致）。
+
+    返回 None 表示该设备族暂无会话认证（S7），保留自报 operator 的已知缺口。
+    """
+    for prefix, namespace in _DEVICE_NAMESPACE.items():
+        if not device_id.startswith(prefix):
+            continue
+        if namespace is None:
+            return None
+        token = os.environ.get("MCP_AUTH_TOKEN", "")
+        if not token:
+            raise HTTPException(
+                status_code=503,
+                detail=f"未配置 MCP_AUTH_TOKEN，无法推导 {namespace} 写入方身份",
+            )
+        return authenticated_actor(token, namespace)
+    return None
 
 
 class DynamicWorkflowItem(BaseModel):
@@ -342,15 +374,43 @@ async def issue_confirmation(
     body: ConfirmationRequest,
     actor: str = Depends(require_local_session),
 ) -> dict[str, str]:
-    """由已鉴权的本地人工会话签发一次性写入确认令牌。"""
+    """由已鉴权的本地人工会话签发一次性确认令牌。
+
+    purpose=write: 绑定一次变量写入；purpose=fuse_reset: 绑定一次熔断器重置。
+    写入方身份优先按设备前缀从共享认证密钥派生，不信任调用方自报。
+    """
     if not body.operator or body.operator in {"human", "local-human", "local-session"}:
         raise HTTPException(status_code=422, detail="确认令牌必须绑定非人工操作者")
     if not body.target or not body.device_id.startswith(_CONFIRMABLE_DEVICE_PREFIXES):
         raise HTTPException(status_code=422, detail="确认令牌目标或设备身份无效")
     if not 1 <= body.ttl_seconds <= 300:
         raise HTTPException(status_code=422, detail="确认令牌有效期必须在 1 到 300 秒之间")
+    if body.purpose not in {"write", "fuse_reset"}:
+        raise HTTPException(status_code=422, detail="确认令牌用途必须为 write 或 fuse_reset")
 
-    result = get_safety_gate().check_write(body.target, body.value, operator=body.operator)
+    writer_actor = _derive_writer_actor(body.device_id) or body.operator
+
+    if body.purpose == "fuse_reset":
+        namespace = _DEVICE_NAMESPACE.get(
+            next((p for p in _CONFIRMABLE_DEVICE_PREFIXES if body.device_id.startswith(p)), "")
+        )
+        if namespace is None:
+            raise HTTPException(status_code=422, detail="该设备族不支持熔断器重置令牌")
+        try:
+            token = confirmation_service.issue(
+                operator=writer_actor,
+                approver=actor,
+                target=f"{namespace}.fuse_reset",
+                value="reset",
+                device_id=body.device_id,
+                audit_id=f"fuse-reset:{int(time.time())}",
+                ttl_seconds=body.ttl_seconds,
+            )
+        except ConfirmationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"confirmation_token": token, "audit_id": ""}
+
+    result = get_safety_gate().check_write(body.target, body.value, operator=writer_actor)
     if not result.allowed:
         raise HTTPException(status_code=409, detail=f"安全检查拒绝: {result.reason}")
     if not result.needs_confirmation:
@@ -359,7 +419,7 @@ async def issue_confirmation(
         raise HTTPException(status_code=503, detail="确认审计记录不可用，拒绝签发令牌")
     try:
         token = confirmation_service.issue(
-            operator=body.operator,
+            operator=writer_actor,
             approver=actor,
             target=body.target,
             value=body.value,

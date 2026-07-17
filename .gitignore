@@ -56,8 +56,9 @@ Python.Runtime.PythonException
 
 # 浏览器快照/临时测试文件
 snapshot_*.json
-*.sh
-*.ps1
+# 仅忽略根目录的临时脚本；scripts/ 等子目录中的正式脚本不受影响
+/*.sh
+/*.ps1
 question_text.txt
 
 # 截屏文件

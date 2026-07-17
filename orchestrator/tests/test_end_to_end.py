@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
+from keyring import backend
 
 from orchestrator.core import OrchestratorEngine, WorkflowContext
 from orchestrator.workflows.s7_monitor import (
@@ -516,6 +517,24 @@ class TestRobotWorkflowEndToEnd:
 # TestOrchestratorApiIntegration
 # ============================================================================
 
+class _InMemoryKeyring(backend.KeyringBackend):
+    """测试专用内存凭据库：CI/无头环境没有可用的系统 keyring。"""
+
+    priority = 1
+
+    def __init__(self):
+        self._store: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service, username):
+        return self._store.get((service, username))
+
+    def set_password(self, service, username, password):
+        self._store[(service, username)] = password
+
+    def delete_password(self, service, username):
+        self._store.pop((service, username), None)
+
+
 class TestOrchestratorApiIntegration:
     """后端 API → 编排层路由集成测试（FastAPI TestClient）"""
 
@@ -527,6 +546,12 @@ class TestOrchestratorApiIntegration:
         BACKEND_DIR = Path(__file__).parent.parent.parent / "ai-plc-assistant" / "backend"
         import os as _os
         import sys as _sys
+        import keyring as _keyring
+
+        # 系统凭据库在 CI/无头环境不可用；换成内存实现保证测试可重复。
+        # 应用代码本身保持写入侧 fail-closed，只是这里给了它一个能写的库。
+        _keyring.set_keyring(_InMemoryKeyring())
+
         _orig_cwd = _os.getcwd()
         _previous_token = _os.environ.get("LOCAL_API_TOKEN")
         _os.environ["LOCAL_API_TOKEN"] = "orchestrator-e2e-test-token"

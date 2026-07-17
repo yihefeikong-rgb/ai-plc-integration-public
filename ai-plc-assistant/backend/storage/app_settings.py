@@ -1,11 +1,14 @@
 """应用设置存储 — JSON 文件持久化，支持前端读写"""
 
 import json
+import logging
 import os
 import tempfile
 from typing import Any, Optional
 
 import keyring
+
+_logger = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS = {
     "deepseek_api_key": "",
@@ -24,7 +27,7 @@ DEFAULT_SETTINGS = {
     "custom_base_url": "",
     "custom_model": "",
     "default_plc_type": "S7-1200",
-    "default_tia_version": "V18",
+    "default_tia_version": "V21",
     "default_language": "SCL",
 }
 
@@ -115,10 +118,14 @@ class AppSettings:
         return f"settings/{key}"
 
     def _get_credential(self, key: str) -> str:
+        # 读取侧降级：无头/CI 环境的系统凭据库可能不可用，此时按"无凭据"
+        # 处理并记录警告，而不是让整个后端启动崩溃。写入侧仍然 fail-closed，
+        # 凭据库不可用时拒绝把 API Key 落盘成明文。
         try:
             return keyring.get_password(KEYRING_SERVICE, self._credential_name(key)) or ""
         except Exception as exc:
-            raise SettingsCredentialError(f"无法读取系统凭据库: {exc}") from exc
+            _logger.warning("系统凭据库读取失败（按无凭据处理）: %s", exc)
+            return ""
 
     def _set_credential(self, key: str, value: str) -> None:
         try:

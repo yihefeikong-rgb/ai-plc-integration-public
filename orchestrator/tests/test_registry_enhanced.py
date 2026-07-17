@@ -29,9 +29,12 @@ class TestDesktopMcpConfig:
 
     def test_desktop_mcp_exists(self):
         """DESKTOP_MCP 配置对象存在且字段正确"""
+        import os
         assert DESKTOP_MCP is not None
         assert DESKTOP_MCP.name == "desktop-mcp"
-        assert DESKTOP_MCP.command.endswith("python.exe")
+        # 解释器文件名随平台变化（Windows: python.exe，POSIX: python/python3）
+        exe_name = os.path.basename(DESKTOP_MCP.command).lower()
+        assert exe_name in {"python", "python3", "python.exe"} or exe_name.startswith("python3.")
         assert DESKTOP_MCP.args == ["server.py"]
         assert "desktop-mcp" in DESKTOP_MCP.cwd
 

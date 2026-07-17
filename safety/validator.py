@@ -2,6 +2,7 @@
 
 import math
 import re
+import threading
 import time
 import logging
 from dataclasses import dataclass
@@ -38,6 +39,7 @@ class ValidationResult:
 
 class WriteValidator:
     def __init__(self):
+        self._lock = threading.RLock()
         self.consecutive_errors = 0
         self._rules: list[dict] = []
         self._s7_write_addresses: dict[str, dict[str, str]] = {}
@@ -55,9 +57,10 @@ class WriteValidator:
         self._bit_reader = reader_fn
 
     def reset_fuse(self):
-        """重置熔断计数器（必须双人确认后调用）"""
-        _logger.warning("熔断计数器已重置（需双人确认）")
-        self.consecutive_errors = 0
+        """重置熔断计数器（调用方必须先消费一次性人工确认令牌）"""
+        with self._lock:
+            _logger.warning("熔断计数器已重置（需已消费人工确认令牌）")
+            self.consecutive_errors = 0
 
     def _load_interlock_rules(self):
         """加载互锁规则文件"""
@@ -172,7 +175,11 @@ class WriteValidator:
         return None
 
     def validate(self, tag_name: str, value, current_value=None) -> ValidationResult:
-        tag_upper = tag_name.upper()
+        with self._lock:
+            return self._validate_locked(tag_name, value, current_value)
+
+    def _validate_locked(self, tag_name: str, value, current_value=None) -> ValidationResult:
+        tag_upper = str(tag_name).upper()
 
         # 1. 检查禁止写入的安全标签
         for pat in FORBIDDEN_PATTERNS:

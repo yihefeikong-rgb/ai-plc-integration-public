@@ -74,10 +74,45 @@ class TestSafetyGate:
         # 影子仿真会因值 > 1,000,000 而拒绝
         assert result.allowed is False
 
-    def test_reset_fuse(self):
+    def test_reset_fuse(self, tmp_path):
+        from safety.confirmation import ConfirmationError, ConfirmationService
         gate = SafetyGate()
-        # 不应抛出异常
-        gate.reset_fuse()
+        service = ConfirmationService(
+            secret="test-confirmation-secret",
+            store_path=tmp_path / "confirmations.sqlite3",
+        )
+        token = service.issue(
+            operator="local-session:abc",
+            approver="local-human",
+            target="safety.fuse_reset",
+            value="reset",
+            device_id="s7:test-host:0:1",
+            audit_id="audit-fuse-1",
+        )
+        # 无令牌必须拒绝
+        import pytest
+        with pytest.raises(ConfirmationError):
+            gate.reset_fuse(
+                confirmation_token="",
+                operator="local-session:abc",
+                device_id="s7:test-host:0:1",
+                confirmation_service=service,
+            )
+        # 有效令牌允许重置
+        gate.reset_fuse(
+            confirmation_token=token,
+            operator="local-session:abc",
+            device_id="s7:test-host:0:1",
+            confirmation_service=service,
+        )
+        # 令牌一次性，第二次必须拒绝
+        with pytest.raises(ConfirmationError):
+            gate.reset_fuse(
+                confirmation_token=token,
+                operator="local-session:abc",
+                device_id="s7:test-host:0:1",
+                confirmation_service=service,
+            )
 
     def test_set_bit_reader(self):
         gate = SafetyGate()

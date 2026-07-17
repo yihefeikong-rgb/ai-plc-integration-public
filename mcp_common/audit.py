@@ -25,6 +25,50 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+if os.name == "nt":  # Windows 进程间文件锁
+    import msvcrt
+
+    def _lock_region(file_obj) -> None:
+        file_obj.seek(0)
+        msvcrt.locking(file_obj.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _unlock_region(file_obj) -> None:
+        file_obj.seek(0)
+        msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+else:  # POSIX 进程间文件锁
+    import fcntl
+
+    def _lock_region(file_obj) -> None:
+        fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX)
+
+    def _unlock_region(file_obj) -> None:
+        fcntl.flock(file_obj.fileno(), fcntl.LOCK_UN)
+
+
+class _InterProcessLock:
+    """跨进程互斥锁（基于审计文件旁的 .lock 文件）。
+
+    多个 MCP 子进程与后端进程会同时追加同一条审计链；没有跨进程
+    互斥时，各进程按自己内存中的 prev_hash 续链，链必然分叉。
+    """
+
+    def __init__(self, lock_path: Path):
+        self._lock_path = lock_path
+        self._handle = None
+
+    def __enter__(self):
+        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = open(self._lock_path, "a+b")
+        _lock_region(self._handle)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            _unlock_region(self._handle)
+        finally:
+            self._handle.close()
+            self._handle = None
+
 
 class AuditConfigurationError(RuntimeError):
     """审计配置不满足控制动作的 fail-closed 要求。"""
@@ -160,14 +204,19 @@ class AuditLogger:
         )
 
     def _load_last_hash(self) -> str:
+        """读取链尾 hash（只读文件末尾，避免大日志全量加载）。"""
         if not self.path.exists():
             return "0" * 64
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-                if lines:
-                    last = json.loads(lines[-1])
-                    return last.get("hash", "0" * 64)
+            with open(self.path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 65536))
+                tail = f.read().decode("utf-8", errors="replace")
+            lines = [l for l in tail.splitlines() if l.strip()]
+            if lines:
+                last = json.loads(lines[-1])
+                return last.get("hash", "0" * 64)
         except Exception:
             pass
         return "0" * 64
@@ -205,17 +254,23 @@ class AuditLogger:
     def _write_entry(self, entry: dict) -> dict:
         entry = _redact(entry)
         self._ensure_storage_writable()
-        entry["prev_hash"] = self._prev_hash
-        body = {k: v for k, v in entry.items() if k != "hash"}
-        entry["hash"] = _compute_hash(body, self._prev_hash, self._hmac_key)
 
-        try:
-            with open(self.path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                f.flush()
-        except OSError as e:
-            print(f"[audit] 审计日志写入失败: {e}", file=sys.stderr)
-            raise AuditStorageError(f"审计存储不可写: {e}") from e
+        # 锁内重读链尾 + 追加：多进程并发写同一审计链时，
+        # 每个进程的内存 prev_hash 都不可信，必须以文件中的链尾为准。
+        lock_path = self.path.with_name(self.path.name + ".lock")
+        with _InterProcessLock(lock_path):
+            prev_hash = self._load_last_hash()
+            entry["prev_hash"] = prev_hash
+            body = {k: v for k, v in entry.items() if k != "hash"}
+            entry["hash"] = _compute_hash(body, prev_hash, self._hmac_key)
+
+            try:
+                with open(self.path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                    f.flush()
+            except OSError as e:
+                print(f"[audit] 审计日志写入失败: {e}", file=sys.stderr)
+                raise AuditStorageError(f"审计存储不可写: {e}") from e
 
         self._prev_hash = entry["hash"]
         return entry

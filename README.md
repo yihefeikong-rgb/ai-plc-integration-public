@@ -65,7 +65,7 @@
 | `mcp-servers/plc-mcp-bridge/` | S7 运行态、TIA 工程态、PLCSIM、Factory I/O、标签、块、UDT 与诊断工具的桥接层。 | 具有读写与工程变更能力的工具必须经安全门、目标约束和人工流程。 |
 | `mcp-servers/{opcua,modbus,mitsubishi,robot}-mcp/` | OPC UA、Modbus TCP、三菱 MC 协议和机器人场景的 MCP 实验实现。 | 没有在真实硬件上完成统一验收；默认不应连接现场设备。 |
 | `mcp_common/` 与 `safety/` | 统一配置、唯一控制目标、确认令牌、互锁、静态预检与链式审计日志。 | 是软件防护层，不构成功能安全认证。 |
-| `plc-code-templates/`、`plc-programs/` | SCL、LAD、PLCopen/XML 和示例程序资产。 | 生成或模板存在不代表已经导入、编译或下载成功。 |
+| `plc-code-templates/` | SCL、LAD、PLCopen/XML 和示例程序资产。 | 生成或模板存在不代表已经导入、编译或下载成功。 |
 | `edge-gateway/` 与 `docker-compose.yml` | 可选的 Modbus、InfluxDB、Grafana、OpenPLC 与 AI 网关集成。 | 依赖独立环境变量、容器与网络配置；不属于默认离线启动路径。 |
 
 ## 系统架构
@@ -113,7 +113,6 @@ flowchart LR
 ├── mcp_common/                # 共享配置、控制目标、连接与审计
 ├── safety/                    # 互锁、确认令牌、静态预检与审计兼容层
 ├── plc-code-templates/        # SCL/LAD/PLCopen 等模板资产
-├── plc-programs/              # PLC/仿真示例资产
 ├── edge-gateway/              # 可选边缘网关与监控集成
 ├── scripts/                   # 只读预检、链路报告和受控辅助脚本
 ├── tests/                     # 根级离线/安全回归测试
@@ -270,4 +269,4 @@ FastAPI 在 `/api` 下注册以下能力组：
 
 ### 许可证
 
-当前仓库未提交 `LICENSE` 文件。因此，除非仓库所有者另行明确授权，不应推定获得生产使用、再分发或第三方软件许可。TIA Portal、PLCSIM、Factory I/O 和相关工业软件的许可由各自权利人管理。
+本仓库代码以 `LICENSE` 文件中的 MIT 许可证发布。TIA Portal、PLCSIM、Factory I/O 和相关工业软件的许可由各自权利人管理，本仓库不提供这些软件的许可证。
