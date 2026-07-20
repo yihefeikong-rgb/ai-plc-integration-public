@@ -1,24 +1,35 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useRef } from 'react'
+import useEscClose from '../../hooks/useEscClose'
+import useFocusTrap from '../../hooks/useFocusTrap'
+import { DANGER_BUTTON_LABELS } from '../../platform/safetyLevels'
 
 /**
- * ConfirmDialog — 确认对话框
- *
- * 工业工作台要求"危险按钮具体文案"。
+ * ConfirmDialog — 确认对话框（F-015 焦点锁定 + F-017 危险按钮具体文案）
  *
  * 用法：
  *   <ConfirmDialog
  *     title="删除对话"
  *     description="确认删除此对话？此操作不可撤销。"
- *     confirmLabel="确认删除"
+ *     confirmLabel="确认删除对话"
  *     variant="danger"
  *     onConfirm={handleDelete}
+ *     onClose={handleClose}
+ *   />
+ *
+ * 或用 dangerAction 自动取具体文案：
+ *   <ConfirmDialog
+ *     title="停止 CPU"
+ *     dangerAction="STOP_CPU"  // 自动取 DANGER_BUTTON_LABELS.STOP_CPU
+ *     variant="danger"
+ *     onConfirm={handleStop}
  *     onClose={handleClose}
  *   />
  */
 export default function ConfirmDialog({
   title,
   description,
-  confirmLabel = '确认',
+  confirmLabel,
+  dangerAction,  // 'STOP_CPU' | 'DOWNLOAD_TO_PLC' | 'OVERWRITE_BLOCK' | 'WRITE_VARIABLE'
   cancelLabel = '取消',
   variant = 'default',
   onConfirm,
@@ -26,16 +37,18 @@ export default function ConfirmDialog({
   children,
   className = '',
 }) {
+  const containerRef = useRef(null)
   const confirmRef = useRef(null)
 
-  useEffect(() => {
-    // 打开时自动聚焦确认按钮
-    confirmRef.current?.focus()
-    // Esc 关闭
-    const handler = (e) => { if (e.key === 'Escape') onClose?.() }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  // F-015：焦点锁定（Tab 在弹窗内循环 + 卸载恢复焦点）
+  useFocusTrap(containerRef, true)
+  // F-016：Esc 关闭
+  useEscClose(onClose)
+
+  // F-017：dangerAction 自动取具体文案
+  const resolvedConfirmLabel = confirmLabel ||
+    (dangerAction && DANGER_BUTTON_LABELS[dangerAction]) ||
+    '确认'
 
   const handleConfirm = () => {
     onConfirm?.()
@@ -56,6 +69,7 @@ export default function ConfirmDialog({
       aria-labelledby="confirm-title"
     >
       <div
+        ref={containerRef}
         className={`modal w-[360px] ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -76,7 +90,7 @@ export default function ConfirmDialog({
             onClick={handleConfirm}
             className={confirmClass}
           >
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </button>
         </div>
       </div>

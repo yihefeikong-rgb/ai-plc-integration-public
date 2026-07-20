@@ -3,6 +3,30 @@
 > 起始日期：2026-07-20
 > 原则：记录审核中发现的现有问题、风险、兼容性障碍。区分原有问题与新增问题。
 
+## 2026-07-20：收尾批次修复（F-015/F-017/F-018/F-038/F-039/F-040/F-041）
+
+| 编号 | 状态 | 修复内容 |
+|------|------|---------|
+| F-015 | ✅ 已修复 | 新增 useFocusTrap hook，应用到 5 个弹窗（ConfirmDialog + 3 TemplateModal + CreateProjectDialog） |
+| F-017 | ✅ 已修复 | ConfirmDialog 新增 dangerAction prop 自动取 DANGER_BUTTON_LABELS；PrimarySidebar 删除对话按钮文案改"确认删除对话" |
+| F-018 | ✅ 已修复 | GlobalStatusBar 安全模式项接入 safetyLevels 4 等级，支持点击切换 + localStorage 持久化 |
+| F-038 | ✅ 已修复 | ChatArea.jsx:134 调用改为 networks={[n]}，LadderVisualizer 已有 fallback 显示 ASCII code |
+| F-039 | ✅ 已修复 | useConversation onError 保留 streamContentRef.current + 追加错误提示，非流式 fallback 失败也保留 |
+| F-040 | ✅ 已修复 | useConversation 新增 msgIdRef，所有消息加 id；ChatArea key 用 msg.id；LadderResult 内 key 用 v.address/n.number |
+| F-041 | ✅ 已修复 | MessageBlock 新增 CODE 分支，CodeMessage 组件用 ui/CodeViewer 渲染 |
+
+### 仍待修复
+- F-019 机器人 4 模式（演示/仿真/只读/真实控制）
+- F-037 useTabs closeTab updater 内副作用反模式（需合并 tabs+activeTab 为单一 state）
+- ToolStatusBar 接入 5 个工具页面 + 状态机完整改造
+- 附件上传按钮 onClick
+- layout/ 单元测试
+- 响应式 4 尺寸截图回归 / E2E 测试 / Lighthouse 性能测试
+- CSP 收紧 connect-src https: 到具体域名
+- Batch 8/9 独立复审
+
+---
+
 ---
 
 ## F-001：API_BASE 硬编码生产地址

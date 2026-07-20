@@ -19,6 +19,9 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
   const [pendingInput, setPendingInput] = useState('')
   const streamContentRef = useRef('')
   const abortRef = useRef(null)
+  // F-040：stable key 计数器，避免数组索引 key 导致的 DOM 复用错误
+  const msgIdRef = useRef(0)
+  const nextMsgId = useCallback(() => `msg-${++msgIdRef.current}`, [])
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -58,6 +61,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
       const conv = d.conversation
       setConvId(conv.id)
       setMessages(conv.messages.map(m => ({
+        id: nextMsgId(),
         role: m.role,
         content: m.content,
         type: m.msg_type === 'ladder' ? 'ladder' : undefined,
@@ -82,7 +86,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
   const handleSend = useCallback(async (text) => {
     if (sending) return
     openTab('chat')
-    setMessages(prev => [...prev, { role: 'user', content: text }])
+    setMessages(prev => [...prev, { id: nextMsgId(), role: 'user', content: text }])
     addLog('info', `[发送] ${text.slice(0, 50)}...`)
     setSending(true)
 
@@ -101,7 +105,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
           if (result.structured?.networks?.length > 0) {
             addLog('info', `[生成] ${result.title} (${result.mode})`)
             setMessages(prev => [...prev, {
-              role: 'assistant', type: 'ladder',
+              id: nextMsgId(), role: 'assistant', type: 'ladder',
               title: result.title, description: result.description,
               structured: result.structured, content: result.text, mode: result.mode,
             }])
@@ -123,7 +127,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
       try {
         addLog('info', `[LLM] ${selectedModel} (streaming)`)
         streamContentRef.current = ''
-        setMessages(prev => [...prev, { role: 'assistant', content: '', streaming: true }])
+        setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', content: '', streaming: true }])
 
         await streamChat({
           model_id: selectedModel,
@@ -143,8 +147,10 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
             const finalContent = streamContentRef.current
             setMessages(prev => {
               const updated = [...prev]
+              const last = updated[updated.length - 1]
               updated[updated.length - 1] = {
-                ...updated[updated.length - 1],
+                ...last,
+                id: last?.id || nextMsgId(),
                 streaming: false,
                 rag_sources: data?.rag_sources,
                 model: data?.model,
@@ -160,10 +166,20 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
           },
           onError: (err) => {
             addLog('error', `[SSE 错误] ${err.message}`)
+            // F-039 修复：保留已 streaming 出来的半截内容，追加错误提示而非替换
+            const partialContent = streamContentRef.current
             setMessages(prev => {
               const updated = [...prev]
+              const last = updated[updated.length - 1]
+              const keptContent = partialContent || last?.content || ''
+              const errorSuffix = `\n\n[调用失败: ${err.message}]`
               updated[updated.length - 1] = {
-                role: 'assistant', content: `调用失败: ${err.message}`, streaming: false,
+                ...last,
+                id: last?.id || nextMsgId(),
+                role: 'assistant',
+                content: keptContent ? `${keptContent}${errorSuffix}` : errorSuffix.trim(),
+                streaming: false,
+                error: true,
               }
               return updated
             })
@@ -176,8 +192,10 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
           setMessages(prev => {
             const updated = [...prev]
             if (updated[updated.length - 1]?.streaming) {
+              const last = updated[updated.length - 1]
               updated[updated.length - 1] = {
-                ...updated[updated.length - 1],
+                ...last,
+                id: last?.id || nextMsgId(),
                 streaming: false,
                 stopped: true,
               }
@@ -202,7 +220,9 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
           addLog('info', `[LLM] ${data.model} — ${data.content.length}字 (非流式)`)
           setMessages(prev => {
             const updated = [...prev]
+            const last = updated[updated.length - 1]
             updated[updated.length - 1] = {
+              id: last?.id || nextMsgId(),
               role: 'assistant', content: data.content, streaming: false, rag_sources: data.rag_sources,
               model: data.model, fallback: data.fallback,
             }
@@ -211,10 +231,19 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
           if (cid) addMessage(cid, 'assistant', data.content).catch(() => {})
         } catch (fallbackErr) {
           addLog('error', `[错误] ${fallbackErr.message}`)
+          // F-039 修复：非流式 fallback 失败也保留半截内容
+          const partialContent = streamContentRef.current
           setMessages(prev => {
             const updated = [...prev]
+            const last = updated[updated.length - 1]
+            const keptContent = partialContent || last?.content || ''
+            const errorSuffix = `\n\n[调用失败: ${fallbackErr.message}]`
             updated[updated.length - 1] = {
-              role: 'assistant', content: `调用失败: ${fallbackErr.message}`, streaming: false,
+              id: last?.id || nextMsgId(),
+              role: 'assistant',
+              content: keptContent ? `${keptContent}${errorSuffix}` : errorSuffix.trim(),
+              streaming: false,
+              error: true,
             }
             return updated
           })
@@ -222,7 +251,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
       }
     } catch (err) {
       addLog('error', `[错误] ${err.message}`)
-      setMessages(prev => [...prev, { role: 'assistant', content: `调用失败: ${err.message}` }])
+      setMessages(prev => [...prev, { id: nextMsgId(), role: 'assistant', content: `调用失败: ${err.message}`, error: true }])
     }
     abortRef.current = null
     setSending(false)

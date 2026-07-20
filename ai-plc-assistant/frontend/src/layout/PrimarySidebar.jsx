@@ -289,7 +289,7 @@ export default function PrimarySidebar({
                       onClick={(e) => { e.stopPropagation(); onDeleteConversation?.(c.id); setDeleteConfirm(null) }}
                       className="text-status-error hover:text-status-error/80 text-2xs font-medium"
                     >
-                      确认
+                      确认删除对话
                     </button>
                     <span className="text-text-dim text-2xs">/</span>
                     <button

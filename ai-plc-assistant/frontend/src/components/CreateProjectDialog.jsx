@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { FolderPlus } from 'lucide-react'
+import useEscClose from '../hooks/useEscClose'
+import useFocusTrap from '../hooks/useFocusTrap'
 
 const PLC_TYPES = ['S7-1200', 'S7-1500', 'S7-300', 'S7-400', 'S7-200 SMART']
 const TIA_VERSIONS = ['V18', 'V19', 'V17', 'V16']
@@ -7,7 +9,12 @@ const LANGUAGES = ['SCL', 'LAD', 'FBD', 'STL']
 
 export default function CreateProjectDialog({ onSubmit, onCancel }) {
   const [form, setForm] = useState({ name: '', plcType: 'S7-1200', tiaVersion: 'V18', language: 'SCL' })
+  const containerRef = useRef(null)
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
+
+  // F-015：焦点锁定 + F-016：Esc 关闭
+  useFocusTrap(containerRef, true)
+  useEscClose(onCancel)
 
   const handleSubmit = () => {
     if (!form.name.trim()) return
@@ -18,7 +25,7 @@ export default function CreateProjectDialog({ onSubmit, onCancel }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onCancel}>
-      <div className="bg-ide-panel border border-ide-border rounded-lg p-5 w-[360px] shadow-xl" onClick={e => e.stopPropagation()}>
+      <div ref={containerRef} className="bg-ide-panel border border-ide-border rounded-lg p-5 w-[360px] shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 mb-4">
           <FolderPlus size={16} className="text-accent" />
           <h3 className="text-sm font-medium text-text-bright">新建项目</h3>
@@ -27,8 +34,8 @@ export default function CreateProjectDialog({ onSubmit, onCancel }) {
         <div className="space-y-3">
           <div>
             <label className="text-2xs text-text-dim block mb-1">项目名称</label>
-            <input autoFocus type="text" value={form.name} onChange={e => set('name', e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); if (e.key === 'Escape') onCancel() }}
+            <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSubmit() }}
               placeholder="例: 包装线控制系统"
               className="w-full bg-ide-input border border-ide-border rounded px-3 py-2 text-sm text-text-primary placeholder-text-dim outline-none focus:border-accent" />
           </div>

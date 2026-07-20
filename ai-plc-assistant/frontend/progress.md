@@ -5,6 +5,94 @@
 
 ---
 
+## 2026-07-20：收尾批次完成（D-1~D-4 + A-1~A-3 + B-1~B-4）
+
+### 已完成
+- [x] **D-1：7 种消息类型占位填充（ChatArea）**
+  - 新增 7 个独立渲染组件：IoTableMessage / VariablesMessage / TaskProgressMessage / ToolCallMessage / FileMessage / ExportResultMessage / CitationMessage
+  - 新增 CodeMessage（F-041：CODE 类型独立分发，用 ui/CodeViewer 渲染）
+  - 新增 parseContent / formatSize 工具函数（容错解析 content）
+  - 引入 ui/DataTable、ui/CodeViewer、ui/StatusBadge 复用基础组件
+- [x] **D-2：BottomPanel 6 个新 Tab 内容填充**
+  - 按 message 前缀分类过滤日志：ai（LLM/SSE/生成/对话/发送）/ task（任务/后台/导入/导出/项目）/ plc（PLC/S7/Modbus/OPC UA/MCP/snap7/plcsim）/ tia（TIA/编译/下载/TiaWorker/工程态）/ problem（warn 级别）/ error（error 级别）
+  - 每 Tab 显示计数 badge，error/problem Tab 有圆点提醒
+- [x] **D-3：InspectorPanel 6 种内容填充**
+  - 新增 7 个独立 Inspector：ChatInspector / LadderInspector / IoTableInspector / ParseInspector / DiagnoseInspector / OrchestratorInspector / VariablesInspector / SettingsInspector
+  - 基于 currentProject + messages + selectedModel + conversations 显示结构化内容
+  - 从最近消息提取 rag_sources / networks / variables / rows 等实际数据
+  - AppShell 传入 4 个新 props（messages/selectedModel/conversations）
+- [x] **D-4：GlobalStatusBar 5 个工业状态接入真实 API**
+  - 后端：healthCheck() 真实状态（15s 轮询）
+  - MCP：orchestratorHealth() 真实数量
+  - PLC/TIA/PLCSIM：listServers() 按服务器名字匹配推断连接状态
+  - 新增 MCP 状态项（原本只有 5 个，现在 6 个工业状态）
+- [x] **A-1：F-015 弹窗焦点锁定 focus trap**
+  - 新增 useFocusTrap hook（src/hooks/useFocusTrap.js）
+  - 应用到 5 个弹窗：ConfirmDialog / PromptTemplateModal / CodeTemplateModal / LadderTemplateModal / CreateProjectDialog
+  - Tab/Shift+Tab 在弹窗内循环，卸载时恢复焦点
+- [x] **A-2：F-017 危险按钮文案接入 ConfirmDialog**
+  - ConfirmDialog 新增 dangerAction prop，自动从 DANGER_BUTTON_LABELS 取具体文案
+  - 支持 4 种 dangerAction：STOP_CPU / DOWNLOAD_TO_PLC / OVERWRITE_BLOCK / WRITE_VARIABLE
+  - PrimarySidebar 删除对话按钮文案从"确认"改为"确认删除对话"
+- [x] **A-3：F-018 安全等级接入 GlobalStatusBar**
+  - GlobalStatusBar 安全模式项支持点击切换 4 等级（只读/本地写入/工程修改/设备控制）
+  - localStorage 持久化当前等级（key: ai-plc:safety-level）
+  - 切换菜单显示等级编号 + 标签 + 描述
+- [x] **B-1：F-038 LadderVisualizer prop 不匹配**
+  - ChatArea.jsx:134 调用改为 networks={[n]} 而非 code={n.code}
+  - LadderVisualizer 已有 fallback（无 rungs 时显示 ASCII code），修复后图形模式不再显示"无梯形图数据"
+- [x] **B-2：F-039 SSE onError 保留半截内容**
+  - useConversation.js onError 改为保留 streamContentRef.current + 追加错误提示
+  - 非流式 fallback 失败也保留半截内容
+  - 错误消息标记 error: true 字段
+- [x] **B-3：F-040 数组索引 key 替换为 stable key**
+  - useConversation 新增 msgIdRef 计数器，所有消息加 id: nextMsgId()
+  - ChatArea.jsx messages.map 用 msg.id || `${i}-${msg.role}` 作为 key
+  - LadderResult 内 variables.map 用 v.address || v.name 作为 key
+  - LadderResult 内 networks.map 用 n.number 作为 key
+- [x] **B-4：F-041 CODE 类型独立分发 + CodeViewer 接入**
+  - MessageBlock 分发链新增 MSG_TYPES.CODE 分支
+  - CodeMessage 组件用 ui/CodeViewer 渲染（语法高亮 + 复制按钮）
+
+### 测试与构建
+- test：4 files, 52 tests passed（与 Batch 9 一致，未新增测试用例）
+- build:web：JS 472.54KB（+27.51KB vs Batch 9 的 445.03KB）/ CSS 33.10KB / gzip 136.86KB / 1999 modules
+- 增量主要来自：7 种消息组件 + 7 种 Inspector 组件 + useFocusTrap hook + GlobalStatusBar 状态轮询 + 安全等级切换菜单
+
+### 修改文件（12 modified + 1 new）
+- M `src/components/ChatArea.jsx`（7 种消息组件 + CodeMessage + parseContent + key 修复 + LadderVisualizer 调用修复）
+- M `src/components/CodeTemplateModal.jsx`（+useFocusTrap）
+- M `src/components/CreateProjectDialog.jsx`（+useFocusTrap + useEscClose）
+- M `src/components/LadderTemplateModal.jsx`（+useFocusTrap）
+- M `src/components/PromptTemplateModal.jsx`（+useFocusTrap）
+- M `src/components/ui/ConfirmDialog.jsx`（+useFocusTrap + useEscClose + dangerAction）
+- M `src/hooks/useConversation.js`（msgId 加 id + F-039 保留半截内容 + 所有 setMessages 分支加 id）
+- M `src/layout/AppShell.jsx`（InspectorPanel 传 4 个新 props）
+- M `src/layout/BottomPanel.jsx`（6 Tab 过滤 + 计数 badge + 圆点提醒）
+- M `src/layout/GlobalStatusBar.jsx`（5 状态接入真实 API + 安全等级切换菜单）
+- M `src/layout/InspectorPanel.jsx`（7 种 Inspector 填充 + KeyValue 辅助组件）
+- M `src/layout/PrimarySidebar.jsx`（删除对话按钮文案改"确认删除对话"）
+- NEW `src/hooks/useFocusTrap.js`（焦点锁定 hook）
+
+### 仍未完成（留后续）
+- **F-019 机器人 4 模式** — RobotPanel 仅模拟模式，未实现演示/仿真/只读/真实控制切换
+- **F-037 useTabs 合并 state 根治** — closeTab updater 内副作用反模式仍存在
+- **ToolStatusBar 接入 5 个工具页面** — 组件就绪但未接入 LadderGenerator/CodeExplainer/IoTableGenerator/FaultDiagnosis/VariableAnalyzer
+- **5 个工具页面状态机完整改造** — 仅 loading boolean，未实现 10 种状态
+- **layout/ 单元测试** — 9 个 layout 组件无单元测试
+- **响应式 4 尺寸截图回归** — 1366/1600/1920/2560 未做
+- **E2E 测试** — Playwright E2E 未写
+- **Lighthouse 性能测试** — 未做
+- **CSP 收紧** — connect-src https: 通配留生产部署前收紧
+- **附件上传按钮 onClick** — 仍只 addLog 提示
+- **Batch 8/9 独立复审** — 简化交付，留后续统一做
+
+### 下一步
+- 收尾批次完成，52 测试通过，构建无回归
+- 用户可在此停止，或指示做后续收尾（响应式/E2E/性能/ToolStatusBar 接入/机器人 4 模式）
+
+---
+
 ## 2026-07-20：Batch 9 完成（收尾）
 
 ### 已完成（最小可行收尾）

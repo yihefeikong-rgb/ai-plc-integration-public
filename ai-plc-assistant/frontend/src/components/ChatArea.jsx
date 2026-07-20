@@ -2,11 +2,12 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Bot, User, BookOpen, Download, FileCode, FileText as FileXml,
   Table2, ArrowDown, Eye, Code, Square, FileText, Paperclip, AtSign,
-  AlertTriangle, Info, CheckCircle2, Loader2, File as FileIcon,
+  AlertTriangle, Info, CheckCircle2, Loader2, File as FileIcon, Circle,
 } from 'lucide-react'
 import { exportCode } from '../api'
 import ReactMarkdown from 'react-markdown'
 import LadderVisualizer from './LadderVisualizer'
+import { DataTable, CodeViewer, StatusBadge } from './ui'
 
 /**
  * ChatArea — 工程 AI 工作区（Batch 6 重构）
@@ -43,6 +44,27 @@ function downloadFile(content, filename, mime = 'text/plain') {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// 容错解析 content：对象直接用，字符串尝试 JSON.parse，失败退化到 {text}
+function parseContent(content) {
+  if (content == null) return {}
+  if (typeof content === 'string') {
+    try {
+      const parsed = JSON.parse(content)
+      return typeof parsed === 'object' && parsed !== null ? parsed : { text: content }
+    } catch {
+      return { text: content }
+    }
+  }
+  return content
+}
+
+function formatSize(bytes) {
+  if (typeof bytes !== 'number' || bytes < 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 async function handleExport(structured, format, title) {
@@ -87,7 +109,7 @@ function LadderResult({ msg }) {
               </thead>
               <tbody>
                 {variables.map((v, i) => (
-                  <tr key={i} className="border-b border-ide-border last:border-0 text-text-secondary">
+                  <tr key={v.address || v.name || i} className="border-b border-ide-border last:border-0 text-text-secondary">
                     <td className="px-3 py-1 font-mono text-accent">{v.address}</td>
                     <td className="px-3 py-1 font-mono">{v.name}</td>
                     <td className="px-3 py-1">{v.data_type}</td>
@@ -115,7 +137,7 @@ function LadderResult({ msg }) {
             </button>
           </div>
           {networks.map((n, i) => (
-            <div key={i} className="border border-ide-border rounded overflow-hidden">
+            <div key={n.number || i} className="border border-ide-border rounded overflow-hidden">
               <div className="px-3 py-1.5 bg-ide-panel border-b border-ide-border flex items-center gap-2">
                 <span className="text-2xs font-mono text-accent">Network {n.number}</span>
                 <span className="text-xs text-text-primary">{n.title}</span>
@@ -131,7 +153,7 @@ function LadderResult({ msg }) {
                 </pre>
               )}
               {n.code && !textMode && (
-                <LadderVisualizer code={n.code} networkTitle={`Network ${n.number}: ${n.title}`} />
+                <LadderVisualizer networks={[n]} />
               )}
             </div>
           ))}
@@ -165,13 +187,13 @@ function LadderResult({ msg }) {
 
 function PlaceholderMessage({ type, content }) {
   const labels = {
-    [MSG_TYPES.IO_TABLE]: { icon: Table2, label: 'IO 表', desc: '待接入（将显示设备 IO 地址表）' },
-    [MSG_TYPES.VARIABLES]: { icon: AtSign, label: '变量表', desc: '待接入（将显示变量分析结果）' },
-    [MSG_TYPES.TASK_PROGRESS]: { icon: Loader2, label: '任务进度', desc: '待接入（将显示后台任务进度）' },
-    [MSG_TYPES.TOOL_CALL]: { icon: FileCode, label: '工具调用', desc: '待接入（将显示工具调用详情）' },
-    [MSG_TYPES.FILE]: { icon: FileIcon, label: '文件', desc: '待接入（将显示文件附件）' },
-    [MSG_TYPES.EXPORT_RESULT]: { icon: Download, label: '导出结果', desc: '待接入（将显示导出文件下载）' },
-    [MSG_TYPES.CITATION]: { icon: BookOpen, label: '引用来源', desc: '待接入（将显示知识库引用）' },
+    [MSG_TYPES.IO_TABLE]: { icon: Table2, label: 'IO 表', desc: '无结构化数据' },
+    [MSG_TYPES.VARIABLES]: { icon: AtSign, label: '变量表', desc: '无结构化数据' },
+    [MSG_TYPES.TASK_PROGRESS]: { icon: Loader2, label: '任务进度', desc: '无任务信息' },
+    [MSG_TYPES.TOOL_CALL]: { icon: FileCode, label: '工具调用', desc: '无调用详情' },
+    [MSG_TYPES.FILE]: { icon: FileIcon, label: '文件', desc: '无文件信息' },
+    [MSG_TYPES.EXPORT_RESULT]: { icon: Download, label: '导出结果', desc: '无导出信息' },
+    [MSG_TYPES.CITATION]: { icon: BookOpen, label: '引用来源', desc: '无引用' },
   }
   const info = labels[type] || { icon: Info, label: type, desc: '未接入' }
   const Icon = info.icon
@@ -183,6 +205,252 @@ function PlaceholderMessage({ type, content }) {
         <div className="text-2xs text-text-dim">{info.desc}</div>
         {content && <div className="text-2xs text-text-dim mt-1 truncate">{String(content).slice(0, 200)}</div>}
       </div>
+    </div>
+  )
+}
+
+// F-041：CODE 类型独立分发，用 CodeViewer 渲染（语法高亮 + 复制按钮）
+function CodeMessage({ content }) {
+  const data = parseContent(content)
+  const code = data.code || data.content || data.text || ''
+  const language = data.language || 'SCL'
+  const title = data.title
+  if (!code) return <PlaceholderMessage type={MSG_TYPES.TOOL_CALL} content={content} />
+  return <CodeViewer code={code} language={language} title={title} />
+}
+
+// D-1：IO 表消息 — 用 DataTable 渲染设备 IO 地址表
+function IoTableMessage({ content }) {
+  const data = parseContent(content)
+  const rows = data.rows || data.io || data.devices || []
+  if (!rows.length) return <PlaceholderMessage type={MSG_TYPES.IO_TABLE} content={content} />
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-2xs text-text-dim uppercase tracking-wider">
+        <Table2 size={12} /> IO 地址表 ({rows.length})
+      </div>
+      <DataTable
+        columns={[
+          { key: 'address', label: '地址', mono: true },
+          { key: 'name', label: '符号', mono: true },
+          { key: 'type', label: '类型' },
+          { key: 'direction', label: '方向' },
+          { key: 'comment', label: '注释' },
+        ]}
+        data={rows}
+        rowKey={(row, i) => row.address || row.name || i}
+        emptyText="无 IO 数据"
+        dense
+      />
+    </div>
+  )
+}
+
+// D-1：变量表消息 — 用 DataTable 渲染变量分析结果
+function VariablesMessage({ content }) {
+  const data = parseContent(content)
+  const rows = data.variables || data.rows || data.vars || []
+  if (!rows.length) return <PlaceholderMessage type={MSG_TYPES.VARIABLES} content={content} />
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-2xs text-text-dim uppercase tracking-wider">
+        <AtSign size={12} /> 变量分析 ({rows.length})
+      </div>
+      <DataTable
+        columns={[
+          { key: 'address', label: '地址', mono: true },
+          { key: 'name', label: '符号', mono: true },
+          { key: 'data_type', label: '类型' },
+          { key: 'usage', label: '用法' },
+          { key: 'comment', label: '注释' },
+        ]}
+        data={rows}
+        rowKey={(row, i) => row.address || row.name || i}
+        emptyText="无变量数据"
+        dense
+      />
+    </div>
+  )
+}
+
+// D-1：任务进度消息 — 进度条 + 步骤列表
+function TaskProgressMessage({ content }) {
+  const data = parseContent(content)
+  const steps = data.steps || []
+  const progress = typeof data.progress === 'number' ? data.progress : 0
+  const title = data.title || '任务进行中'
+  if (!steps.length && !progress) return <PlaceholderMessage type={MSG_TYPES.TASK_PROGRESS} content={content} />
+  return (
+    <div className="space-y-2 p-3 bg-ide-panel/50 border border-ide-border rounded">
+      <div className="flex items-center gap-2">
+        <Loader2 size={14} className="text-accent animate-spin" />
+        <span className="text-xs text-text-primary flex-1">{title}</span>
+        <span className="text-2xs text-text-dim font-mono">{progress}%</span>
+      </div>
+      <div className="h-1 bg-ide-border rounded overflow-hidden">
+        <div className="h-full bg-accent transition-all" style={{ width: `${progress}%` }} />
+      </div>
+      {steps.length > 0 && (
+        <div className="space-y-1 mt-2">
+          {steps.map((step, i) => {
+            const status = step.status || 'pending'
+            const Icon = status === 'done' ? CheckCircle2
+              : status === 'running' ? Loader2
+              : status === 'error' ? AlertTriangle
+              : Circle
+            const color = status === 'done' ? 'text-status-ok'
+              : status === 'running' ? 'text-accent'
+              : status === 'error' ? 'text-status-error'
+              : 'text-text-dim'
+            return (
+              <div key={step.id || step.name || i} className="flex items-center gap-2 text-2xs">
+                <Icon size={11} className={`${color} ${status === 'running' ? 'animate-spin' : ''} shrink-0`} />
+                <span className={status === 'done' ? 'text-text-dim line-through' : 'text-text-secondary'}>
+                  {step.label || step.name}
+                </span>
+                {step.detail && <span className="text-text-dim ml-auto truncate">{step.detail}</span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// D-1：工具调用消息 — 工具名 + 参数 + 结果
+function ToolCallMessage({ content }) {
+  const data = parseContent(content)
+  const tool = data.tool || data.name || 'unknown'
+  const args = data.args || data.arguments || {}
+  const result = data.result
+  const status = data.status || 'done'
+  const tone = status === 'error' ? 'danger' : status === 'running' ? 'info' : 'success'
+  return (
+    <div className="border border-ide-border rounded overflow-hidden">
+      <div className="px-3 py-1.5 bg-ide-panel border-b border-ide-border flex items-center gap-2">
+        <FileCode size={12} className="text-accent" />
+        <span className="text-2xs font-mono text-accent flex-1">{tool}</span>
+        <StatusBadge tone={tone}>{status}</StatusBadge>
+      </div>
+      {Object.keys(args).length > 0 && (
+        <div className="px-3 py-2 border-b border-ide-border">
+          <div className="text-2xs text-text-dim mb-1 uppercase tracking-wider">参数</div>
+          <pre className="text-2xs text-text-secondary font-mono whitespace-pre-wrap overflow-x-auto">{JSON.stringify(args, null, 2)}</pre>
+        </div>
+      )}
+      {result != null && (
+        <div className="px-3 py-2">
+          <div className="text-2xs text-text-dim mb-1 uppercase tracking-wider">结果</div>
+          <pre className="text-2xs text-text-secondary font-mono whitespace-pre-wrap overflow-x-auto">
+            {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// D-1：文件消息 — 文件名 + 大小 + 下载
+function FileMessage({ content }) {
+  const data = parseContent(content)
+  const filename = data.filename || data.name || '未命名文件'
+  const size = data.size
+  const mime = data.mime || data.type
+  const url = data.url
+  return (
+    <div className="flex items-center gap-3 p-3 bg-ide-panel/50 border border-ide-border rounded">
+      <FileIcon size={20} className="text-accent shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-text-primary font-mono truncate">{filename}</div>
+        <div className="text-2xs text-text-dim flex gap-2">
+          {mime && <span>{mime}</span>}
+          {size != null && <span>· {formatSize(size)}</span>}
+        </div>
+      </div>
+      {url && (
+        <a
+          href={url}
+          download={filename}
+          className="flex items-center gap-1 px-2.5 py-1 text-2xs bg-ide-panel border border-ide-border rounded hover:border-accent/40 hover:text-accent text-text-secondary transition-colors"
+        >
+          <Download size={12} /> 下载
+        </a>
+      )}
+    </div>
+  )
+}
+
+// D-1：导出结果消息 — 成功状态 + 文件信息 + 下载
+function ExportResultMessage({ content }) {
+  const data = parseContent(content)
+  const filename = data.filename || 'export'
+  const format = (data.format || 'unknown').toUpperCase()
+  const url = data.url
+  const fileContent = data.content
+  const mime = data.mime || 'text/plain'
+  const handleDownload = () => {
+    if (url) {
+      window.open(url, '_blank')
+    } else if (fileContent) {
+      downloadFile(fileContent, filename, mime)
+    }
+  }
+  return (
+    <div className="flex items-center gap-3 p-3 bg-status-ok/10 border border-status-ok/30 rounded">
+      <CheckCircle2 size={20} className="text-status-ok shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-text-primary">导出成功</div>
+        <div className="text-2xs text-text-dim flex gap-2">
+          <span className="font-mono">{filename}</span>
+          <span>· {format}</span>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={handleDownload}
+        className="flex items-center gap-1 px-2.5 py-1 text-2xs bg-status-ok/20 border border-status-ok/40 rounded hover:bg-status-ok/30 text-status-ok transition-colors"
+      >
+        <Download size={12} /> 下载
+      </button>
+    </div>
+  )
+}
+
+// D-1：引用来源消息 — 知识库引用列表
+function CitationMessage({ content }) {
+  const data = parseContent(content)
+  const sources = data.sources || data.citations || []
+  if (!sources.length) return <PlaceholderMessage type={MSG_TYPES.CITATION} content={content} />
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-2xs text-text-dim uppercase tracking-wider">
+        <BookOpen size={12} /> 引用来源 ({sources.length})
+      </div>
+      {sources.map((src, i) => (
+        <div key={src.id || src.url || i} className="p-2 bg-ide-panel/50 border border-ide-border rounded">
+          <div className="flex items-center gap-2">
+            <span className="text-2xs font-mono text-accent shrink-0">#{i + 1}</span>
+            <span className="text-xs text-text-primary flex-1 truncate">{src.title || src.name || '未命名来源'}</span>
+            {typeof src.score === 'number' && (
+              <span className="text-2xs text-text-dim">相关度 {(src.score * 100).toFixed(0)}%</span>
+            )}
+          </div>
+          {src.snippet && (
+            <div className="text-2xs text-text-dim mt-1 line-clamp-2">{src.snippet}</div>
+          )}
+          {src.url && (
+            <a
+              href={src.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-2xs text-accent mt-1 inline-block hover:underline"
+            >
+              查看原文 →
+            </a>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -254,10 +522,22 @@ function MessageBlock({ msg }) {
           <WarningMessage content={msg.content} />
         ) : msgType === MSG_TYPES.ERROR ? (
           <ErrorMessage content={msg.content} />
-        ) : [MSG_TYPES.IO_TABLE, MSG_TYPES.VARIABLES, MSG_TYPES.TASK_PROGRESS,
-             MSG_TYPES.TOOL_CALL, MSG_TYPES.FILE, MSG_TYPES.EXPORT_RESULT,
-             MSG_TYPES.CITATION].includes(msgType) ? (
-          <PlaceholderMessage type={msgType} content={msg.content} />
+        ) : msgType === MSG_TYPES.CODE ? (
+          <CodeMessage content={msg.content} />
+        ) : msgType === MSG_TYPES.IO_TABLE ? (
+          <IoTableMessage content={msg.content} />
+        ) : msgType === MSG_TYPES.VARIABLES ? (
+          <VariablesMessage content={msg.content} />
+        ) : msgType === MSG_TYPES.TASK_PROGRESS ? (
+          <TaskProgressMessage content={msg.content} />
+        ) : msgType === MSG_TYPES.TOOL_CALL ? (
+          <ToolCallMessage content={msg.content} />
+        ) : msgType === MSG_TYPES.FILE ? (
+          <FileMessage content={msg.content} />
+        ) : msgType === MSG_TYPES.EXPORT_RESULT ? (
+          <ExportResultMessage content={msg.content} />
+        ) : msgType === MSG_TYPES.CITATION ? (
+          <CitationMessage content={msg.content} />
         ) : (
           <div className="prose prose-invert max-w-none prose-sm text-text-primary
                           prose-code:bg-ide-panel prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-accent
@@ -421,7 +701,7 @@ export default function ChatArea({
             </div>
           ) : (
             messages.map((msg, i) => (
-              <MessageBlock key={i} msg={msg} />
+              <MessageBlock key={msg.id || `${i}-${msg.role}`} msg={msg} />
             ))
           )}
           <div ref={endRef} />

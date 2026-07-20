@@ -223,6 +223,9 @@ export default function AppShell() {
                   addLog={addLog}
                   currentProject={currentProject}
                   activeTab={activeTab}
+                  messages={messages}
+                  selectedModel={selectedModel}
+                  conversations={conversations}
                 />
               </div>
             )}

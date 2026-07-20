@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { listCodeTemplates, getCodeTemplateContent } from '../api'
 import useEscClose from '../hooks/useEscClose'
+import useFocusTrap from '../hooks/useFocusTrap'
 
 function IoTable({ title, signals }) {
   if (!signals || signals.length === 0) return null
@@ -24,9 +25,12 @@ export default function CodeTemplateModal({ onClose }) {
   const [templates, setTemplates] = useState([])
   const [selected, setSelected] = useState(null)
   const [content, setContent] = useState('')
+  const containerRef = useRef(null)
 
   // Batch 8：Esc 关闭弹窗（主计划 §11.4）
   useEscClose(onClose)
+  // F-015：焦点锁定
+  useFocusTrap(containerRef, true)
   const [ioData, setIoData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [showScl, setShowScl] = useState(true)
@@ -52,7 +56,7 @@ export default function CodeTemplateModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
-      <div className="bg-surface w-[800px] max-h-[85vh] rounded-xl border border-surface-border shadow-2xl flex flex-col">
+      <div ref={containerRef} className="bg-surface w-[800px] max-h-[85vh] rounded-xl border border-surface-border shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-surface-border">
           <h2 className="text-text-primary font-semibold">SCL 代码模板</h2>
