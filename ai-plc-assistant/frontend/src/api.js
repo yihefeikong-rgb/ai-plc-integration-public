@@ -1,7 +1,16 @@
 /** 后端 API 通信模块 */
 
-// Dev 模式走 Vite proxy（绕过系统代理），Prod 模式直连后端
-export const API_BASE = import.meta.env.DEV ? '/api' : 'http://127.0.0.1:8005/api'
+// API_BASE 优先使用环境变量，dev 模式默认走 Vite proxy（/api），生产模式可配置
+// VITE_API_BASE 在 .env.development / .env.production / .env.local 中配置
+export const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  (import.meta.env.DEV ? '/api' : 'http://127.0.0.1:8005/api')
+
+// API 文档地址（用于 window.open），默认为 API_BASE 去掉 /api 后缀 + /docs
+export const API_DOCS_URL =
+  import.meta.env.VITE_API_DOCS_URL ||
+  (API_BASE.endsWith('/api') ? API_BASE.slice(0, -4) + '/docs' : 'http://127.0.0.1:8005/docs')
+
 const LOCAL_API_TOKEN = import.meta.env.VITE_LOCAL_API_TOKEN
 
 export function localControlHeaders() {
@@ -78,10 +87,11 @@ export const indexProjectDir = (directory = '') => {
 
 // ---- 梯形图生成 ----
 
-export const generateLadder = (input, variables = {}, templateId = '', modelId = 'deepseek') =>
+export const generateLadder = (input, variables = {}, templateId = '', modelId = 'deepseek', signal) =>
   request('/generate/ladder', {
     method: 'POST',
     body: JSON.stringify({ input, variables, template_id: templateId, model_id: modelId }),
+    signal,
   })
 
 export const generateSCL = (input) =>

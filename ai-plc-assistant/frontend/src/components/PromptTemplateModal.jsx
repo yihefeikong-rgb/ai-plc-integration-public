@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { listTemplates, getTemplateCategories } from '../api'
+import useEscClose from '../hooks/useEscClose'
 
 export default function PromptTemplateModal({ onClose, onSelect }) {
   const [templates, setTemplates] = useState([])
@@ -7,6 +8,9 @@ export default function PromptTemplateModal({ onClose, onSelect }) {
   const [activeCat, setActiveCat] = useState('')
   const [selected, setSelected] = useState(null)
   const [varValues, setVarValues] = useState({})
+
+  // Batch 8：Esc 关闭弹窗（主计划 §11.4）
+  useEscClose(onClose)
 
   useEffect(() => {
     getTemplateCategories().then((d) => setCategories(d.categories || [])).catch(() => {})

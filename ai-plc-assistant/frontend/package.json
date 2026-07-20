@@ -6,14 +6,22 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
+    "dev:web": "vite --host 0.0.0.0",
     "dev:renderer": "vite",
-    "dev:electron": "wait-on http://localhost:5173 && electron .",
-    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:electron": "concurrently \"npm run dev:renderer\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev": "npm run dev:electron",
+    "build:web": "vite build",
+    "build:electron": "vite build && electron-builder",
+    "build": "npm run build:web",
+    "preview:web": "vite preview --host 0.0.0.0",
+    "preview": "npm run preview:web",
+    "pack:electron": "vite build && electron-builder --dir",
+    "pack": "npm run pack:electron",
+    "dist:electron": "vite build && electron-builder",
+    "dist": "npm run dist:electron",
     "test": "vitest run",
-    "build": "vite build",
-    "pack": "vite build && electron-builder --dir",
-    "dist": "vite build && electron-builder",
-    "preview": "vite preview"
+    "test:watch": "vitest",
+    "capture:baseline": "node scripts/capture-baseline.mjs"
   },
   "build": {
     "appId": "com.aiplc.assistant",
@@ -47,6 +55,7 @@
     "react-markdown": "^9.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/react": "^15.0.7",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",

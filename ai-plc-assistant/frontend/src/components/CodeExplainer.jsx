@@ -34,7 +34,7 @@ const EXPLAIN_PROMPT = (lang) => `请解析下面的PLC代码（语言：${lang}
 代码如下：
 `
 
-export default function CodeExplainer({ addLog }) {
+export default function CodeExplainer({ addLog, selectedModel = 'deepseek' }) {
   const [code, setCode] = useState('')
   const [language, setLanguage] = useState('auto')
   const [result, setResult] = useState('')
@@ -54,7 +54,7 @@ export default function CodeExplainer({ addLog }) {
       const prompt = EXPLAIN_PROMPT(langLabel) + code
 
       await streamChat({
-        model_id: 'deepseek',
+        model_id: selectedModel,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },

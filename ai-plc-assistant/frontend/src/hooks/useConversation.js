@@ -18,6 +18,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
   const [sending, setSending] = useState(false)
   const [pendingInput, setPendingInput] = useState('')
   const streamContentRef = useRef('')
+  const abortRef = useRef(null)
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -27,6 +28,11 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
   }, [])
 
   useEffect(() => { refreshConversations() }, [refreshConversations])
+
+  // Batch 6：组件卸载时中止进行中的请求，避免对已卸载组件 setState
+  useEffect(() => {
+    return () => { abortRef.current?.abort() }
+  }, [])
 
   const ensureConversation = useCallback(async (title) => {
     if (convId) return convId
@@ -80,6 +86,10 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
     addLog('info', `[发送] ${text.slice(0, 50)}...`)
     setSending(true)
 
+    // Batch 6：AbortController 支持停止生成
+    const controller = new AbortController()
+    abortRef.current = controller
+
     const cid = await ensureConversation(text.slice(0, 30))
     if (cid) addMessage(cid, 'user', text).catch(() => {})
 
@@ -87,7 +97,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
       // 梯形图生成（非流式）
       if (isGenerationRequest(text)) {
         try {
-          const result = await generateLadder(text, {}, '', selectedModel)
+          const result = await generateLadder(text, {}, '', selectedModel, controller.signal)
           if (result.structured?.networks?.length > 0) {
             addLog('info', `[生成] ${result.title} (${result.mode})`)
             setMessages(prev => [...prev, {
@@ -119,6 +129,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
           model_id: selectedModel,
           messages: chatMessages,
           project_context: projCtx,
+          signal: controller.signal,
           onToken: (token) => {
             streamContentRef.current += token
             const content = streamContentRef.current
@@ -159,6 +170,23 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
           },
         })
       } catch (streamErr) {
+        // 用户主动停止
+        if (controller.signal.aborted) {
+          addLog('info', '[LLM] 用户停止生成')
+          setMessages(prev => {
+            const updated = [...prev]
+            if (updated[updated.length - 1]?.streaming) {
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                streaming: false,
+                stopped: true,
+              }
+            }
+            return updated
+          })
+          setSending(false)
+          return
+        }
         // SSE 失败 → 回退到非流式
         addLog('warn', `[SSE] 流式连接失败, 回退非流式: ${streamErr.message}`)
         try {
@@ -166,6 +194,7 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model_id: selectedModel, messages: chatMessages, project_context: projCtx }),
+            signal: controller.signal,
           })
           if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
           const data = await res.json()
@@ -195,11 +224,20 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
       addLog('error', `[错误] ${err.message}`)
       setMessages(prev => [...prev, { role: 'assistant', content: `调用失败: ${err.message}` }])
     }
+    abortRef.current = null
     setSending(false)
   }, [sending, openTab, addLog, selectedModel, messages, ensureConversation, currentProject])
 
+  // Batch 6：停止生成
+  const handleStop = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      addLog('info', '[LLM] 用户请求停止生成')
+    }
+  }, [addLog])
+
   return {
     convId, conversations, messages, sending, pendingInput,
-    setPendingInput, handleNewConversation, handleSwitchConversation, handleDeleteConversation, handleSend, refreshConversations,
+    setPendingInput, handleNewConversation, handleSwitchConversation, handleDeleteConversation, handleSend, handleStop, refreshConversations,
   }
 }

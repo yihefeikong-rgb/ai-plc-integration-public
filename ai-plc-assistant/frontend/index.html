@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:*;" />
+    <!--
+      Content-Security-Policy
+      - connect-src: 允许 'self' + localhost/127.0.0.1（dev/Electron 同机后端）+ https:（生产 Web 部署到 HTTPS 后端）
+      - 生产 Web 部署应将 https: 改为具体域名（如 https://api.example.com）以收紧策略
+      - script-src 'unsafe-inline': Vite dev 模式需要内联脚本，生产构建后可改用 nonce-based CSP
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* http://127.0.0.1:* https:; img-src 'self' data: https:; font-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self';" />
     <title>AI PLC Assistant</title>
   </head>
   <body>

@@ -1,0 +1,142 @@
+/**
+ * AI PLC Assistant — Design Tokens
+ *
+ * 工业 IDE 工作台设计系统基础变量。
+ * 与 tailwind.config.js 配合：tailwind 引用这些 CSS 变量，保持单一真相。
+ *
+ * 状态语义：neutral / unknown / offline / connecting / connected / running / paused /
+ *           warning / error / danger / readonly / disabled / ai
+ */
+
+:root {
+  /* ============ 背景层级（从深到浅） ============ */
+  --color-bg-base: #1E1E1E;          /* 最底层背景（VS Code editor bg） */
+  --color-bg-panel: #181818;         /* 顶部/底部面板 */
+  --color-bg-sidebar: #252526;       /* 侧栏 */
+  --color-bg-elevated: #2D2D2D;      /* 弹窗/下拉 */
+  --color-bg-hover: #2A2D2E;         /* hover 态 */
+  --color-bg-active: #37373D;        /* active/选中态 */
+  --color-bg-input: #3C3C3C;         /* 输入框背景 */
+
+  /* ============ 边框 ============ */
+  --color-border-default: #333333;
+  --color-border-subtle: #2A2A2A;
+  --color-border-strong: #4A4A4A;
+  --color-border-focus: #007ACC;
+
+  /* ============ 文字层级 ============ */
+  --color-text-bright: #E8E8E8;      /* 标题/重点 */
+  --color-text-primary: #CCCCCC;      /* 正文 */
+  --color-text-secondary: #9D9D9D;   /* 次要 */
+  --color-text-dim: #6A6A6A;          /* 占位/禁用 */
+  --color-text-inverse: #1E1E1E;     /* 深色背景上的浅色文字反色 */
+
+  /* ============ 主色（Accent） ============ */
+  --color-accent: #007ACC;           /* VS Code 蓝 */
+  --color-accent-hover: #1A8AD4;
+  --color-accent-dim: #264F78;
+  --color-accent-contrast: #FFFFFF;
+
+  /* ============ 状态色 ============ */
+  --color-status-ok: #4EC9B0;        /* 在线/通过/成功 */
+  --color-status-warn: #CCA700;      /* 警告/回退 */
+  --color-status-error: #F14C4C;     /* 错误/失败 */
+  --color-status-info: #75BEFF;      /* 信息/引用 */
+  --color-status-danger: #F14C4C;    /* 危险/急停（与 error 同色，语义区分） */
+
+  /* ============ 状态语义色（扩展） ============ */
+  --color-status-neutral: #6A6A6A;   /* 中性/未启动 */
+  --color-status-unknown: #6A6A6A;   /* 未知 */
+  --color-status-offline: #888888;   /* 离线 */
+  --color-status-connecting: #CCA700; /* 连接中 */
+  --color-status-connected: #4EC9B0; /* 已连接 */
+  --color-status-running: #4EC9B0;   /* 运行中 */
+  --color-status-paused: #75BEFF;    /* 已暂停 */
+  --color-status-readonly: #9D9D9D;  /* 只读 */
+  --color-status-disabled: #6A6A6A;  /* 禁用 */
+  --color-status-ai: #C586C0;        /* AI 模型相关（紫色） */
+
+  /* ============ 字体 ============ */
+  --font-sans: 'Segoe UI', 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Consolas', 'Menlo', 'Monaco', 'Courier New', monospace;
+
+  /* ============ 字号 ============ */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+  --text-3xl: 28px;
+
+  /* ============ 行高 ============ */
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+  --leading-mono: 1.4;
+
+  /* ============ 间距（4px 基准） ============ */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ============ 圆角 ============ */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* ============ 阴影 ============ */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* ============ 控件高度 ============ */
+  --control-h-xs: 22px;
+  --control-h-sm: 26px;
+  --control-h-md: 30px;
+  --control-h-lg: 34px;
+  --control-h-xl: 40px;
+
+  /* ============ 面板宽度 ============ */
+  --panel-w-sidebar: 260px;
+  --panel-w-sidebar-collapsed: 48px;
+  --panel-w-inspector: 320px;
+  --panel-w-inspector-collapsed: 0;
+  --panel-h-topbar: 48px;
+  --panel-h-tabbar: 32px;
+  --panel-h-bottom-collapsed: 32px;
+  --panel-h-bottom-expanded: 160px;
+  --panel-h-statusbar: 24px;
+
+  /* ============ 动画时长 ============ */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ============ Z-Index ============ */
+  --z-base: 0;
+  --z-sidebar: 10;
+  --z-tabbar: 20;
+  --z-toolbar: 30;
+  --z-dropdown: 40;
+  --z-modal-backdrop: 50;
+  --z-modal: 60;
+  --z-tooltip: 70;
+  --z-toast: 80;
+  --z-debug: 9999;
+}

@@ -33,7 +33,7 @@ const IO_PROMPT = `你是一名西门子PLC工程师。请根据以下设备描�
 设备描述：
 `
 
-export default function IoTableGenerator({ addLog }) {
+export default function IoTableGenerator({ addLog, selectedModel = 'deepseek' }) {
   const [description, setDescription] = useState('')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
@@ -49,7 +49,7 @@ export default function IoTableGenerator({ addLog }) {
 
     try {
       await streamChat({
-        model_id: 'deepseek',
+        model_id: selectedModel,
         messages: [{ role: 'user', content: IO_PROMPT + description }],
         temperature: 0.2,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },

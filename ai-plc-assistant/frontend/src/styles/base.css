@@ -1,0 +1,79 @@
+/**
+ * AI PLC Assistant — Base 样式
+ *
+ * 重置 + 全局基础样式。与 index.css 配合使用。
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* 滚动条（WebKit） */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+/* 文本选中 */
+::selection {
+  background: var(--color-accent-dim);
+  color: var(--color-text-bright);
+}
+
+/* 表单元素继承字体 */
+input, textarea, select, button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 代码字体 */
+code, pre, .font-mono {
+  font-family: var(--font-mono);
+}
+
+/* 焦点可见性（可访问性） */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* 链接 */
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* 禁用态 */
+[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

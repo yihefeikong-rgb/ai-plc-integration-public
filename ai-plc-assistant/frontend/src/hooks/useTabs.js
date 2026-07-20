@@ -28,14 +28,14 @@ export default function useTabs() {
   const closeTab = useCallback((id) => {
     setTabs(prev => {
       const next = prev.filter(t => t.id !== id)
+      // 在 setTabs updater 内同步 setActiveTab，避免闭包 tabs 过期
+      setActiveTab(cur => {
+        if (cur !== id) return cur
+        return next[next.length - 1]?.id || 'welcome'
+      })
       return next
     })
-    setActiveTab(prev => {
-      if (prev !== id) return prev
-      // 当前 tab 被关闭, 回到最后一个
-      return tabs.filter(t => t.id !== id).pop()?.id || 'welcome'
-    })
-  }, [tabs])
+  }, [])
 
   return { tabs, activeTab, setActiveTab, openTab, closeTab }
 }

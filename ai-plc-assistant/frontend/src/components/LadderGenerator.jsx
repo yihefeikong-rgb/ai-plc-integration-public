@@ -24,7 +24,7 @@ async function doExport(structured, format, title) {
   } catch (err) { alert('导出失败: ' + err.message) }
 }
 
-export default function LadderGenerator({ addLog }) {
+export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) {
   const [description, setDescription] = useState('')
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -43,7 +43,7 @@ export default function LadderGenerator({ addLog }) {
     addLog?.('info', `[梯形图] 生成: ${description.slice(0, 50)}...`)
 
     try {
-      const data = await generateLadder(description, {}, '', 'deepseek')
+      const data = await generateLadder(description, {}, '', selectedModel)
       setResult(data)
       save({ label: description.slice(0, 40), description, result: data })
       addLog?.('info', `[梯形图] ${data.title} (${data.mode})`)

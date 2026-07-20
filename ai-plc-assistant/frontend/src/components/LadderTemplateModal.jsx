@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
 import { listLadderTemplates, getLadderTemplate } from '../api'
+import useEscClose from '../hooks/useEscClose'
 
 export default function LadderTemplateModal({ onClose, onUseTemplate }) {
   const [templates, setTemplates] = useState([])
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
+
+  // Batch 8：Esc 关闭弹窗（主计划 §11.4）
+  useEscClose(onClose)
 
   useEffect(() => {
     listLadderTemplates().then(d => setTemplates(d.templates || [])).catch(() => {})

@@ -30,7 +30,7 @@ const VARIABLE_PROMPT = `你是一名西门子PLC工程师。请分析下面的P
 代码如下：
 `
 
-export default function VariableAnalyzer({ addLog }) {
+export default function VariableAnalyzer({ addLog, selectedModel = 'deepseek' }) {
   const [code, setCode] = useState('')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
@@ -46,7 +46,7 @@ export default function VariableAnalyzer({ addLog }) {
 
     try {
       await streamChat({
-        model_id: 'deepseek',
+        model_id: selectedModel,
         messages: [{ role: 'user', content: VARIABLE_PROMPT + code }],
         temperature: 0.2,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },

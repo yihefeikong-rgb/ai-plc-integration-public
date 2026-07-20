@@ -1,48 +1,10 @@
+/* AI PLC Assistant 设计系统（D-FE-003：Tailwind 引用 CSS 变量） */
+@import './styles/tokens.css';
+@import './styles/base.css';
+@import './styles/components.css';
+@import './styles/utilities.css';
+
+/* Tailwind 基础（@import 必须在 @tailwind 之前） */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html, body, #root {
-  height: 100%;
-  overflow: hidden;
-  background-color: #1E1E1E;
-  color: #CCCCCC;
-  font-family: 'Segoe UI', 'Inter', sans-serif;
-  font-size: 13px;
-}
-
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #424242;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #555555;
-}
-
-::selection {
-  background: #264F78;
-}
-
-input, textarea {
-  font-family: inherit;
-}
-
-code, pre {
-  font-family: 'Consolas', 'Menlo', monospace;
-}

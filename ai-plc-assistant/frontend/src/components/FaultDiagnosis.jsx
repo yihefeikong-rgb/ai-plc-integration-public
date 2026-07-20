@@ -35,7 +35,7 @@ const DIAG_PROMPT = (plcType) => `你是一名资深的西门子PLC工程师和�
 
 const PLC_TYPES = ['S7-1200', 'S7-1500', 'S7-300', 'S7-400', 'S7-200 SMART']
 
-export default function FaultDiagnosis({ addLog }) {
+export default function FaultDiagnosis({ addLog, selectedModel = 'deepseek' }) {
   const [symptoms, setSymptoms] = useState('')
   const [plcType, setPlcType] = useState('S7-1200')
   const [errorCode, setErrorCode] = useState('')
@@ -56,7 +56,7 @@ export default function FaultDiagnosis({ addLog }) {
 
     try {
       await streamChat({
-        model_id: 'deepseek',
+        model_id: selectedModel,
         messages: [{ role: 'user', content: DIAG_PROMPT(plcType) + input }],
         temperature: 0.3,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },

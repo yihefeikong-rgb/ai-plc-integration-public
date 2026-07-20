@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { listCodeTemplates, getCodeTemplateContent } from '../api'
+import useEscClose from '../hooks/useEscClose'
 
 function IoTable({ title, signals }) {
   if (!signals || signals.length === 0) return null
@@ -23,6 +24,9 @@ export default function CodeTemplateModal({ onClose }) {
   const [templates, setTemplates] = useState([])
   const [selected, setSelected] = useState(null)
   const [content, setContent] = useState('')
+
+  // Batch 8：Esc 关闭弹窗（主计划 §11.4）
+  useEscClose(onClose)
   const [ioData, setIoData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [showScl, setShowScl] = useState(true)
