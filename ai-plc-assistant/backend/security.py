@@ -2,14 +2,14 @@
 
 import hmac
 import hashlib
-import os
 
 from fastapi import Header, HTTPException
+from config import settings as app_config
 
 
 async def require_local_session(x_local_api_token: str | None = Header(default=None)) -> str:
     """控制或修改本地状态前必须提供启动时配置的会话令牌。"""
-    expected = os.environ.get("LOCAL_API_TOKEN", "")
+    expected = app_config.local_api_token
     if not expected:
         raise HTTPException(status_code=503, detail="本地控制未配置 LOCAL_API_TOKEN")
     if not x_local_api_token or not hmac.compare_digest(x_local_api_token, expected):

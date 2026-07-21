@@ -124,7 +124,7 @@ export default function GlobalStatusBar({
   const mcpConnected = orchHealth?.servers_connected > 0
 
   return (
-    <div className="flex-1 flex items-center justify-end gap-1 overflow-x-auto">
+    <div className="flex-1 flex items-center justify-end gap-1 overflow-visible">
       {/* 安全模式 — 优先级最高，可点击切换等级 */}
       <div ref={safetyRef} className="relative flex items-center">
         <StatusIndicator

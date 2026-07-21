@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     project_dir: str = ""                     # 默认项目目录（空 = 仅在手动索引时指定）
     project_search_db: str = "data/search_index.db"  # FTS5 索引数据库路径
 
+    # 本地 API 鉴权（前后端必须一致）
+    local_api_token: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
