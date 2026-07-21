@@ -3,6 +3,7 @@ import { Play, Loader2, Variable, Copy, Check, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { streamChat } from '../api'
 import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
+import { ToolStatusBar } from './ui'
 
 const VARIABLE_PROMPT = `你是一名西门子PLC工程师。请分析下面的PLC代码，提取并分析所有变量。
 
@@ -33,13 +34,17 @@ const VARIABLE_PROMPT = `你是一名西门子PLC工程师。请分析下面的P
 export default function VariableAnalyzer({ addLog, selectedModel = 'deepseek' }) {
   const [code, setCode] = useState('')
   const [result, setResult] = useState('')
-  const [loading, setLoading] = useState(false)
+  // P3 状态机改造：loading: boolean → status: 10 种状态
+  const [status, setStatus] = useState('idle')
+  const [statusMessage, setStatusMessage] = useState('')
   const [copied, setCopied] = useState(false)
   const { history, save } = useWorkbenchHistory('variable-analyzer')
+  const loading = status === 'running'
 
   const handleAnalyze = async () => {
     if (!code.trim() || loading) return
-    setLoading(true)
+    setStatus('running')
+    setStatusMessage('AI 正在分析变量...')
     setResult('')
     addLog?.('info', `[变量分析] ${code.length} 字符`)
     let fullResult = ''
@@ -50,17 +55,32 @@ export default function VariableAnalyzer({ addLog, selectedModel = 'deepseek' })
         messages: [{ role: 'user', content: VARIABLE_PROMPT + code }],
         temperature: 0.2,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
-        onDone: () => { save({ label: code.slice(0, 40), code, result: fullResult }); addLog?.('info', '[变量分析] 完成') },
+        onDone: (data) => {
+          save({ label: code.slice(0, 40), code, result: fullResult })
+          if (data?.fallback) {
+            addLog?.('warn', `[变量分析] 已切换到 ${data.model}`)
+            setStatus('model_unavailable')
+            setStatusMessage(`主模型不可用，已切换到 ${data.model}`)
+          } else {
+            setStatus(fullResult ? 'success' : 'no_result')
+            setStatusMessage(fullResult ? '分析完成' : '分析完成但无内容')
+          }
+          addLog?.('info', '[变量分析] 完成')
+        },
         onError: (err) => {
           setResult(prev => prev || `分析失败: ${err.message}`)
           addLog?.('error', `[变量分析] ${err.message}`)
+          setStatus('failed')
+          setStatusMessage(err.message)
         },
       })
     } catch (err) {
       setResult(`分析失败: ${err.message}`)
       addLog?.('error', `[变量分析] ${err.message}`)
+      const isOffline = /Failed to fetch|NetworkError|network/i.test(err.message)
+      setStatus(isOffline ? 'offline' : 'failed')
+      setStatusMessage(err.message)
     }
-    setLoading(false)
   }
 
   return (
@@ -109,6 +129,9 @@ export default function VariableAnalyzer({ addLog, selectedModel = 'deepseek' })
             </button>
           )}
         </div>
+
+        {/* P3：统一状态栏（10 种状态）*/}
+        <ToolStatusBar status={status} message={statusMessage} model={selectedModel} />
         <div className="flex-1 overflow-y-auto p-4">
           {result ? (
             <div className="prose prose-invert max-w-none prose-sm text-text-primary

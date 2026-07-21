@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   ChevronDown, ChevronRight, Cpu, Code2, Variable, Search,
   Bot, Zap, Table2, FileSearch, AlertTriangle, Settings as SettingsIcon,
   Inbox, Server, FileText, BookOpen, History, ListTree, AlertCircle,
 } from 'lucide-react'
-import { searchProjects } from '../api'
+import { searchProjects, orchestratorHealth } from '../api'
 import EmptyState from '../components/ui/EmptyState'
 
 /**
@@ -288,20 +288,22 @@ function IoTableInspector({ currentProject, messages }) {
       </PanelSection>
 
       <PanelSection title="地址范围" icon={ListTree} defaultOpen={false}>
+        <div className="text-2xs text-text-dim mb-1.5">以下为 S7-1200 默认示例，实际范围依 PLC 型号与 IO 表生成结果而定。</div>
         <div className="text-2xs text-text-secondary space-y-1">
-          <div><span className="text-accent font-mono">I0.0 ~ I0.7</span> 输入区</div>
-          <div><span className="text-accent font-mono">Q0.0 ~ Q0.7</span> 输出区</div>
-          <div><span className="text-accent font-mono">M0.0 ~ M14.7</span> 标志位</div>
-          <div><span className="text-accent font-mono">T0 ~ T9</span> 定时器</div>
-          <div><span className="text-accent font-mono">C0 ~ C9</span> 计数器</div>
+          <div><span className="text-accent font-mono">I0.0 ~ I0.7</span> 输入区（示例）</div>
+          <div><span className="text-accent font-mono">Q0.0 ~ Q0.7</span> 输出区（示例）</div>
+          <div><span className="text-accent font-mono">M0.0 ~ M14.7</span> 标志位（示例）</div>
+          <div><span className="text-accent font-mono">T0 ~ T9</span> 定时器（示例）</div>
+          <div><span className="text-accent font-mono">C0 ~ C9</span> 计数器（示例）</div>
         </div>
       </PanelSection>
 
       <PanelSection title="校验" icon={AlertCircle} defaultOpen={false}>
-        <div className="text-2xs text-text-secondary space-y-1">
-          <div>· 地址冲突检测</div>
-          <div>· 重复分配检测</div>
-          <div>· 类型匹配校验</div>
+        <div className="text-2xs text-text-dim">校验功能待接入，当前 IO 表生成接口未返回校验结果。</div>
+        <div className="text-2xs text-text-secondary space-y-1 mt-1.5">
+          <div>· 地址冲突检测（待接入）</div>
+          <div>· 重复分配检测（待接入）</div>
+          <div>· 类型匹配校验（待接入）</div>
         </div>
       </PanelSection>
     </>
@@ -380,18 +382,43 @@ function DiagnoseInspector({ messages }) {
 }
 
 // D-3：编排 Inspector — 编排说明 + 工具数
+// F-050 修复：接 orchestratorHealth() 真实状态，不再硬编码"运行中"
+// F-050a 设计选择：Inspector 切 tab 时单次查询，不做 15s 轮询。
+// 理由：Inspector 是临时查看面板，用户切走 tab 后不再需要状态；
+//       GlobalStatusBar 是常驻状态栏才需要 15s 轮询保持实时。
+//       如未来需要 Inspector 也实时刷新，可加 setInterval 但需注意切 tab 后清理。
 function OrchestratorInspector() {
+  const [orchHealth, setOrchHealth] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    orchestratorHealth()
+      .then((d) => { if (!cancelled) setOrchHealth(d) })
+      .catch(() => { if (!cancelled) setOrchHealth(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const connected = orchHealth?.servers_connected > 0
+  const statusText = loading
+    ? '查询中…'
+    : connected
+      ? `已连接 ${orchHealth.servers_connected} 个`
+      : '未连接'
+
   return (
     <>
       <PanelSection title="编排概览" icon={Server}>
         <div className="space-y-1.5">
           <KeyValue k="服务器" v="orchestrator" />
           <KeyValue k="协议" v="MCP stdio" />
-          <KeyValue k="状态" v="运行中" />
+          <KeyValue k="状态" v={statusText} />
         </div>
       </PanelSection>
 
       <PanelSection title="工作流" icon={ListTree} defaultOpen={false}>
+        <div className="text-2xs text-text-dim mb-1.5">以下为系统内置示例工作流，实际可用列表以编排层返回为准。</div>
         <div className="text-2xs text-text-secondary space-y-1">
           <div>· P3 流水线（5 步）</div>
           <div>· TIA 工程态流水线</div>
@@ -400,12 +427,7 @@ function OrchestratorInspector() {
       </PanelSection>
 
       <PanelSection title="Agent" icon={Bot} defaultOpen={false}>
-        <div className="text-2xs text-text-secondary space-y-1">
-          <div>· Team Lead（调度）</div>
-          <div>· Developer（实现）</div>
-          <div>· Reviewer（审查）</div>
-          <div>· Researcher（调研）</div>
-        </div>
+        <div className="text-2xs text-text-dim">Agent 列表待接入，当前编排层 /orchestrator/health 未返回 Agent 信息。</div>
       </PanelSection>
     </>
   )

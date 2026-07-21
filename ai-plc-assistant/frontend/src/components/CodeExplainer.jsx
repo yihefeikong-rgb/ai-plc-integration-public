@@ -3,6 +3,7 @@ import { Play, Loader2, Code2, Copy, Check, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { streamChat } from '../api'
 import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
+import { ToolStatusBar } from './ui'
 
 const LANGUAGES = [
   { id: 'scl', label: 'SCL' },
@@ -38,13 +39,17 @@ export default function CodeExplainer({ addLog, selectedModel = 'deepseek' }) {
   const [code, setCode] = useState('')
   const [language, setLanguage] = useState('auto')
   const [result, setResult] = useState('')
-  const [loading, setLoading] = useState(false)
+  // P3 状态机改造：loading: boolean → status: 10 种状态
+  const [status, setStatus] = useState('idle')
+  const [statusMessage, setStatusMessage] = useState('')
   const [copied, setCopied] = useState(false)
   const { history, save } = useWorkbenchHistory('code-explainer')
+  const loading = status === 'running'
 
   const handleExplain = async () => {
     if (!code.trim() || loading) return
-    setLoading(true)
+    setStatus('running')
+    setStatusMessage('AI 正在解析代码...')
     setResult('')
     addLog?.('info', `[代码解析] 语言: ${language}, ${code.length} 字符`)
     let fullResult = ''
@@ -60,19 +65,32 @@ export default function CodeExplainer({ addLog, selectedModel = 'deepseek' }) {
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
         onDone: (data) => {
           save({ label: code.slice(0, 40), code, language, result: fullResult })
-          if (data?.fallback) addLog?.('warn', `[代码解析] 已切换到 ${data.model}`)
+          if (data?.fallback) {
+            addLog?.('warn', `[代码解析] 已切换到 ${data.model}`)
+            setStatus('model_unavailable')
+            setStatusMessage(`主模型不可用，已切换到 ${data.model}`)
+          } else {
+            // P3-LOW-02 修复：三元单次赋值，与其他 4 文件统一
+            setStatus(fullResult ? 'success' : 'no_result')
+            setStatusMessage(fullResult ? '解析完成' : '解析完成但无内容')
+          }
           addLog?.('info', '[代码解析] 完成')
         },
         onError: (err) => {
           setResult(prev => prev || `解析失败: ${err.message}`)
           addLog?.('error', `[代码解析] ${err.message}`)
+          setStatus('failed')
+          setStatusMessage(err.message)
         },
       })
     } catch (err) {
       setResult(`解析失败: ${err.message}\n\n请检查后端是否已启动，API Key 是否配置正确。`)
       addLog?.('error', `[代码解析] ${err.message}`)
+      // 网络错误判定为 offline
+      const isOffline = /Failed to fetch|NetworkError|network/i.test(err.message)
+      setStatus(isOffline ? 'offline' : 'failed')
+      setStatusMessage(err.message)
     }
-    setLoading(false)
   }
 
   const handleCopy = () => {
@@ -150,6 +168,9 @@ export default function CodeExplainer({ addLog, selectedModel = 'deepseek' }) {
             </button>
           )}
         </div>
+
+        {/* P3：统一状态栏（10 种状态）*/}
+        <ToolStatusBar status={status} message={statusMessage} model={selectedModel} />
 
         <div className="flex-1 overflow-y-auto p-4">
           {result ? (

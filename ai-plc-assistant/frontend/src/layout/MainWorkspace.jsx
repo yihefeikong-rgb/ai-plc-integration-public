@@ -74,7 +74,7 @@ export default function MainWorkspace({
         onCloseTutorial={onCloseTutorial}
       />
     ),
-    robot: <RobotPanel />,
+    robot: <RobotPanel currentProject={currentProject} />,
   }
 
   return (

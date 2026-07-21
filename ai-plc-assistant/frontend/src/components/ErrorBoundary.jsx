@@ -12,7 +12,15 @@ export default class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    console.error('[ErrorBoundary]', error, info.componentStack)
+    // F-055 修复：脱敏后记录，不打印完整 error 对象与 componentStack（可能含 API Key 等敏感 props）
+    // 仅记录 message + stack 第一行 + componentStack 第一行（定位组件，不泄露 props）
+    const stackFirstLine = error?.stack?.split('\n')[0] || ''
+    const componentFirstLine = info?.componentStack?.split('\n')[0]?.trim() || ''
+    console.error('[ErrorBoundary]', {
+      message: error?.message || String(error),
+      stackFirstLine,
+      componentFirstLine,
+    })
   }
 
   handleRetry = () => {

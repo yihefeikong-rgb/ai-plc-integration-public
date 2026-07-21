@@ -3,6 +3,7 @@ import { Play, Loader2, AlertTriangle, Copy, Check, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { streamChat } from '../api'
 import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
+import { ToolStatusBar } from './ui'
 
 const DIAG_PROMPT = (plcType) => `你是一名资深的西门子PLC工程师和工业自动化故障诊断专家。
 当前PLC型号：${plcType}
@@ -40,13 +41,17 @@ export default function FaultDiagnosis({ addLog, selectedModel = 'deepseek' }) {
   const [plcType, setPlcType] = useState('S7-1200')
   const [errorCode, setErrorCode] = useState('')
   const [result, setResult] = useState('')
-  const [loading, setLoading] = useState(false)
+  // P3 状态机改造：loading: boolean → status: 10 种状态
+  const [status, setStatus] = useState('idle')
+  const [statusMessage, setStatusMessage] = useState('')
   const [copied, setCopied] = useState(false)
   const { history, save } = useWorkbenchHistory('fault-diagnosis')
+  const loading = status === 'running'
 
   const handleDiagnose = async () => {
     if (!symptoms.trim() || loading) return
-    setLoading(true)
+    setStatus('running')
+    setStatusMessage('AI 正在诊断故障...')
     setResult('')
     addLog?.('info', `[故障诊断] ${plcType}: ${symptoms.slice(0, 50)}...`)
     let fullResult = ''
@@ -60,17 +65,32 @@ export default function FaultDiagnosis({ addLog, selectedModel = 'deepseek' }) {
         messages: [{ role: 'user', content: DIAG_PROMPT(plcType) + input }],
         temperature: 0.3,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
-        onDone: () => { save({ label: symptoms.slice(0, 40), symptoms, plcType, errorCode, result: fullResult }); addLog?.('info', '[故障诊断] 完成') },
+        onDone: (data) => {
+          save({ label: symptoms.slice(0, 40), symptoms, plcType, errorCode, result: fullResult })
+          if (data?.fallback) {
+            addLog?.('warn', `[故障诊断] 已切换到 ${data.model}`)
+            setStatus('model_unavailable')
+            setStatusMessage(`主模型不可用，已切换到 ${data.model}`)
+          } else {
+            setStatus(fullResult ? 'success' : 'no_result')
+            setStatusMessage(fullResult ? '诊断完成' : '诊断完成但无内容')
+          }
+          addLog?.('info', '[故障诊断] 完成')
+        },
         onError: (err) => {
           setResult(prev => prev || `诊断失败: ${err.message}`)
           addLog?.('error', `[故障诊断] ${err.message}`)
+          setStatus('failed')
+          setStatusMessage(err.message)
         },
       })
     } catch (err) {
       setResult(`诊断失败: ${err.message}`)
       addLog?.('error', `[故障诊断] ${err.message}`)
+      const isOffline = /Failed to fetch|NetworkError|network/i.test(err.message)
+      setStatus(isOffline ? 'offline' : 'failed')
+      setStatusMessage(err.message)
     }
-    setLoading(false)
   }
 
   return (
@@ -138,6 +158,9 @@ export default function FaultDiagnosis({ addLog, selectedModel = 'deepseek' }) {
             </button>
           )}
         </div>
+
+        {/* P3：统一状态栏（10 种状态）*/}
+        <ToolStatusBar status={status} message={statusMessage} model={selectedModel} />
         <div className="flex-1 overflow-y-auto p-4">
           {result ? (
             <div className="prose prose-invert max-w-none prose-sm text-text-primary

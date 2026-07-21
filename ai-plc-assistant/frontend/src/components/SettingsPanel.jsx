@@ -66,7 +66,12 @@ function ProviderCard({ id, info, form, set, onTest, testResult, testing }) {
         }`}>
           {testResult.status === 'ok' ? <CircleCheck size={14} /> : <CircleX size={14} />}
           <span className="flex-1">{testResult.message}</span>
-          {testResult.reply && <span className="text-2xs opacity-70">"{testResult.reply}"</span>}
+          {/* F-056 修复：不渲染 testResult.reply 模型回复内容，避免截图泄露 API Key 片段/内部提示 */}
+          {testResult.reply && (
+            <span className="text-2xs opacity-70" title="已收到模型回复（内容已脱敏，不显示）">
+              已收到回复 {String(testResult.reply).length} 字
+            </span>
+          )}
         </div>
       )}
 
@@ -152,7 +157,11 @@ export default function SettingsPanel({ addLog }) {
   const handleTest = async (provider) => {
     setTestingId(provider)
     setTestResults(prev => ({ ...prev, [provider]: null }))
-    try { await updateSettings(form) } catch {}
+    // F-057/F-070 修复：测试连接前先保存设置，失败时记录警告而非静默吞错
+    try { await updateSettings(form) }
+    catch (e) {
+      addLog?.('warn', `[设置] 保存失败，测试连接将以旧配置运行: ${e?.message}`)
+    }
     try {
       const result = await testProvider(provider)
       setTestResults(prev => ({ ...prev, [provider]: result }))

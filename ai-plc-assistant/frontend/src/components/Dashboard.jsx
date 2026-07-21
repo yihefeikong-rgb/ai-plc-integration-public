@@ -5,8 +5,9 @@ import {
   ChevronRight, Upload, FileCode2, Table2, Variable, CheckCircle2,
 } from 'lucide-react'
 import {
-  listProjects, listConversations, healthCheck, orchestratorHealth,
+  listProjects, listConversations, healthCheck, orchestratorHealth, listServers,
 } from '../api'
+import { SAFETY_LEVELS, DEFAULT_SAFETY_LEVEL } from '../platform/safetyLevels'
 
 /**
  * Dashboard — 工程工作台总览（Batch 5 重构）
@@ -37,6 +38,45 @@ const QUICK_ACTIONS = [
   { id: 'io-table', icon: Search, label: '生成 IO 表', desc: '描述设备生成 IO 表' },
 ]
 
+// F-067 修复：复用 GlobalStatusBar 的 matchServers 逻辑推断 PLC/TIA/PLCSIM 连接状态
+function matchServers(servers) {
+  const result = { plc: false, tia: false, plcsim: false }
+  if (!Array.isArray(servers)) return result
+  for (const s of servers) {
+    const name = (s.name || s.id || '').toLowerCase()
+    const status = s.status || s.state || ''
+    const connected = status === 'connected' || status === 'running' || status === 'ok' || s.connected === true
+    if (!connected) continue
+    if (/plcsim|plc.sim/i.test(name)) result.plcsim = true
+    else if (/tia/i.test(name)) result.tia = true
+    else if (/plc|s7/i.test(name)) result.plc = true
+  }
+  return result
+}
+
+// F-068 修复：从 localStorage 读取安全等级，与 GlobalStatusBar 切换同步
+const SAFETY_LEVELS_LIST = [
+  SAFETY_LEVELS.LEVEL_0_READONLY,
+  SAFETY_LEVELS.LEVEL_1_LOCAL_WRITE,
+  SAFETY_LEVELS.LEVEL_2_PROJECT_MODIFY,
+  SAFETY_LEVELS.LEVEL_3_DEVICE_CONTROL,
+]
+const SAFETY_STORAGE_KEY = 'ai-plc:safety-level'
+
+function loadSafetyLevel() {
+  try {
+    const saved = localStorage.getItem(SAFETY_STORAGE_KEY)
+    if (saved) {
+      const found = SAFETY_LEVELS_LIST.find((l) => l.id === saved)
+      if (found) return found
+    }
+  } catch (e) {
+    // F-070 修复：localStorage 读取失败记录警告
+    console.warn('[Dashboard] localStorage.getItem(safety-level) 失败:', e?.message)
+  }
+  return DEFAULT_SAFETY_LEVEL
+}
+
 function timeAgo(ts) {
   if (!ts) return ''
   const diff = (Date.now() / 1000) - ts
@@ -48,12 +88,15 @@ function timeAgo(ts) {
 }
 
 function StatusRow({ label, value, tone = 'neutral' }) {
-  // tone: ok / offline / neutral / readonly
+  // tone: ok / offline / neutral / readonly / warning / danger
+  // F-068a 修复：补 warning/danger 桶位，与 safetyLevels.tone 对齐（tailwind 色板为 warn/danger）
   const toneClass = {
     ok: 'text-status-ok',
     offline: 'text-status-offline',
     neutral: 'text-text-secondary',
     readonly: 'text-status-readonly',
+    warning: 'text-status-warn',
+    danger: 'text-status-danger',
   }[tone] || 'text-text-secondary'
   return (
     <div className="flex items-center justify-between py-1 text-xs">
@@ -88,6 +131,9 @@ export default function Dashboard({
   const [recentConversations, setRecentConversations] = useState([])
   const [health, setHealth] = useState(null)
   const [orchHealth, setOrchHealth] = useState(null)
+  // F-067/F-068 修复：真实 PLC/TIA/PLCSIM 状态 + localStorage 安全等级
+  const [serverMatches, setServerMatches] = useState({ plc: false, tia: false, plcsim: false })
+  const [safetyLevel, setSafetyLevel] = useState(loadSafetyLevel)
 
   useEffect(() => {
     listProjects(5).then((d) => setProjects(d.projects || [])).catch(() => {})
@@ -96,7 +142,25 @@ export default function Dashboard({
     }
     healthCheck().then(setHealth).catch(() => setHealth(null))
     orchestratorHealth().then(setOrchHealth).catch(() => setOrchHealth(null))
+    // F-067：复用 GlobalStatusBar 的 matchServers 推断 PLC/TIA/PLCSIM
+    listServers()
+      .then((s) => setServerMatches(matchServers(s?.servers || s)))
+      .catch(() => setServerMatches({ plc: false, tia: false, plcsim: false }))
   }, [conversations])
+
+  // F-068：监听 localStorage 安全等级变化（与 GlobalStatusBar 切换同步）
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === SAFETY_STORAGE_KEY) setSafetyLevel(loadSafetyLevel())
+    }
+    const onFocus = () => setSafetyLevel(loadSafetyLevel())
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [])
 
   const convs = conversations || recentConversations
   const mcpConnected = orchHealth?.servers_connected > 0
@@ -125,9 +189,9 @@ export default function Dashboard({
         <div className="grid grid-cols-2 gap-4 mb-4">
           <SectionCard title="全局状态">
             <StatusRow label="后端服务" value={health ? '在线' : '未连接'} tone={health ? 'ok' : 'offline'} />
-            <StatusRow label="PLC" value="未连接" tone="offline" />
-            <StatusRow label="TIA Portal" value="未启动" tone="offline" />
-            <StatusRow label="PLCSIM" value="未启用" tone="neutral" />
+            <StatusRow label="PLC" value={serverMatches.plc ? '已连接' : '未连接'} tone={serverMatches.plc ? 'ok' : 'offline'} />
+            <StatusRow label="TIA Portal" value={serverMatches.tia ? '已启动' : '未启动'} tone={serverMatches.tia ? 'ok' : 'offline'} />
+            <StatusRow label="PLCSIM" value={serverMatches.plcsim ? '已启用' : '未启用'} tone={serverMatches.plcsim ? 'ok' : 'neutral'} />
             <StatusRow
               label="MCP Server"
               value={mcpConnected ? `${orchHealth.servers_connected} 已连` : '未连接'}
@@ -138,7 +202,7 @@ export default function Dashboard({
               value={currentProject?.name || '未选择'}
               tone={currentProject ? 'ok' : 'neutral'}
             />
-            <StatusRow label="安全模式" value="只读" tone="readonly" />
+            <StatusRow label="安全模式" value={safetyLevel.label} tone={safetyLevel.tone} />
           </SectionCard>
 
           <SectionCard title="快捷操作">

@@ -15,6 +15,7 @@ venv/
 # IDE
 .vscode/
 .idea/
+.codex/
 *.swp
 *.swo
 

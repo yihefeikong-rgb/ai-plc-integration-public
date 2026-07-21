@@ -44,14 +44,14 @@ This repository does **not** claim that:
 
 ## Current evidence status
 
-As of **2026-07-14**, the repository has the following evidence boundary:
+As of **2026-07-21**, the repository has the following evidence boundary:
 
 | Area | Confirmed fact | What must not be inferred |
 | --- | --- | --- |
-| Source and offline regression | The default offline suite reported **306 passed, 41 deselected**. Its configuration excludes `integration`, `hardware`, `desktop`, and `network` markers. | This does not validate TIA, PLCSIM, Factory I/O, a real PLC, or a network protocol dynamically. |
-| Desktop and backend | FastAPI, React/Vite, Electron configuration, routes, and workflow code are present. The root `start.bat` launches the local backend only. | This does not prove Electron packaging, every external model, or every UI path on every machine. |
+| Source and offline regression | The most recent default run on `b27d08d` reported **714 passed, 76 deselected**. `pytest.ini` collects `tests` and `orchestrator/tests`, while excluding `integration`, `hardware`, `desktop`, and `network` markers. | This does not validate TIA, PLCSIM, Factory I/O, a real PLC, or a network protocol dynamically. |
+| Desktop and backend | FastAPI, React/Vite, Electron configuration, routes, and workflow code are present. The root `start.bat` launches the local backend only. Frontend Vitest reports **136 passing tests** (11 files, 72% critical-path coverage); P0-P5 batches fixed 6 HIGH issues (no-fabrication principle: removed hardcoded fake data in Inspector/Dashboard, redacted testResult.reply, added localControlHeaders to fallback fetch), and delivered F-019 robot 4-mode control + L3 safety level + 9-field high-risk confirmation, F-037 useTabs single-state-object root fix, ToolStatusBar 10-state machine across 5 tool pages, real attachment-upload API, CSP `script-src 'self'` tightening with env-var `connect-src`, ErrorBoundary redaction, and logging for 9+ silent `catch {}` blocks. | This does not prove Electron packaging, every external model, or every UI path on every machine. E2E, Lighthouse, responsive 4-size screenshot regression, and OrchestratorPanel/ChatArea/InspectorPanel file splits (P6/P7) remain pending. |
 | TIA/PLCSIM path | A controlled V21 target, TIA Worker, CartGen, download path, and snap7 readback path exist in source. | The corrected revision has not completed end-to-end dynamic acceptance for TIA V21 → PLCSIM Advanced V8 → snap7 → Factory I/O. A valid local PLCSIM Advanced license, loaded project, successful download, and readable CPU are separate prerequisites. |
-| Real field equipment | Code contains target, write, confirmation, and audit guards. | It does not authorize connection to real PLCs, F-CPUs, safety circuits, or production environments. |
+| Real field equipment | Code contains target, write-parameter, authenticated-actor, one-time-confirmation, and cross-process-audit guards. | It does not authorize connection to real PLCs, F-CPUs, safety circuits, or production environments. |
 
 Historical plans and status reports are clues only. When they conflict, prefer current source, `mcp-servers/tia-mcp/config.yaml`, test configuration, and direct runtime evidence.
 
@@ -64,7 +64,7 @@ Historical plans and status reports are clues only. When they conflict, prefer c
 | `mcp-servers/tia-mcp/` | FastMCP, TIA Openness calls, C# `TiaWorker`, .NET 8 `CartGen`, LadderSpec validation, SCL/LAD generation, and PLCSIM helper paths. | Requires compatible local TIA V21 installation, permissions, and licenses. |
 | `mcp-servers/plc-mcp-bridge/` | Bridge tools for S7 runtime, TIA engineering, PLCSIM, Factory I/O, tags, blocks, UDTs, and diagnostics. | Read/write and engineering mutations require safety gates, target constraints, and human process. |
 | `mcp-servers/{opcua,modbus,mitsubishi,robot}-mcp/` | Experimental MCP implementations for OPC UA, Modbus TCP, Mitsubishi MC protocol, and robot scenarios. | They have no unified real-hardware acceptance claim. Do not connect them to field devices by default. |
-| `mcp_common/` and `safety/` | Shared configuration, single control target, confirmation tokens, interlocks, static pre-checks, and chained audit logging. | Engineering safeguards only; not a functional-safety certification. |
+| `mcp_common/` and `safety/` | Shared configuration, single control target, confirmation tokens, interlocks, static pre-checks, and chained audit logging with cross-process exclusion. | Engineering safeguards only; not a functional-safety certification. |
 | `plc-code-templates/` | SCL, LAD, PLCopen/XML, and example PLC assets. | Presence of an asset does not prove import, compilation, or download success. |
 | `edge-gateway/` and `docker-compose.yml` | Optional Modbus, InfluxDB, Grafana, OpenPLC, and AI gateway integration. | Needs separate variables, containers, and network configuration; not part of the default offline startup path. |
 
@@ -126,9 +126,9 @@ flowchart LR
 
 1. **Emergency stops and functional safety remain hardware/safety-PLC concerns.** AI must not control e-stops, F-CPU parameters, or safety circuits.
 2. **One isolated target.** `mcp_common/control_target.py` accepts only the configured target; S7 IP and OPC UA endpoint drift is rejected.
-3. **Writes fail closed.** A raw S7 address must be mapped in `safety/interlock-rules.yml` to a semantic target and type. Unmapped addresses, type mismatches, out-of-range values, interlock failures, or static-precheck failures are rejected.
-4. **One-time human confirmation.** A required write needs a signed, short-lived token bound to operator, approver, target, value, device identity, and audit context. A consumed token cannot be reused.
-5. **Audit before side effect.** Control intent is recorded before mutation. A production environment should fail closed without a persistent `AUDIT_HMAC_KEY` and an authenticated actor; common secret fields are redacted from logs.
+3. **Writes fail closed.** A raw S7 address must be mapped in `safety/interlock-rules.yml` to a semantic target and type. Final S7, OPC UA, Modbus, and Mitsubishi write tools must also have registered target/value parameter contracts. Unregistered tools, missing targets, type mismatches, out-of-range values, interlock failures, or static-precheck failures are rejected.
+4. **One-time human confirmation.** A required write and a fuse reset need a signed, short-lived token bound to operator, approver, target, value, device identity, and audit context. A consumed token cannot be reused. The current Modbus, Mitsubishi, and OPC UA write endpoints derive the audit actor from verified credentials rather than a caller-supplied identity.
+5. **Audit before side effect.** Control intent is recorded before mutation. A production environment should fail closed without a persistent `AUDIT_HMAC_KEY` and an authenticated actor; common secret fields are redacted from logs, and audit appends are serialized with a cross-process lock to avoid concurrent chain forks.
 6. **Software guards are not certification.** The static pre-check does not simulate real PLC scan cycles, field wiring, mechanical inertia, or safety integrity levels.
 
 ### Local control API
@@ -211,7 +211,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 D:\Python3\python.exe -m pytest -p no:cacheprovider -q
 ```
 
-The default configuration runs only its offline scope and deliberately excludes tests marked for hardware, Windows desktop automation, or network access. Review test code, target configuration, and side effects before explicitly running excluded tests.
+The default configuration collects `tests` and `orchestrator/tests`, while deliberately excluding tests marked for hardware, Windows desktop automation, or network access. Review test code, target configuration, and side effects before explicitly running excluded tests.
 
 ## Controlled simulation acceptance
 
@@ -259,6 +259,10 @@ An endpoint or UI control being present means an entry point exists. High-risk o
 6. `.plans/ai-plc-integration/docs/invariants.md` — non-breakable engineering constraints.
 
 `CURRENT_STATUS.md`, `PROJECT_HANDOVER.md`, older architecture diagrams, and historical plans can lag current code. Read them with the evidence boundary above.
+
+### Documentation maintenance
+
+Any substantial change to user-visible capability, architectural entry points, control/safety/authentication boundaries, dependencies, default test scope, or acceptance claims must update this README and [README.md](README.md) in the same commit. A purely internal refactor that needs no README change should state why in its review or commit description.
 
 ### Two repositories
 

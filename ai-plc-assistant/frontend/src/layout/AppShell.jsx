@@ -15,7 +15,7 @@ import useTabs from '../hooks/useTabs'
 import useModels from '../hooks/useModels'
 import useProjects from '../hooks/useProjects'
 import useConversation from '../hooks/useConversation'
-import { API_DOCS_URL } from '../api'
+import { API_DOCS_URL, uploadDocument } from '../api'
 import { LayoutContext, MODALS } from './AppContext'
 
 /**
@@ -43,11 +43,18 @@ function usePersistentState(key, defaultValue) {
     try {
       const saved = localStorage.getItem(key)
       if (saved !== null) return saved === 'true'
-    } catch {}
+    } catch (e) {
+      // F-070 修复：localStorage 读取失败（隐私模式/配额满）记录警告
+      console.warn(`[usePersistentState] localStorage.getItem(${key}) 失败:`, e?.message)
+    }
     return defaultValue
   })
   useEffect(() => {
-    try { localStorage.setItem(key, String(value)) } catch {}
+    try { localStorage.setItem(key, String(value)) }
+    catch (e) {
+      // F-070 修复：localStorage 写入失败记录警告
+      console.warn(`[usePersistentState] localStorage.setItem(${key}) 失败:`, e?.message)
+    }
   }, [key, value])
   return [value, setValue]
 }
@@ -101,6 +108,18 @@ export default function AppShell() {
     setPendingInput(content)
     openTab('chat')
   }, [setPendingInput, openTab])
+
+  // P4：附件上传 — 调 uploadDocument API 上传到知识库
+  const handleAddAttachment = useCallback(async (file) => {
+    if (!file) return
+    addLog('info', `[附件] 上传中: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`)
+    try {
+      const data = await uploadDocument(file)
+      addLog('info', `[附件] 上传成功: ${data.document_id || data.id || file.name}`)
+    } catch (err) {
+      addLog('error', `[附件] 上传失败: ${err.message}`)
+    }
+  }, [addLog])
 
   const handleMenuAction = useCallback((action) => {
     switch (action) {
@@ -211,7 +230,7 @@ export default function AppShell() {
               sending={sending}
               selectedModel={selectedModel}
               onOpenTemplates={() => setShowTemplates(true)}
-              onAddAttachment={() => addLog('info', '[附件] 附件上传功能待接入')}
+              onAddAttachment={handleAddAttachment}
               addLog={addLog}
               showOrchTutorial={showOrchTutorial}
               onCloseTutorial={() => setShowOrchTutorial(false)}

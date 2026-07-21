@@ -3,6 +3,7 @@ import { Play, Loader2, Table2, Copy, Check, Download, Clock } from 'lucide-reac
 import ReactMarkdown from 'react-markdown'
 import { streamChat } from '../api'
 import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
+import { ToolStatusBar } from './ui'
 
 const IO_PROMPT = `你是一名西门子PLC工程师。请根据以下设备描述生成完整的PLC IO分配表。
 
@@ -36,13 +37,17 @@ const IO_PROMPT = `你是一名西门子PLC工程师。请根据以下设备描�
 export default function IoTableGenerator({ addLog, selectedModel = 'deepseek' }) {
   const [description, setDescription] = useState('')
   const [result, setResult] = useState('')
-  const [loading, setLoading] = useState(false)
+  // P3 状态机改造：loading: boolean → status: 10 种状态
+  const [status, setStatus] = useState('idle')
+  const [statusMessage, setStatusMessage] = useState('')
   const [copied, setCopied] = useState(false)
   const { history, save } = useWorkbenchHistory('io-table')
+  const loading = status === 'running'
 
   const handleGenerate = async () => {
     if (!description.trim() || loading) return
-    setLoading(true)
+    setStatus('running')
+    setStatusMessage('AI 正在生成 IO 表...')
     setResult('')
     addLog?.('info', `[IO表] 生成中: ${description.slice(0, 50)}...`)
     let fullResult = ''
@@ -53,17 +58,32 @@ export default function IoTableGenerator({ addLog, selectedModel = 'deepseek' })
         messages: [{ role: 'user', content: IO_PROMPT + description }],
         temperature: 0.2,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
-        onDone: () => { save({ label: description.slice(0, 40), description, result: fullResult }); addLog?.('info', '[IO表] 完成') },
+        onDone: (data) => {
+          save({ label: description.slice(0, 40), description, result: fullResult })
+          if (data?.fallback) {
+            addLog?.('warn', `[IO表] 已切换到 ${data.model}`)
+            setStatus('model_unavailable')
+            setStatusMessage(`主模型不可用，已切换到 ${data.model}`)
+          } else {
+            setStatus(fullResult ? 'success' : 'no_result')
+            setStatusMessage(fullResult ? '生成完成' : '生成完成但无内容')
+          }
+          addLog?.('info', '[IO表] 完成')
+        },
         onError: (err) => {
           setResult(prev => prev || `生成失败: ${err.message}`)
           addLog?.('error', `[IO表] ${err.message}`)
+          setStatus('failed')
+          setStatusMessage(err.message)
         },
       })
     } catch (err) {
       setResult(`生成失败: ${err.message}`)
       addLog?.('error', `[IO表] ${err.message}`)
+      const isOffline = /Failed to fetch|NetworkError|network/i.test(err.message)
+      setStatus(isOffline ? 'offline' : 'failed')
+      setStatusMessage(err.message)
     }
-    setLoading(false)
   }
 
   return (
@@ -114,6 +134,9 @@ export default function IoTableGenerator({ addLog, selectedModel = 'deepseek' })
             </button>
           )}
         </div>
+
+        {/* P3：统一状态栏（10 种状态）*/}
+        <ToolStatusBar status={status} message={statusMessage} model={selectedModel} />
         <div className="flex-1 overflow-y-auto p-4">
           {result ? (
             <div className="prose prose-invert max-w-none prose-sm text-text-primary

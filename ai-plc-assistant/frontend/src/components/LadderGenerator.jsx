@@ -3,6 +3,7 @@ import { Play, Loader2, Code2, Download, FileCode, FileText as FileXml, Table2, 
 import { generateLadder, exportCode, runNlToSim } from '../api'
 import useWorkbenchHistory from '../hooks/useWorkbenchHistory'
 import LadderVisualizer from './LadderVisualizer'
+import { ToolStatusBar } from './ui'
 
 function downloadFile(content, filename, mime = 'text/plain') {
   const blob = new Blob([content], { type: `${mime};charset=utf-8` })
@@ -27,17 +28,24 @@ async function doExport(structured, format, title) {
 export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) {
   const [description, setDescription] = useState('')
   const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [pipelineLoading, setPipelineLoading] = useState(false)
+  // P3 状态机改造：loading: boolean → status: 10 种状态
+  const [status, setStatus] = useState('idle')
+  const [statusMessage, setStatusMessage] = useState('')
+  // pipeline 独立状态机（与 generate 并行）
+  const [pipelineStatus, setPipelineStatus] = useState('idle')
+  const [pipelineStatusMessage, setPipelineStatusMessage] = useState('')
   const [pipelineResult, setPipelineResult] = useState(null)
   const [displayMode, setDisplayMode] = useState('graph')
   const { history, save } = useWorkbenchHistory('ladder-generator')
   const resultRef = useRef(null)
+  const loading = status === 'running'
+  const pipelineLoading = pipelineStatus === 'running'
 
   const handleGenerate = async (e) => {
     e?.preventDefault?.()
     if (!description.trim() || loading) return
-    setLoading(true)
+    setStatus('running')
+    setStatusMessage('AI 正在生成梯形图...')
     setResult(null)
     setPipelineResult(null)
     addLog?.('info', `[梯形图] 生成: ${description.slice(0, 50)}...`)
@@ -47,15 +55,22 @@ export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) 
       setResult(data)
       save({ label: description.slice(0, 40), description, result: data })
       addLog?.('info', `[梯形图] ${data.title} (${data.mode})`)
+      // 判定结果状态：有 networks 为 success，无 networks 为 no_result
+      const hasNetworks = data.structured?.networks?.length > 0
+      setStatus(hasNetworks ? 'success' : 'no_result')
+      setStatusMessage(hasNetworks ? `生成完成：${data.title}` : '生成完成但无 Network')
     } catch (err) {
       addLog?.('error', `[梯形图] ${err.message}`)
+      const isOffline = /Failed to fetch|NetworkError|network/i.test(err.message)
+      setStatus(isOffline ? 'offline' : 'failed')
+      setStatusMessage(err.message)
     }
-    setLoading(false)
   }
 
   const handleRunPipeline = async () => {
     if (!description.trim() || loading || pipelineLoading) return
-    setPipelineLoading(true)
+    setPipelineStatus('running')
+    setPipelineStatusMessage('全链路执行中：生成→编译→下载→回读...')
     setPipelineResult(null)
     addLog?.('info', `[全链路] 生成并仿真: ${description.slice(0, 50)}...`)
 
@@ -63,12 +78,28 @@ export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) 
       const data = await runNlToSim({ description, launch_fio: false })
       setPipelineResult(data)
       addLog?.(data.ok ? 'info' : 'error', `[全链路] ${data.ok ? 'PASS' : 'FAIL'}${data.error ? `: ${data.error}` : ''}`)
+      // 判定 pipeline 状态：ok=true 为 success，部分步骤 FAIL 为 partial，全部 FAIL 为 failed
+      const steps = data.steps || []
+      const hasPass = steps.some((s) => s.status === 'PASS')
+      const hasFail = steps.some((s) => s.status === 'FAIL')
+      if (data.ok) {
+        setPipelineStatus('success')
+        setPipelineStatusMessage('全链路 PASS')
+      } else if (hasPass && hasFail) {
+        setPipelineStatus('partial')
+        setPipelineStatusMessage('部分步骤失败')
+      } else {
+        setPipelineStatus('failed')
+        setPipelineStatusMessage(data.error || '全链路失败')
+      }
     } catch (err) {
       const failed = { ok: false, error: err.message, steps: [], snap7: { verified: false, readback: '' }, generation: {} }
       setPipelineResult(failed)
       addLog?.('error', `[全链路] ${err.message}`)
+      const isOffline = /Failed to fetch|NetworkError|network/i.test(err.message)
+      setPipelineStatus(isOffline ? 'offline' : 'failed')
+      setPipelineStatusMessage(err.message)
     }
-    setPipelineLoading(false)
   }
 
   // 生成结果后自动滚到顶部
@@ -127,6 +158,14 @@ export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) 
           </select>
         </div>
       )}
+
+      {/* P3：统一状态栏（generate + pipeline 双状态）*/}
+      {/* P3-LOW-01 修复：pipeline 完成后（非 idle）仍显示 pipeline 状态，避免切回 generate 隐藏最终结果 */}
+      <ToolStatusBar
+        status={pipelineStatus !== 'idle' ? pipelineStatus : status}
+        message={pipelineStatus !== 'idle' ? pipelineStatusMessage : statusMessage}
+        model={selectedModel}
+      />
 
       {/* ── 结果区域（可滚动，占满中间） ── */}
       <div ref={resultRef} className="flex-1 overflow-y-auto p-4">

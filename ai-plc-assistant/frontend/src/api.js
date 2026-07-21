@@ -177,7 +177,10 @@ export async function streamChat({ model_id = 'deepseek', messages = [], tempera
         if (data.error) { onError?.(new Error(data.error)); return }
         if (data.rag_sources) ragSources = data.rag_sources
         if (data.done) onDone?.({ ...data, rag_sources: ragSources })
-      } catch {}
+      } catch (e) {
+        // F-070 修复：SSE JSON.parse 失败时记录，不静默丢消息
+        console.warn('[SSE] JSON.parse 失败:', payload?.slice(0, 100), e?.message)
+      }
     }
   }
 }

@@ -339,5 +339,372 @@
 
 ---
 
+## 2026-07-20：全量复审新发现（F-042 ~ F-090，47 条）
+
+> 由 code-reviewer agent 对 master @ `9c71967` 做的独立全量复审。
+> 完整报告：`audit-2026-07-20.md`
+> 评分：6.8/10 — CONDITIONAL PASS
+> 按 HIGH / MEDIUM / LOW 严重级别分组。F-062 与 F-037 合并看待；F-090 与 F-043 合并。
+
+### HIGH（6 项 — 阻断生产部署）
+
+#### F-050: OrchestratorInspector 硬编码"状态：运行中"伪造后端状态
+- **位置**：`src/layout/InspectorPanel.jsx:383-411`
+- **现象**：`<KeyValue k="状态" v="运行中" />` 与 `· Team Lead（调度）` 等硬编码字符串，未接 `orchestratorHealth()` 真实状态。
+- **影响**：用户看到"运行中"假数据，实际后端可能未启动。`GlobalStatusBar` 已接真实 API，这里却硬编码，自相矛盾。**违反项目"不伪造"安全原则**。
+- **分类**：收尾批次 D-3 引入
+- **严重级别**：HIGH
+
+#### F-051: IoTableInspector 地址范围与校验全部硬编码假数据
+- **位置**：`src/layout/InspectorPanel.jsx:290-308`
+- **现象**：永远显示固定的 I0.0~I0.7 / Q0.0~Q0.7 / M0.0~M14.7 范围与"地址冲突检测/重复分配检测/类型匹配校验"等静态文案，与 `currentProject` 和实际 IO 表无关。
+- **影响**：用户以为系统已做校验，实际未做。**工业场景下"假校验通过"比"未校验"更危险**。
+- **分类**：收尾批次 D-3 引入
+- **严重级别**：HIGH
+
+#### F-067: Dashboard 全局状态 4 项硬编码与 GlobalStatusBar 矛盾
+- **位置**：`src/components/Dashboard.jsx:128-141`
+- **现象**：`<StatusRow label="PLC" value="未连接" tone="offline" />` 等 4 项永远显示固定值，`GlobalStatusBar` 已接 `listServers()`/`healthCheck()`/`orchestratorHealth()` 真实状态。
+- **影响**：用户在 Dashboard 与 GlobalStatusBar 看到不一致的 PLC/TIA/PLCSIM 状态，困惑。
+- **分类**：Batch 5 重构遗留
+- **严重级别**：HIGH
+
+#### F-068: Dashboard 安全模式硬编码"只读"与 GlobalStatusBar localStorage 脱节
+- **位置**：`src/components/Dashboard.jsx:141`
+- **现象**：`<StatusRow label="安全模式" value="只读" tone="readonly" />` 永远显示"只读"。GlobalStatusBar 切到 L3 后写 `localStorage['ai-plc:safety-level']`，Dashboard 不读。
+- **影响**：用户切到 L3 后 Dashboard 仍显示"只读"，**安全边界误判**。A-3 修复 F-018 时未同步到 Dashboard。
+- **分类**：收尾批次 A-3 修复不完整
+- **严重级别**：HIGH
+
+#### F-042: useConversation 非流式 fallback fetch 缺失 localControlHeaders
+- **位置**：`src/hooks/useConversation.js:211-216`
+- **现象**：SSE 失败回退到非流式 `/chat` 时 `headers: { 'Content-Type': 'application/json' }` 缺 `localControlHeaders()`，而 `streamChat` 和 `request()` 都会注入。
+- **影响**：本地 API Token 鉴权开启时，SSE 失败后非流式 fallback 必失败（403 Forbidden），与流式主路径行为不一致。
+- **分类**：原有问题
+- **严重级别**：HIGH
+
+#### F-056: SettingsPanel testResult.reply 渲染模型回复到 UI（F-024 残留）
+- **位置**：`src/components/SettingsPanel.jsx:69`
+- **现象**：`{testResult.reply && <span>"{testResult.reply}"</span>}` 直接渲染后端返回的 `reply` 字段。F-024 已标注"reply 可能包含敏感信息"，至今未修。
+- **影响**：测试连接的模型回复（可能含 API Key 片段、内部提示）显示在 UI，截图分享时泄露。
+- **分类**：原有问题（F-024 残留）
+- **严重级别**：HIGH
+
+### MEDIUM（16 项 — 建议修复）
+
+#### F-043: 5 个工具页面 streamChat 调用未传 signal，无法中止
+- **位置**：`CodeExplainer.jsx:56` / `IoTableGenerator.jsx:51` / `FaultDiagnosis.jsx:58` / `VariableAnalyzer.jsx:48` / `LadderGenerator.jsx:46`
+- **现象**：4 个 streamChat 调用与 `generateLadder` 调用均未传 `signal` 参数。Batch 6 给 ChatArea 加了 AbortController，工具页未同步。
+- **影响**：用户切走 tab 后请求仍在后台进行；`MainWorkspace` 用 `display:none` 保持挂载，无法通过 cleanup 中止。Token 持续消耗。
+- **分类**：原有问题
+- **严重级别**：MEDIUM
+
+#### F-047: OrchestratorPanel 文件 870 行超 800 行阈值
+- **位置**：`src/components/OrchestratorPanel.jsx`（870 行）
+- **现象**：单文件包含主组件 + 8 个子组件 + 3 张中文映射表 + apiGet/apiPost/apiDelete helper + formatUptime。F-006 已标注"Batch 7/8 拆分"，至今未拆。
+- **影响**：超过 CLAUDE.md 800 行阈值；可维护性差；`useState` 共 13 个散落。
+- **分类**：原有问题（F-006 残留）
+- **严重级别**：MEDIUM
+
+#### F-052: DiagnoseInspector 设备状态显示"待接入"但排查步骤静态硬编码
+- **位置**：`src/layout/InspectorPanel.jsx:365-378`
+- **现象**：排查步骤 1-5 全部硬编码（"检查 PLC 电源与连接"等），未根据 `messages` 中的 `warning`/`error` 内容生成针对性建议。
+- **影响**：用户看到通用排查步骤会误以为是针对当前故障的诊断。误导性。
+- **分类**：收尾批次 D-3 引入
+- **严重级别**：MEDIUM
+
+#### F-053: VariablesInspector 命名规范与地址分配硬编码
+- **位置**：`src/layout/InspectorPanel.jsx:440-455`
+- **现象**：硬编码"bXxx — Bool/iXxx — Int/rXxx — Real"命名规范 + "M0.0~M14.7/MW20~MW40/MD60~MD100"地址范围，与实际 `lastVars` 数据无关。
+- **影响**：与 F-051 同类问题，假数据误导。
+- **分类**：收尾批次 D-3 引入
+- **严重级别**：MEDIUM
+
+#### F-055: ErrorBoundary componentDidCatch console.error 不脱敏
+- **位置**：`src/components/ErrorBoundary.jsx:15`
+- **现象**：`console.error('[ErrorBoundary]', error, info.componentStack)` 把错误对象与组件栈完整打到控制台。
+- **影响**：生产环境可能泄露内部路径/敏感 props（如 API Key 在 form state 中传入 SettingsPanel，渲染崩溃时 stack 可能包含 form 值）。
+- **分类**：原有问题
+- **严重级别**：MEDIUM
+
+#### F-057: SettingsPanel handleTest 先调 updateSettings(form) 静默失败
+- **位置**：`src/components/SettingsPanel.jsx:155`
+- **现象**：`try { await updateSettings(form) } catch {}` 完全静默吞错。
+- **影响**：保存失败时用户无感知，测试连接以旧配置运行，得到误导性结果。
+- **分类**：原有问题
+- **严重级别**：MEDIUM
+
+#### F-058: OrchestratorPanel 教程弹窗与 RunDialog 未走 useFocusTrap/useEscClose
+- **位置**：`OrchestratorPanel.jsx:688-720`（RunDialog）、`OrchestratorPanel.jsx:735-837`（TutorialModal）、`AppShell.jsx:277-302`（About）
+- **现象**：F-015 收尾批次给 5 个弹窗加了 useFocusTrap，但 RunDialog/TutorialModal/About 三个弹窗未加；useEscClose 也未应用。
+- **影响**：可访问性不一致；Tab 键可跳到弹窗外；Esc 不能关。F-016 修复目标"6 个弹窗"实际只覆盖 5 个。
+- **分类**：收尾批次遗漏
+- **严重级别**：MEDIUM
+
+#### F-064: PromptTemplateModal 变量替换用 String.replace 不防转义
+- **位置**：`src/components/PromptTemplateModal.jsx:46-49`
+- **现象**：`content.replace(\`{${k}}\`, v)` 只替换第一个匹配；用户输入 `v` 含 `$&`/`$$` 等特殊模式字符会被错误解释。
+- **影响**：模板变量替换不完整/不安全；工业 prompt 中变量重复出现常见。
+- **分类**：原有问题
+- **严重级别**：MEDIUM
+
+#### F-066: PrimarySidebar 删除对话用 inline 二次确认而非 ConfirmDialog
+- **位置**：`src/layout/PrimarySidebar.jsx:285-312`
+- **现象**：删除对话按钮点击后 inline 显示"确认删除对话 / 取消"两个按钮，未用已存在的 `ui/ConfirmDialog`。
+- **影响**：A-2 修复 F-017 时仅在 ConfirmDialog 内加了 `dangerAction` 支持，但 PrimarySidebar 未实际调用 ConfirmDialog。Focus trap/Esc/A11y 全无。F-017 修复不完整。
+- **分类**：收尾批次 A-2 修复不完整
+- **严重级别**：MEDIUM
+
+#### F-069: 无 Zod/Schema 校验，API 响应直接解构使用
+- **位置**：全局，如 `useConversation.js:62-68`、`InspectorPanel.jsx:267-273`
+- **现象**：所有 API 响应直接 `d.conversations || []` 解构，无 schema 校验。
+- **影响**：后端字段变更时前端静默失败显示空状态，无显式错误。违反 CLAUDE.md 输入验证原则。
+- **分类**：原有问题
+- **严重级别**：MEDIUM
+
+#### F-070: 9 个 catch {} 完全静默吞错
+- **位置**：`api.js:180`、`AppShell.jsx:46/50`、`useConversation.js:30`、`GlobalStatusBar.jsx:35/112`、`useWorkbenchHistory.js:23/31/38`、`PrimarySidebar.jsx:157`、`SettingsPanel.jsx:155`
+- **现象**：9 处 `catch {}` 无任何错误处理或日志。
+- **影响**：违反 CLAUDE.md 错误处理原则"永远不要静默吞掉错误"。
+- **分类**：原有问题
+- **严重级别**：MEDIUM
+
+#### F-075: ChatArea CitationMessage 用 `window.open(url, '_blank')` 但未加 `rel="noopener noreferrer"`
+- **位置**：`src/components/ChatArea.jsx:393-398`
+- **现象**：`window.open(url, '_blank')` 无 noopener；同文件 `<a>` 标签（`:445`）正确加了 `rel="noopener noreferrer"`。
+- **影响**：新窗口可通过 `window.opener` 访问原窗口，存在反向 tabnabbing 风险。
+- **分类**：收尾批次 D-1 引入
+- **严重级别**：MEDIUM
+
+#### F-078: ChatArea useEffect scrollIntoView 在 messages 变化时强制滚动，打断用户回看
+- **位置**：`src/components/ChatArea.jsx:660-662`
+- **现象**：每次 `messages` 变化（含 streaming 中每个 token）都强制 `scrollIntoView`，不判断 `atBottom` 状态。
+- **影响**：streaming 中用户往上滚动回看时，每个 token 到达都把视图拉回底部。
+- **分类**：Batch 6 引入
+- **严重级别**：MEDIUM
+
+#### F-080: GlobalStatusBar PLC/TIA/PLCSIM 用服务器名字正则推断，非真实状态
+- **位置**：`src/layout/GlobalStatusBar.jsx:40-53`
+- **现象**：`matchServers` 用 `/plcsim|plc.sim/i`、`/tia/i`、`/plc|s7/i` 正则匹配服务器名。
+- **影响**：服务器命名变化时状态推断会错。D-4 宣称"接入真实 API"，实际是"按名字猜"。
+- **分类**：收尾批次 D-4 实现方式
+- **严重级别**：MEDIUM
+
+#### F-086: CSP `script-src 'unsafe-inline'` 未迁移到 nonce-based
+- **位置**：`index.html:12`
+- **现象**：`script-src 'self' 'unsafe-inline'` — 注释明确"生产构建后可改用 nonce-based CSP"，未改。
+- **影响**：`'unsafe-inline'` 削弱 CSP 防 XSS 能力。
+- **分类**：F-022 Batch 2 已放宽，收紧未完成
+- **严重级别**：MEDIUM
+
+#### F-087: useConversation handleSend 依赖 messages 导致每次消息变化重建
+- **位置**：`src/hooks/useConversation.js:258`
+- **现象**：`handleSend` 的 `useCallback` 依赖数组含 `messages`，每次消息变化（streaming 中每个 token）`handleSend` 重新创建。
+- **影响**：`ChatArea` 接 `onSend={handleSend}` 重渲染频繁，streaming 中可能卡顿。应改用 `setMessages(prev => ...)` 内访问最新 messages。
+- **分类**：Batch 6 引入
+- **严重级别**：MEDIUM
+
+#### F-062: useTabs closeTab 在 StrictMode 双调用下可能 setActiveTab 两次（与 F-037 合并看待）
+- **位置**：`src/hooks/useTabs.js:28-38`
+- **现象**：F-037 已记录的 updater 内副作用反模式，叠加 `main.jsx:7` 的 `<React.StrictMode>`。React 18 StrictMode 双调用 reducer/updater，`setActiveTab` 会被调用两次。
+- **影响**：当前 `setActiveTab` 是幂等的，无实际 bug。但仍是反模式，React 19 严格模式可能告警。
+- **分类**：F-037 子项
+- **严重级别**：MEDIUM（与 F-037 合并看待）
+
+#### F-090: 4 个工具页 streamChat 调用未传 abort signal（与 F-043 合并）
+- **位置**：见 F-043
+- **现象**：F-043 子项，强调 4 个工具页无停止按钮，用户无法中止生成。
+- **影响**：与 F-043 同。
+- **分类**：F-043 衍生
+- **严重级别**：MEDIUM（合并到 F-043）
+
+### LOW（25 项 — 可选修复）
+
+#### F-044: OrchestratorPanel 直接 fetch 三处绕过 api.js request 封装
+- **位置**：`src/components/OrchestratorPanel.jsx:101-117`
+- **现象**：自封装 `apiGet`/`apiPost`/`apiDelete` 绕过 `api.js:20` 的 `request()`。F-020 已记录未修。
+- **影响**：维护成本高；`request()` 升级时不受益。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-045: RobotPanel 直接 fetch 第四处绕过 api.js 且重复定义 LOCAL_API_TOKEN
+- **位置**：`src/components/RobotPanel.jsx:24` + `:132-139`
+- **现象**：`LOCAL_API_TOKEN` 与 `api.js:14` 重复定义；`api.js` 已有 `runWorkflow()` 函数。
+- **影响**：双份 Token 解析逻辑；违反 DRY。
+- **分类**：原有问题（F-020 子项）
+- **严重级别**：LOW
+
+#### F-046: alert() 用于用户错误反馈，不符合工业 IDE 体验
+- **位置**：`LadderGenerator.jsx:24` + `ChatArea.jsx:82`
+- **现象**：用浏览器原生 `alert()` 显示导出失败，未复用 `ui/ConfirmDialog`/`ErrorState`。
+- **影响**：阻塞 UI；与 VS Code 风格不符；Electron 中可能显示成原生对话框。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-048: ChatArea 文件 734 行接近阈值
+- **位置**：`src/components/ChatArea.jsx`（734 行）
+- **现象**：13 个消息组件 + ChatInput + 主组件 + 2 个工具函数。
+- **影响**：未到 800 行但接近；建议拆分 `components/messages/` 子目录。
+- **分类**：Batch 6 + 收尾批次累积
+- **严重级别**：LOW
+
+#### F-049: InspectorPanel 文件 538 行且包含 9 个 Inspector 子组件
+- **位置**：`src/layout/InspectorPanel.jsx`（538 行）
+- **现象**：9 个 Inspector 子组件 + PanelSection/KeyValue + 主组件。D-3 一次性塞入。
+- **影响**：内聚度低；建议按 tab 拆分为 `layout/inspectors/`。
+- **分类**：收尾批次 D-3 引入
+- **严重级别**：LOW
+
+#### F-054: LadderInspector PLC 规范 fallback 硬编码 'S7-1200'/'V18'
+- **位置**：`src/layout/InspectorPanel.jsx:255-260`
+- **现象**：`v={currentProject?.plc_type || 'S7-1200'}` 与 `v={currentProject?.tia_version || 'V18'}`，无项目时显示具体型号。
+- **影响**：用户未选项目时误以为已默认选中。其他 Inspector 正确处理为"未选择"，不一致。
+- **分类**：收尾批次 D-3 引入
+- **严重级别**：LOW
+
+#### F-059: AppShell 关于弹窗（About）未走统一 Modal 体系
+- **位置**：`src/layout/AppShell.jsx:277-302`
+- **现象**：内联 `<div className="fixed inset-0 ...">`，未用 `ui/ConfirmDialog`/`ui/Modal`；无 `role="dialog"`/`aria-modal`。
+- **影响**：可访问性差；与 ConfirmDialog 模式不一致。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-060: LadderVisualizer 全部用 inline style，未走设计系统
+- **位置**：`src/components/LadderVisualizer.jsx:10-23`（COLORS 常量）+ 全文 `style={{ ... }}`
+- **现象**：颜色硬编码在 COLORS 常量与 inline style，未引用 `tokens.css`。
+- **影响**：与设计 token 体系脱节；主题切换无法生效。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-061: OrchestratorPanel 工作流列表与工具列表用 `key={name}` 但名称可能重复
+- **位置**：`OrchestratorPanel.jsx:412/515/528`
+- **现象**：步骤列表用 `key={i}` 数组索引；工作流列表与工具列表用 `key={name}`。F-040 已修 ChatArea，此处未同步。
+- **影响**：步骤重排/删除时可能复用错误 DOM。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-063: MainWorkspace 用 display:none 保持挂载，5 个工具页 useEffect 持续轮询
+- **位置**：`MainWorkspace.jsx:82-92` + `Dashboard.jsx:92-99` + `GlobalStatusBar.jsx`
+- **现象**：所有 tab 同时挂载，Dashboard/GlobalStatusBar 在 mount 时调多个 API。
+- **影响**：内存占用累积；对工业 IDE 可接受，但若工具页改为轮询则问题。
+- **分类**：Batch 4 设计决策
+- **严重级别**：LOW
+
+#### F-065: CreateProjectDialog 按 Enter 提交但未阻止表单默认行为
+- **位置**：`src/components/CreateProjectDialog.jsx:38`
+- **现象**：`onKeyDown` 调 `handleSubmit` 未 `e.preventDefault()`。
+- **影响**：当前无 form 包裹无 bug；模式不严谨。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-071: InspectorPanel parseContent 函数局部定义两次
+- **位置**：`InspectorPanel.jsx:268-272` + `:417-421`
+- **现象**：两个 Inspector 各自定义相同的 `parseContent`，与 `ChatArea.jsx:50-61` 三份重复。
+- **影响**：违反 DRY；建议提取到 `src/utils/parseContent.js`。
+- **分类**：收尾批次 D-3 引入
+- **严重级别**：LOW
+
+#### F-072: ChatArea handleExport 与 LadderGenerator doExport 重复
+- **位置**：`ChatArea.jsx:70-84` + `LadderGenerator.jsx:15-25`
+- **现象**：两处定义几乎相同的 export 函数，均含 `alert('导出失败: ...)`。
+- **影响**：DRY 违反；F-046 的 alert 问题两处都需修。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-073: useWorkbenchHistory save 用 Date.now().toString() 作 id，并发保存可能冲突
+- **位置**：`src/hooks/useWorkbenchHistory.js:17`
+- **现象**：同一毫秒内连续 `save` 两次会产生相同 id。
+- **影响**：React 18 自动 batching 下同一事件回调中多次 setHistory 可能用同一 id，列表 key 冲突。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-074: ChatArea 用户消息无 ReactMarkdown 渲染，AI 消息有，渲染不一致
+- **位置**：`src/components/ChatArea.jsx:517-518`
+- **现象**：用户消息用 `whitespace-pre-wrap` 纯文本，AI 消息走 `<ReactMarkdown>`。
+- **影响**：用户 markdown 语法显示原样字符。也是 XSS 防护，可接受。
+- **分类**：设计决策
+- **严重级别**：LOW
+
+#### F-076: OrchestratorPanel RunDialog/TutorialModal 用 `bg-black/90` 而 ConfirmDialog 用 `modal-backdrop`
+- **位置**：`OrchestratorPanel.jsx:698/737` vs `ui/ConfirmDialog.jsx:65`
+- **现象**：弹窗背景遮罩类名不统一。
+- **影响**：视觉不一致；z-index 管理混乱。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-077: ChatArea messages.map key 用 `msg.id || ${i}-${msg.role}` fallback 仍含索引
+- **位置**：`src/components/ChatArea.jsx:704`
+- **现象**：F-040 修复加了 `msg.id` 优先，但 fallback 仍用 `${i}-${msg.role}`。`useConversation.js` 所有分支都已加 id，fallback 是死代码。
+- **影响**：实际不会触发，但代码读起来像"索引 key 仍可能"，误导后来者。
+- **分类**：收尾批次 B-3 修复不彻底
+- **严重级别**：LOW
+
+#### F-079: BottomPanel useEffect scrollIntoView 在 filteredLogs 变化时强制滚动
+- **位置**：`src/layout/BottomPanel.jsx:64-68`
+- **现象**：与 F-078 同类问题：日志面板切 tab 或新日志到达时强制滚到底。
+- **影响**：打断用户回看。
+- **分类**：收尾批次 D-2 引入
+- **严重级别**：LOW
+
+#### F-081: InspectorPanel ChatInspector ragSources 取值边缘场景
+- **位置**：`InspectorPanel.jsx:148` + `useConversation.js:155`
+- **现象**：SSE 出错且非流式 fallback 也失败时，错误消息无 `rag_sources`，Inspector 显示"当前对话未引用知识库"。
+- **影响**：边缘场景，Inspector 显示与实际错误状态不匹配。
+- **分类**：收尾批次 D-3 引入
+- **严重级别**：LOW
+
+#### F-082: 缺少 ErrorBoundary 包裹 OrchestratorPanel/RobotPanel 等业务组件
+- **位置**：`src/layout/AppShell.jsx:157`
+- **现象**：ErrorBoundary 是顶层一个，业务组件崩溃都整页重置。
+- **影响**：单组件崩溃影响全局；工业 IDE 期望单 tab 崩溃不影响其他 tab。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-083: PrimarySidebar SYSTEM_ITEMS 中 robot 与 orchestrator 用同一 Cpu 图标
+- **位置**：`src/layout/PrimarySidebar.jsx:117-119`
+- **现象**：`{ id: 'orchestrator', icon: Cpu }` 和 `{ id: 'robot', icon: Cpu }` 同图标。
+- **影响**：用户视觉混淆。
+- **分类**：Batch 4 迁移引入
+- **严重级别**：LOW
+
+#### F-084: MenuBar 编辑菜单 5 项全部 disabled，仍占菜单空间
+- **位置**：`src/layout/MenuBar.jsx:24-32`
+- **现象**：F-014 已记录，至今未移除或实现。
+- **影响**：用户点击"编辑"看到全灰菜单。
+- **分类**：F-014 残留
+- **严重级别**：LOW
+
+#### F-085: 8 个 Ctrl 快捷键标注未实现（F-013 残留）
+- **位置**：`src/layout/MenuBar.jsx:17-31`
+- **现象**：菜单标注 `Ctrl+N/Z/Y/X/C/V` 6 个快捷键，`AppShell.jsx:128-137` 只实现 `Ctrl+B/J/\`` 3 个。
+- **影响**：用户期望 Ctrl+N 新建项目，实际无效。
+- **分类**：F-013 残留
+- **严重级别**：LOW
+
+#### F-088: OrchestratorPanel useEffect 不清理，卸载后 setState 可能告警
+- **位置**：`src/components/OrchestratorPanel.jsx:206`
+- **现象**：`useEffect(() => { fetchAll() }, [fetchAll])` 内多个 setState 在卸载后仍可能被调用。
+- **影响**：React 18 不再告警，但仍是反模式；切走 tab 后不卸载，影响小。
+- **分类**：原有问题
+- **严重级别**：LOW
+
+#### F-089: ChatArea textarea 自动调整高度未实现
+- **位置**：`src/components/ChatArea.jsx:604-612`
+- **现象**：textarea `rows={1}` + `min-h-[38px] max-h-32`，无 `onInput` 自动调整高度逻辑。
+- **影响**：用户输入多行时 textarea 不会长高。VS Code 风格输入区通常会自动长高。
+- **分类**：Batch 6 引入
+- **严重级别**：LOW
+
+### 复审统计
+
+| 级别 | 数量 | 编号范围 |
+|------|------|----------|
+| HIGH | 6 | F-050, F-051, F-067, F-068, F-042, F-056 |
+| MEDIUM | 16 | F-043, F-047, F-052, F-053, F-055, F-057, F-058, F-064, F-066, F-069, F-070, F-075, F-078, F-080, F-086, F-087, F-062（合并 F-037）, F-090（合并 F-043） |
+| LOW | 25 | F-044, F-045, F-046, F-048, F-049, F-054, F-059, F-060, F-061, F-063, F-065, F-071, F-072, F-073, F-074, F-076, F-077, F-079, F-081, F-082, F-083, F-084, F-085, F-088, F-089 |
+| **合计** | **47** | F-042 ~ F-090 |
+
+---
+
 ## 待补充
 随着各 Batch 推进，继续记录其他发现。

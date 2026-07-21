@@ -2,9 +2,39 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Home, ArrowDownUp, Grip, Package, Play,
   AlertTriangle, Wifi, WifiOff, ChevronRight, ChevronLeft,
-  ArrowUp, ArrowDown, Factory,
+  ArrowUp, ArrowDown, Factory, Shield,
 } from 'lucide-react'
 import { API_BASE } from '../api'
+import ConfirmDialog from './ui/ConfirmDialog'
+
+// ---- F-019 机器人 4 模式（主计划 §11.5 安全边界）----
+// demo：纯演示，所有操作只更新本地可视化
+// simulation：本地模拟 + 可调用编排层工作流
+// readonly：只读，禁用所有写入操作（急停除外）
+// real-control：真实设备控制，必须 Safety Level >= L3，每次操作需高风险确认
+export const ROBOT_MODES = {
+  DEMO: { id: 'demo', label: '演示', description: '纯演示，不调用任何后端', tone: 'neutral' },
+  SIMULATION: { id: 'simulation', label: '仿真', description: '本地模拟 + 编排层工作流', tone: 'ok' },
+  READONLY: { id: 'readonly', label: '只读', description: '禁用所有写入操作（急停除外）', tone: 'readonly' },
+  REAL_CONTROL: { id: 'real-control', label: '真实控制', description: '写入实机 PLC，高风险', tone: 'danger' },
+}
+
+const ROBOT_MODE_LIST = [
+  ROBOT_MODES.DEMO,
+  ROBOT_MODES.SIMULATION,
+  ROBOT_MODES.READONLY,
+  ROBOT_MODES.REAL_CONTROL,
+]
+
+const SAFETY_STORAGE_KEY = 'ai-plc:safety-level'
+
+function checkSafetyLevel(requiredId) {
+  try {
+    return localStorage.getItem(SAFETY_STORAGE_KEY) === requiredId
+  } catch {
+    return false
+  }
+}
 
 // ---- 状态初始化 ----
 const INITIAL_STATE = {
@@ -27,10 +57,14 @@ function timestamp() {
   return new Date().toLocaleTimeString('zh-CN', { hour12: false })
 }
 
-export default function RobotPanel() {
+export default function RobotPanel({ currentProject }) {
   const [robot, setRobot] = useState(INITIAL_STATE)
   const [logs, setLogs] = useState([])
   const [executing, setExecuting] = useState(false)
+  // F-019：4 模式切换（默认 simulation，向后兼容旧 backend='simulated'）
+  const [mode, setMode] = useState(ROBOT_MODES.SIMULATION.id)
+  // F-019：高风险确认弹窗（real-control 模式下每次操作弹出）
+  const [pendingAction, setPendingAction] = useState(null)
   const logRef = useRef(null)
 
   // 自动滚动日志到底部
@@ -50,6 +84,32 @@ export default function RobotPanel() {
   const update = useCallback((patch) => {
     setRobot(prev => ({ ...prev, ...patch }))
   }, [])
+
+  // F-019：写入操作守卫 — readonly 禁用，real-control 弹高风险确认
+  const guardWrite = useCallback((actionName, actionFn, riskInfo) => {
+    if (mode === ROBOT_MODES.READONLY.id) {
+      addLog(actionName, '只读模式，操作被禁用')
+      return
+    }
+    if (mode === ROBOT_MODES.REAL_CONTROL.id) {
+      if (!checkSafetyLevel('device-control')) {
+        addLog(actionName, '真实控制需要 Safety Level >= L3（设备控制），请先在顶部状态栏切换')
+        return
+      }
+      setPendingAction({ name: actionName, fn: actionFn, riskInfo })
+      return
+    }
+    actionFn()
+  }, [mode, addLog])
+
+  // F-019：高风险确认弹窗 — 确认后执行挂起的操作
+  const handleConfirmRisk = useCallback(() => {
+    if (pendingAction?.fn) {
+      addLog(pendingAction.name, '已通过高风险确认，发送到真实设备')
+      pendingAction.fn()
+    }
+    setPendingAction(null)
+  }, [pendingAction, addLog])
 
   // ---- 急停 ----
   const toggleEmergencyStop = useCallback(() => {
@@ -185,7 +245,10 @@ export default function RobotPanel() {
     addLog('单轴控制', { extend: '伸出', retract: '收回', raise: '上升', lower: '下降' }[direction])
   }, [robot.emergencyStop, executing, addLog, update])
 
-  const disabled = robot.emergencyStop || executing
+  const disabled = robot.emergencyStop || executing || mode === ROBOT_MODES.READONLY.id
+
+  // F-019：当前 mode 元数据
+  const currentMode = ROBOT_MODE_LIST.find((m) => m.id === mode) || ROBOT_MODES.SIMULATION
 
   return (
     <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
@@ -193,7 +256,7 @@ export default function RobotPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Factory size={18} className="text-accent" />
-          <h1 className="text-sm font-semibold text-text-bright">机器人模拟控制</h1>
+          <h1 className="text-sm font-semibold text-text-bright">机器人控制</h1>
         </div>
         <div className="flex items-center gap-2">
           {robot.connected
@@ -201,6 +264,40 @@ export default function RobotPanel() {
             : <span className="flex items-center gap-1 text-2xs text-status-error"><WifiOff size={12} /> 未连接</span>
           }
         </div>
+      </div>
+
+      {/* ===== F-019 模式切换器 ===== */}
+      <div className="bg-ide-sidebar border border-ide-border rounded p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <Shield size={14} className={currentMode.tone === 'danger' ? 'text-status-danger' : currentMode.tone === 'readonly' ? 'text-status-readonly' : 'text-accent'} />
+          <span className="text-2xs font-semibold text-text-secondary uppercase tracking-wider">控制模式</span>
+          <span className="text-2xs text-text-dim">— {currentMode.description}</span>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          {ROBOT_MODE_LIST.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setMode(m.id)}
+              className={`px-2 py-1.5 rounded border text-2xs transition-colors ${
+                m.id === mode
+                  ? m.tone === 'danger'
+                    ? 'bg-status-danger/15 border-status-danger/50 text-status-danger'
+                    : m.tone === 'readonly'
+                      ? 'bg-status-readonly/15 border-status-readonly/50 text-status-readonly'
+                      : 'bg-accent/15 border-accent/50 text-accent'
+                  : 'bg-ide-panel border-ide-border text-text-secondary hover:border-accent/30'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {mode === ROBOT_MODES.REAL_CONTROL.id && !checkSafetyLevel('device-control') && (
+          <div className="mt-2 text-2xs text-status-warn bg-status-warn/10 border border-status-warn/30 rounded px-2 py-1">
+            ⚠ 真实控制模式需要 Safety Level >= L3（设备控制）。请先在顶部状态栏切换安全等级。
+          </div>
+        )}
       </div>
 
       {/* ===== 机器人状态可视化 ===== */}
@@ -214,19 +311,19 @@ export default function RobotPanel() {
 
         {/* 主操作按钮 */}
         <div className="grid grid-cols-4 gap-2">
-          <CtrlBtn icon={Home} label="回位" onClick={goHome} disabled={disabled} />
-          <CtrlBtn icon={ArrowDownUp} label="拾取" onClick={pickItem} disabled={disabled} />
-          <CtrlBtn icon={Package} label="放置" onClick={placeItem} disabled={disabled} />
-          <CtrlBtn icon={Play} label="自动循环" onClick={runAutoCycle} disabled={disabled} accent />
+          <CtrlBtn icon={Home} label="回位" onClick={() => guardWrite('回位', goHome, { operation: '回位', impactScope: '机械臂回到 home 位置，夹爪张开' })} disabled={disabled} />
+          <CtrlBtn icon={ArrowDownUp} label="拾取" onClick={() => guardWrite('拾取', pickItem, { operation: '拾取序列', impactScope: '机械臂伸出→下降→夹爪闭合→上升→收回（5 步）' })} disabled={disabled} />
+          <CtrlBtn icon={Package} label="放置" onClick={() => guardWrite('放置', placeItem, { operation: '放置序列', impactScope: '机械臂伸出→下降→夹爪张开→上升→回位（5 步）' })} disabled={disabled} />
+          <CtrlBtn icon={Play} label="自动循环" onClick={() => guardWrite('自动循环', runAutoCycle, { operation: '自动循环工作流', impactScope: '调用 robot_pick_place 工作流，机械臂完成完整拾放循环' })} disabled={disabled} accent />
         </div>
 
         {/* 传送带控制 */}
         <div>
           <div className="text-2xs text-text-dim mb-1.5">传送带</div>
           <div className="flex gap-2">
-            <SmBtn label="入口 ▶" active={robot.conveyorEntry} onClick={() => conveyorAction('entry')} disabled={robot.emergencyStop} />
-            <SmBtn label="出口 ▶" active={robot.conveyorExit} onClick={() => conveyorAction('exit')} disabled={robot.emergencyStop} />
-            <SmBtn label="停止" onClick={() => conveyorAction('stop')} disabled={robot.emergencyStop} danger />
+            <SmBtn label="入口 ▶" active={robot.conveyorEntry} onClick={() => guardWrite('传送带入口', () => conveyorAction('entry'), { operation: '传送带入口启动', impactScope: '传送带入口段运行' })} disabled={disabled} />
+            <SmBtn label="出口 ▶" active={robot.conveyorExit} onClick={() => guardWrite('传送带出口', () => conveyorAction('exit'), { operation: '传送带出口启动', impactScope: '传送带出口段运行' })} disabled={disabled} />
+            <SmBtn label="停止" onClick={() => guardWrite('传送带停止', () => conveyorAction('stop'), { operation: '传送带停止', impactScope: '传送带停止运行' })} disabled={disabled} danger />
           </div>
         </div>
 
@@ -234,10 +331,10 @@ export default function RobotPanel() {
         <div>
           <div className="text-2xs text-text-dim mb-1.5">机械臂</div>
           <div className="flex gap-2">
-            <SmBtn icon={ChevronRight} label="伸出" onClick={() => armAxis('extend')} disabled={disabled} />
-            <SmBtn icon={ChevronLeft} label="收回" onClick={() => armAxis('retract')} disabled={disabled} />
-            <SmBtn icon={ArrowUp} label="上升" onClick={() => armAxis('raise')} disabled={disabled} />
-            <SmBtn icon={ArrowDown} label="下降" onClick={() => armAxis('lower')} disabled={disabled} />
+            <SmBtn icon={ChevronRight} label="伸出" onClick={() => guardWrite('机械臂伸出', () => armAxis('extend'), { operation: '机械臂 X 轴伸出', impactScope: '机械臂沿 X 轴伸出' })} disabled={disabled} />
+            <SmBtn icon={ChevronLeft} label="收回" onClick={() => guardWrite('机械臂收回', () => armAxis('retract'), { operation: '机械臂 X 轴收回', impactScope: '机械臂沿 X 轴收回' })} disabled={disabled} />
+            <SmBtn icon={ArrowUp} label="上升" onClick={() => guardWrite('机械臂上升', () => armAxis('raise'), { operation: '机械臂 Z 轴上升', impactScope: '机械臂沿 Z 轴上升' })} disabled={disabled} />
+            <SmBtn icon={ArrowDown} label="下降" onClick={() => guardWrite('机械臂下降', () => armAxis('lower'), { operation: '机械臂 Z 轴下降', impactScope: '机械臂沿 Z 轴下降' })} disabled={disabled} />
           </div>
         </div>
       </div>
@@ -292,6 +389,30 @@ export default function RobotPanel() {
           ))}
         </div>
       </div>
+
+      {/* ===== F-019 高风险操作确认弹窗（real-control 模式）===== */}
+      {pendingAction && (
+        <ConfirmDialog
+          title={`高风险操作确认：${pendingAction.riskInfo?.operation || pendingAction.name}`}
+          description="即将向真实设备发送控制指令。请核对以下信息，确认无误后继续。"
+          confirmLabel={`确认${pendingAction.riskInfo?.operation || pendingAction.name}`}
+          variant="danger"
+          onConfirm={handleConfirmRisk}
+          onClose={() => setPendingAction(null)}
+        >
+          <div className="space-y-1 text-2xs font-mono text-text-secondary mt-2 border border-status-danger/30 rounded p-2 bg-status-danger/5">
+            <div><span className="text-text-dim">操作名称：</span>{pendingAction.riskInfo?.operation || pendingAction.name}</div>
+            <div><span className="text-text-dim">目标 PLC：</span>{currentProject?.plc_type || '未配置'}</div>
+            <div><span className="text-text-dim">IP 地址：</span>{currentProject?.plc_ip || '未配置'}</div>
+            <div><span className="text-text-dim">PLC 型号：</span>{currentProject?.plc_type || '未配置'}</div>
+            <div><span className="text-text-dim">当前项目：</span>{currentProject?.name || '未选择'}</div>
+            <div><span className="text-text-dim">运行状态：</span>{robot.emergencyStop ? '急停中' : '正常'}</div>
+            <div><span className="text-text-dim">影响范围：</span>{pendingAction.riskInfo?.impactScope || '-'}</div>
+            <div><span className="text-text-dim">可回滚：</span>否，机械动作不可回滚</div>
+            <div><span className="text-text-dim">风险说明：</span>真实设备将按指令移动，请确保工作区无人且无障碍物</div>
+          </div>
+        </ConfirmDialog>
+      )}
     </div>
   )
 }

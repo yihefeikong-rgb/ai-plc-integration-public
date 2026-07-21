@@ -9,7 +9,11 @@ export default function useWorkbenchHistory(key, maxItems = 20) {
 
   const [history, setHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(storageKey) || '[]') }
-    catch { return [] }
+    catch (e) {
+      // F-070 修复：localStorage 读取失败记录警告
+      console.warn(`[useWorkbenchHistory] localStorage.getItem(${storageKey}) 失败:`, e?.message)
+      return []
+    }
   })
 
   const save = useCallback((entry) => {
@@ -20,7 +24,11 @@ export default function useWorkbenchHistory(key, maxItems = 20) {
         ...entry,
       }
       const next = [item, ...prev].slice(0, maxItems)
-      try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch {}
+      try { localStorage.setItem(storageKey, JSON.stringify(next)) }
+      catch (e) {
+        // F-070 修复：localStorage 写入失败记录警告
+        console.warn(`[useWorkbenchHistory] localStorage.setItem(${storageKey}) 失败:`, e?.message)
+      }
       return next
     })
   }, [storageKey, maxItems])
@@ -28,14 +36,22 @@ export default function useWorkbenchHistory(key, maxItems = 20) {
   const remove = useCallback((id) => {
     setHistory(prev => {
       const next = prev.filter(e => e.id !== id)
-      try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch {}
+      try { localStorage.setItem(storageKey, JSON.stringify(next)) }
+      catch (e) {
+        // F-070 修复：localStorage 写入失败记录警告
+        console.warn(`[useWorkbenchHistory] localStorage.setItem(${storageKey}) 失败:`, e?.message)
+      }
       return next
     })
   }, [storageKey])
 
   const clear = useCallback(() => {
     setHistory([])
-    try { localStorage.removeItem(storageKey) } catch {}
+    try { localStorage.removeItem(storageKey) }
+    catch (e) {
+      // F-070 修复：localStorage 删除失败记录警告
+      console.warn(`[useWorkbenchHistory] localStorage.removeItem(${storageKey}) 失败:`, e?.message)
+    }
   }, [storageKey])
 
   return { history, save, remove, clear }

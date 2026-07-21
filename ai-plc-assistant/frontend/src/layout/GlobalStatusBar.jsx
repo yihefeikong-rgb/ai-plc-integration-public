@@ -32,7 +32,10 @@ function loadSafetyLevel() {
       const found = SAFETY_LEVELS_LIST.find((l) => l.id === saved)
       if (found) return found
     }
-  } catch {}
+  } catch (e) {
+    // F-070 修复：localStorage 读取失败记录警告
+    console.warn('[GlobalStatusBar] localStorage.getItem(safety-level) 失败:', e?.message)
+  }
   return DEFAULT_SAFETY_LEVEL
 }
 
@@ -109,7 +112,11 @@ export default function GlobalStatusBar({
 
   const handleSelectSafety = useCallback((level) => {
     setSafetyLevel(level)
-    try { localStorage.setItem(SAFETY_STORAGE_KEY, level.id) } catch {}
+    try { localStorage.setItem(SAFETY_STORAGE_KEY, level.id) }
+    catch (e) {
+      // F-070 修复：localStorage 写入失败记录警告
+      console.warn('[GlobalStatusBar] localStorage.setItem(safety-level) 失败:', e?.message)
+    }
     setShowSafetyMenu(false)
   }, [])
 

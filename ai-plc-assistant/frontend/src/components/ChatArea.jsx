@@ -457,9 +457,9 @@ function CitationMessage({ content }) {
 
 function WarningMessage({ content }) {
   return (
-    <div className="flex items-start gap-2 p-3 bg-status-warning/10 border border-status-warning/30 rounded">
-      <AlertTriangle size={14} className="text-status-warning shrink-0 mt-0.5" />
-      <div className="flex-1 text-xs text-status-warning whitespace-pre-wrap">{content}</div>
+    <div className="flex items-start gap-2 p-3 bg-status-warn/10 border border-status-warn/30 rounded">
+      <AlertTriangle size={14} className="text-status-warn shrink-0 mt-0.5" />
+      <div className="flex-1 text-xs text-status-warn whitespace-pre-wrap">{content}</div>
     </div>
   )
 }
@@ -490,7 +490,7 @@ function MessageBlock({ msg }) {
             {isUser ? '输入' : 'AI 助手'}
           </span>
           {msg.fallback && (
-            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs bg-status-warning/15 text-status-warning border border-status-warning/30">
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs bg-status-warn/15 text-status-warn border border-status-warn/30">
               已切换至 {msg.model || '备用模型'}
             </span>
           )}
@@ -555,6 +555,19 @@ function ChatInput({
   input, setInput, onSubmit, onKeyDown, sending, onStop,
   currentProject, selectedModel, onOpenTemplates, onAddAttachment,
 }) {
+  // P4 附件上传：hidden file input + ref 触发
+  const fileRef = useRef(null)
+  const handleAttachmentClick = () => {
+    fileRef.current?.click()
+  }
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (file && onAddAttachment) {
+      onAddAttachment(file)
+    }
+    // 清空 input value 允许重复选同一文件
+    e.target.value = ''
+  }
   return (
     <div className="border-t border-ide-border bg-ide-sidebar">
       {/* §9.4 SSE 状态栏：当前项目 + 当前模型 + 生成状态 */}
@@ -587,12 +600,20 @@ function ChatInput({
         </button>
         <button
           type="button"
-          onClick={onAddAttachment}
-          title="附件（待接入）"
+          onClick={handleAttachmentClick}
+          title="上传附件到知识库"
           className="px-2 py-2 text-text-dim hover:text-accent border border-ide-border rounded transition-colors"
         >
           <Paperclip size={14} />
         </button>
+        {/* P4：hidden file input，由附件按钮触发 */}
+        <input
+          ref={fileRef}
+          type="file"
+          className="hidden"
+          onChange={handleFileChange}
+          accept=".pdf,.docx,.txt,.md,.json,.csv,.xlsx,.html"
+        />
         <button
           type="button"
           title={`引用工程: ${currentProject?.name || '未选择'}`}

@@ -44,14 +44,14 @@
 
 ## 当前状态
 
-截至 **2026-07-14**，下表是本仓库的当前证据边界：
+截至 **2026-07-21**，下表是本仓库的当前证据边界：
 
 | 范围 | 已确认的事实 | 不能据此推断的事实 |
 | --- | --- | --- |
-| 源码与离线回归 | 默认离线测试执行结果为 **306 passed，41 deselected**。默认配置排除了 `integration`、`hardware`、`desktop` 与 `network` 标记。 | 不代表 TIA、PLCSIM、Factory I/O、真实 PLC 或网络协议已动态通过。 |
-| 桌面/后端 | FastAPI、React/Vite、Electron 配置、路由与工作流代码存在；根 `start.bat` 仅启动本地后端。 | 不代表 Electron 打包、所有第三方模型或所有 UI 流程已在每台机器验证。 |
+| 源码与离线回归 | `b27d08d` 上最近一次默认测试为 **714 passed，76 deselected**。`pytest.ini` 收集 `tests` 与 `orchestrator/tests`，并排除 `integration`、`hardware`、`desktop` 与 `network` 标记。 | 不代表 TIA、PLCSIM、Factory I/O、真实 PLC 或网络协议已动态通过。 |
+| 桌面/后端 | FastAPI、React/Vite、Electron 配置、路由与工作流代码存在；根 `start.bat` 仅启动本地后端。前端 Vitest **136 测试通过**（11 文件，关键路径覆盖率 72%）；P0-P5 批次已修复 6 个 HIGH（不伪造原则：删除 Inspector/Dashboard 硬编码假数据 + 脱敏 testResult.reply + fallback headers 补 localControlHeaders），并完成 F-019 机器人 4 模式 + L3 安全等级 + 9 字段高风险确认、F-037 useTabs 单一 state object 根治、5 工具页 ToolStatusBar 10 状态机、附件上传真实 API、CSP `script-src 'self'` 收紧 + `connect-src` 环境变量化、ErrorBoundary 脱敏、9+ 处 `catch {}` 加日志。 | 不代表 Electron 打包、所有第三方模型或所有 UI 流程已在每台机器验证。E2E、Lighthouse、响应式 4 尺寸截图回归、OrchestratorPanel/ChatArea/InspectorPanel 文件拆分（P6/P7）尚未完成。 |
 | TIA/PLCSIM 主链 | 受控 V21 目标、TIA Worker、CartGen、下载与 snap7 回读代码路径存在。 | 当前整改版本尚未完成 TIA V21 → PLCSIM Advanced V8 → snap7 → Factory I/O 的完整动态验收。有效的本地 PLCSIM Advanced 许可证、项目加载、下载成功与 CPU 可读均是独立前提。 |
-| 真实现场 | 代码对控制目标、写入、确认和审计设置了防护。 | 不代表可连接真实 PLC、F-CPU、安全回路或生产环境。当前 README 不授予此类操作权限。 |
+| 真实现场 | 代码对控制目标、写入参数、认证主体、一次性确认和跨进程审计链设置了防护。 | 不代表可连接真实 PLC、F-CPU、安全回路或生产环境。当前 README 不授予此类操作权限。 |
 
 历史状态文件、旧计划和旧架构图仅可作为线索。发生冲突时，请优先相信当前代码、`mcp-servers/tia-mcp/config.yaml`、测试配置和实际运行证据。
 
@@ -64,7 +64,7 @@
 | `mcp-servers/tia-mcp/` | FastMCP、TIA Openness 调用、C# `TiaWorker`、.NET 8 `CartGen`、LadderSpec 校验、SCL/LAD 生成和 PLCSIM 辅助脚本。 | 面向受控 TIA V21 / 隔离 PLCSIM 目标；运行需要本机安装、权限与许可证。 |
 | `mcp-servers/plc-mcp-bridge/` | S7 运行态、TIA 工程态、PLCSIM、Factory I/O、标签、块、UDT 与诊断工具的桥接层。 | 具有读写与工程变更能力的工具必须经安全门、目标约束和人工流程。 |
 | `mcp-servers/{opcua,modbus,mitsubishi,robot}-mcp/` | OPC UA、Modbus TCP、三菱 MC 协议和机器人场景的 MCP 实验实现。 | 没有在真实硬件上完成统一验收；默认不应连接现场设备。 |
-| `mcp_common/` 与 `safety/` | 统一配置、唯一控制目标、确认令牌、互锁、静态预检与链式审计日志。 | 是软件防护层，不构成功能安全认证。 |
+| `mcp_common/` 与 `safety/` | 统一配置、唯一控制目标、确认令牌、互锁、静态预检，以及带跨进程互斥的链式审计日志。 | 是软件防护层，不构成功能安全认证。 |
 | `plc-code-templates/` | SCL、LAD、PLCopen/XML 和示例程序资产。 | 生成或模板存在不代表已经导入、编译或下载成功。 |
 | `edge-gateway/` 与 `docker-compose.yml` | 可选的 Modbus、InfluxDB、Grafana、OpenPLC 与 AI 网关集成。 | 依赖独立环境变量、容器与网络配置；不属于默认离线启动路径。 |
 
@@ -126,9 +126,9 @@ flowchart LR
 
 1. **急停和功能安全属于硬件/安全 PLC 领域。** AI 不应控制急停、F-CPU 参数或安全回路。
 2. **唯一隔离目标。** `mcp_common/control_target.py` 只接受配置中的受控目标；S7 IP 与 OPC UA 端点漂移会被拒绝。
-3. **写入默认拒绝。** 原始 S7 地址必须在 `safety/interlock-rules.yml` 中映射到安全语义与类型；未映射地址、类型不符、越界、互锁失败或静态预检失败都会拒绝。
-4. **一次性人工确认。** 需要确认的操作必须使用签名、短时、绑定操作人/确认人/目标/值/设备身份的令牌；令牌消费后不可重用。
-5. **审计先于副作用。** 控制意图会先写入审计链。生产环境缺少持久 `AUDIT_HMAC_KEY` 或可信操作者身份时应失败关闭；日志会脱敏常见密钥字段。
+3. **写入默认拒绝。** 原始 S7 地址必须在 `safety/interlock-rules.yml` 中映射到安全语义与类型；S7、OPC UA、Modbus 与三菱的最终写入工具还必须拥有已登记的目标/值参数契约。未登记工具、缺少目标、类型不符、越界、互锁失败或静态预检失败都会拒绝。
+4. **一次性人工确认。** 需要确认的写入和熔断复位必须使用签名、短时、绑定操作人/确认人/目标/值/设备身份的令牌；令牌消费后不可重用。当前 Modbus、三菱和 OPC UA 写入端点的审计主体从已验证凭据派生，不信任调用方自报身份。
+5. **审计先于副作用。** 控制意图会先写入审计链。生产环境缺少持久 `AUDIT_HMAC_KEY` 或可信操作者身份时应失败关闭；日志会脱敏常见密钥字段，审计追加通过跨进程锁串行化以避免并发写入分叉。
 6. **软件护栏不是认证。** 影子预检不模拟真实 PLC 扫描周期、现场接线、机械惯性或安全等级，不能替代隔离仿真、风险评估和人工签核。
 
 ### 本地控制 API
@@ -211,7 +211,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 D:\Python3\python.exe -m pytest -p no:cacheprovider -q
 ```
 
-当前默认配置只运行离线范围；它主动排除可能访问硬件、Windows 桌面或网络的标记。若要运行被排除的测试，必须先审阅测试代码、目标配置和副作用，且只能针对隔离环境。
+默认配置收集 `tests` 与 `orchestrator/tests`，并主动排除可能访问硬件、Windows 桌面或网络的标记。若要运行被排除的测试，必须先审阅测试代码、目标配置和副作用，且只能针对隔离环境。
 
 ## 受控仿真验收
 
@@ -259,6 +259,10 @@ FastAPI 在 `/api` 下注册以下能力组：
 6. `.plans/ai-plc-integration/docs/invariants.md`：不可破坏的工程约束。
 
 `CURRENT_STATUS.md`、`PROJECT_HANDOVER.md`、历史架构图和旧计划可能落后于当前代码；阅读时请结合本 README 的状态边界。
+
+### 文档维护
+
+凡是改变用户可见能力、架构入口、控制/安全/认证边界、依赖、默认测试范围或验收结论的重大变更，必须在同一提交中同步更新本 README 与 [README_EN.md](README_EN.md)。纯内部重构若无需更新，应在审查或提交说明中明确原因。
 
 ### 两个仓库
 

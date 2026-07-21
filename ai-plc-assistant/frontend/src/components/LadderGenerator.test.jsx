@@ -68,7 +68,8 @@ describe('LadderGenerator pipeline entry', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /生成并仿真/ }))
 
-    expect(await screen.findByText(/编译失败/)).toBeTruthy()
+    // P3 后 ToolStatusBar statusMessage 也包含 error 文本，可能匹配多个元素
+    expect((await screen.findAllByText(/编译失败/)).length).toBeGreaterThan(0)
     expect(screen.getByText('编译 TIA 项目')).toBeTruthy()
   })
 })

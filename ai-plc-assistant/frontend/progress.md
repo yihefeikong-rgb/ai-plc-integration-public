@@ -5,6 +5,83 @@
 
 ---
 
+## 2026-07-20：前端全量复审（code-reviewer agent，Batch 8/9 推迟的统一复审）
+
+### 复审范围
+- 基线：master @ `9c71967`（收尾批次完成提交）
+- 范围：`ai-plc-assistant/frontend/` 全量
+- 复审人：code-reviewer agent（独立于实现者）
+- 完整报告：`ai-plc-assistant/frontend/audit-2026-07-20.md`
+
+### 复审结论
+- **评分**：6.8 / 10 — **CONDITIONAL PASS**（需修复后再合并生产）
+- **原 11 项 findings 全部仍存在**（10 项 + Batch 8/9 复审本次完成）
+- **新发现 47 项**（F-042 ~ F-090）：6 HIGH + 16 MEDIUM + 25 LOW
+- **测试覆盖**：4 文件 / 52 用例 / ~12% 文件覆盖 / 0% E2E，关键路径（SSE/AbortController/Modal 焦点/状态机）完全无测试
+- **构建体积**：136.86 KB gzip 在 300 KB 预算内（45.6%），无需立即优化
+
+### 6 个 HIGH 问题（阻断生产部署）
+
+| 编号 | 问题 | 位置 |
+|------|------|------|
+| F-050 | OrchestratorInspector 硬编码"状态：运行中"伪造后端状态 | `InspectorPanel.jsx:383-411` |
+| F-051 | IoTableInspector 地址范围与校验全部硬编码假数据 | `InspectorPanel.jsx:290-308` |
+| F-067 | Dashboard 全局状态 4 项硬编码与 GlobalStatusBar 矛盾 | `Dashboard.jsx:128-141` |
+| F-068 | Dashboard 安全模式硬编码"只读"与 localStorage 脱节 | `Dashboard.jsx:141` |
+| F-042 | useConversation 非流式 fallback fetch 缺失 localControlHeaders | `useConversation.js:211-216` |
+| F-056 | SettingsPanel testResult.reply 渲染模型回复到 UI（F-024 残留） | `SettingsPanel.jsx:69` |
+
+**核心矛盾**：D-3/D-4 收尾批次宣称"接入真实 API"，但 InspectorPanel 中 5 处仍是硬编码假数据，Dashboard 4 项状态也与 GlobalStatusBar 真实 API 矛盾。**违反项目"不伪造"安全原则**，工业场景下"假校验通过/假状态运行中"可能误导操作员。
+
+### 16 个 MEDIUM 问题
+F-043（4 工具页 streamChat 无 signal）、F-047（OrchestratorPanel 870 行）、F-052（DiagnoseInspector 硬编码排查步骤）、F-053（VariablesInspector 硬编码命名规范）、F-055（ErrorBoundary console.error 不脱敏）、F-057（SettingsPanel 静默吞 save 错误）、F-058（RunDialog/TutorialModal/About 漏 useFocusTrap）、F-064（PromptTemplateModal 变量替换不防转义）、F-066（PrimarySidebar 删除对话未用 ConfirmDialog）、F-069（无 Schema 校验）、F-070（9 处 catch {} 静默）、F-075（window.open 无 noopener）、F-078（ChatArea 强制滚动打断回看）、F-080（GlobalStatusBar 服务器名字正则推断）、F-086（CSP unsafe-inline 未收紧）、F-087（handleSend 依赖 messages 重渲染）、F-062（与 F-037 合并）、F-090（与 F-043 合并）
+
+### 25 个 LOW 问题
+F-044/F-045/F-046/F-048/F-049/F-054/F-059/F-060/F-061/F-063/F-065/F-071/F-072/F-073/F-074/F-076/F-077/F-079/F-081/F-082/F-083/F-084/F-085/F-088/F-089
+
+详见 `findings.md` 末尾"2026-07-20：全量复审新发现"分节与 `audit-2026-07-20.md` 完整报告。
+
+### 评分分解
+
+| 维度 | 得分 | 满分 |
+|------|------|------|
+| 安全性 | 6 | 10 |
+| 代码质量 | 6 | 10 |
+| 性能 | 7 | 10 |
+| 可访问性 | 6 | 10 |
+| 一致性 | 5 | 10 |
+| 测试覆盖 | 3 | 10 |
+| 主计划合规性 | 7 | 10 |
+| 构建体积 | 9 | 10 |
+| **加权总分** | **6.8** | **10** |
+
+### 未修复（留后续）
+
+#### P0 — 修复 6 个 HIGH 问题（预计 1-2 天）
+- F-050/F-051/F-067/F-068：删除 Inspector/Dashboard 中所有硬编码"状态/校验/地址范围/安全模式"假数据，改为接真实 API 或明确标注"待接入"
+- F-042：useConversation fallback fetch 加 localControlHeaders
+- F-056：SettingsPanel testResult.reply 仅 dev 显示或脱敏
+
+#### P1 — 补关键路径单元测试（预计 2-3 天）
+- `useConversation.test.js` / `useTabs.test.js` / `useFocusTrap.test.js` / `AppShell.test.js` / `GlobalStatusBar.test.js`
+- 目标：关键 hooks 与 layout 组件覆盖率 > 60%
+
+#### P2 — F-019 机器人 4 模式 + F-037 useTabs 根治（预计 1-2 天）
+#### P3 — ToolStatusBar 接入 5 个工具页面 + 状态机改造（预计 2-3 天）
+#### P4 — 附件上传按钮实现真实文件选择（预计 0.5 天）
+#### P5 — CSP 收紧 + ErrorBoundary 脱敏 + catch {} 加日志（预计 0.5 天）
+#### P6 — 响应式 4 尺寸截图回归 + E2E + Lighthouse（预计 2-3 天）
+#### P7 — 文件拆分（OrchestratorPanel/ChatArea/InspectorPanel）（预计 1-2 天）
+
+**总计**：8-13 天可达 PASS 标准。
+
+### 下一步
+- 等待用户指示是否进入 P0 修复
+- 本轮仅记录新发现，**未修改任何代码**
+- 修改文件：`audit-2026-07-20.md`（新增）、`findings.md`（追加 F-042~F-090）、`progress.md`（追加本条目）
+
+---
+
 ## 2026-07-20：收尾批次完成（D-1~D-4 + A-1~A-3 + B-1~B-4）
 
 ### 已完成

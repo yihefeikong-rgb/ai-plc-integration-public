@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   createConversation, addMessage, getConversation, listConversations, deleteConversation,
-  generateLadder, streamChat, API_BASE,
+  generateLadder, streamChat, API_BASE, localControlHeaders,
 } from '../api'
 
 const isGenerationRequest = (text) => {
@@ -27,7 +27,10 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
     try {
       const d = await listConversations(20)
       setConversations(d.conversations || [])
-    } catch {}
+    } catch (e) {
+      // F-070 修复：listConversations 失败时记录警告，不静默吞错
+      console.warn('[useConversation] listConversations 失败:', e?.message)
+    }
   }, [])
 
   useEffect(() => { refreshConversations() }, [refreshConversations])
@@ -210,7 +213,8 @@ export default function useConversation({ addLog, openTab, selectedModel, curren
         try {
           const res = await fetch(`${API_BASE}/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            // F-042 修复：与 streamChat 主路径一致，注入 localControlHeaders
+            headers: { ...localControlHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ model_id: selectedModel, messages: chatMessages, project_context: projCtx }),
             signal: controller.signal,
           })

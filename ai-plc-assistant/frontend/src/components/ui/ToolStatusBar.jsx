@@ -28,7 +28,7 @@ const TONE_CLASS = {
   neutral: 'text-text-dim',
   info: 'text-accent',
   ok: 'text-status-ok',
-  warning: 'text-status-warning',
+  warning: 'text-status-warn',
   error: 'text-status-error',
   offline: 'text-status-offline',
 }

@@ -143,18 +143,26 @@ export default function PrimarySidebar({
   const [deleteConfirm, setDeleteConfirm] = useState(null)
 
   useEffect(() => {
-    listProjects(20).then((d) => setProjects(d.projects || [])).catch(() => {})
+    listProjects(20)
+      .then((d) => setProjects(d.projects || []))
+      .catch((e) => console.warn('[PrimarySidebar] listProjects 失败:', e?.message))
   }, [currentProject])
 
   useEffect(() => {
-    listDocuments().then((d) => setDocs(d.documents || [])).catch(() => {})
+    listDocuments()
+      .then((d) => setDocs(d.documents || []))
+      .catch((e) => console.warn('[PrimarySidebar] listDocuments 初始加载失败:', e?.message))
   }, [])
 
   const refreshDocs = async () => {
     try {
       const d = await listDocuments()
       setDocs(d.documents || [])
-    } catch {}
+    } catch (e) {
+      // F-070 修复：listDocuments 失败时记录警告，不静默吞错
+      console.warn('[PrimarySidebar] listDocuments 失败:', e?.message)
+      setDocs([])
+    }
   }
 
   const handleUpload = async (e) => {
