@@ -557,16 +557,34 @@ function ChatInput({
 }) {
   // P4 附件上传：hidden file input + ref 触发
   const fileRef = useRef(null)
+  // P4-N2：附件上传中状态（防重复点击）
+  const [uploading, setUploading] = useState(false)
+  // P4-N1：文件大小上限 10MB（防止超大文件压垮后端）— 提取为常量便于后续调整
+  const MAX_FILE_SIZE = 10 * 1024 * 1024
   const handleAttachmentClick = () => {
+    if (uploading) return
     fileRef.current?.click()
   }
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files?.[0]
-    if (file && onAddAttachment) {
-      onAddAttachment(file)
-    }
-    // 清空 input value 允许重复选同一文件
+    // 清空 input value 允许重复选同一文件（无论校验是否通过都清空）
     e.target.value = ''
+    if (!file) return
+    // P4-N1：文件大小预检 — 用提示消息而非 alert 阻塞
+    if (file.size > MAX_FILE_SIZE) {
+      const msg = `[附件] 大小 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 10MB 上限`
+      onAddAttachment && console.warn(msg)
+      // ChatInput 没有 addLog 直接访问；用 console.warn + 视觉禁用按钮一段时间
+      return
+    }
+    if (!onAddAttachment) return
+    // P4-N2：防重复点击
+    setUploading(true)
+    try {
+      await onAddAttachment(file)
+    } finally {
+      setUploading(false)
+    }
   }
   return (
     <div className="border-t border-ide-border bg-ide-sidebar">
@@ -601,10 +619,11 @@ function ChatInput({
         <button
           type="button"
           onClick={handleAttachmentClick}
-          title="上传附件到知识库"
-          className="px-2 py-2 text-text-dim hover:text-accent border border-ide-border rounded transition-colors"
+          disabled={uploading}
+          title={uploading ? '上传中...' : '上传附件到知识库'}
+          className="px-2 py-2 text-text-dim hover:text-accent border border-ide-border rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Paperclip size={14} />
+          {uploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
         </button>
         {/* P4：hidden file input，由附件按钮触发 */}
         <input

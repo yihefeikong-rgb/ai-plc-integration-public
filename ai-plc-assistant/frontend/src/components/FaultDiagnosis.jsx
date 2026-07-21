@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Play, Loader2, AlertTriangle, Copy, Check, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { streamChat } from '../api'
@@ -47,6 +47,9 @@ export default function FaultDiagnosis({ addLog, selectedModel = 'deepseek' }) {
   const [copied, setCopied] = useState(false)
   const { history, save } = useWorkbenchHistory('fault-diagnosis')
   const loading = status === 'running'
+  // F-043 修复：组件卸载时 abort 进行中的 streamChat
+  const abortRef = useRef(null)
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const handleDiagnose = async () => {
     if (!symptoms.trim() || loading) return
@@ -55,6 +58,10 @@ export default function FaultDiagnosis({ addLog, selectedModel = 'deepseek' }) {
     setResult('')
     addLog?.('info', `[故障诊断] ${plcType}: ${symptoms.slice(0, 50)}...`)
     let fullResult = ''
+    // F-043：传 signal 支持卸载时取消；重入时先 abort 前一个请求
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
 
     let input = symptoms
     if (errorCode.trim()) input += `\n\n错误代码: ${errorCode}`
@@ -64,6 +71,7 @@ export default function FaultDiagnosis({ addLog, selectedModel = 'deepseek' }) {
         model_id: selectedModel,
         messages: [{ role: 'user', content: DIAG_PROMPT(plcType) + input }],
         temperature: 0.3,
+        signal: controller.signal,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
         onDone: (data) => {
           save({ label: symptoms.slice(0, 40), symptoms, plcType, errorCode, result: fullResult })

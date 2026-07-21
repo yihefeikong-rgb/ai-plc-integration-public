@@ -1,0 +1,22 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+release/
+
+# 临时
+.vite/
+
+# Playwright
+playwright-report/
+playwright/.cache/
+test-results/
+e2e/screenshots/
+
+# Lighthouse 中间产物（脚本写在 scripts/ 下）
+scripts/lighthouse-tmp.*
+
+# 本地环境
+.env.local
+.env.*.local

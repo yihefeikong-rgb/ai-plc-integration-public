@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Play, Loader2, Code2, Copy, Check, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { streamChat } from '../api'
@@ -45,6 +45,9 @@ export default function CodeExplainer({ addLog, selectedModel = 'deepseek' }) {
   const [copied, setCopied] = useState(false)
   const { history, save } = useWorkbenchHistory('code-explainer')
   const loading = status === 'running'
+  // F-043 修复：组件卸载时 abort 进行中的 streamChat
+  const abortRef = useRef(null)
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const handleExplain = async () => {
     if (!code.trim() || loading) return
@@ -53,6 +56,10 @@ export default function CodeExplainer({ addLog, selectedModel = 'deepseek' }) {
     setResult('')
     addLog?.('info', `[代码解析] 语言: ${language}, ${code.length} 字符`)
     let fullResult = ''
+    // F-043：传 signal 支持卸载时取消；重入时先 abort 前一个请求
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
       const langLabel = LANGUAGES.find(l => l.id === language)?.label || language
@@ -62,6 +69,7 @@ export default function CodeExplainer({ addLog, selectedModel = 'deepseek' }) {
         model_id: selectedModel,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
+        signal: controller.signal,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
         onDone: (data) => {
           save({ label: code.slice(0, 40), code, language, result: fullResult })

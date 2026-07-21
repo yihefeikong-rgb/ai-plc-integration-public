@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Play, Loader2, Variable, Copy, Check, Clock } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { streamChat } from '../api'
@@ -40,6 +40,9 @@ export default function VariableAnalyzer({ addLog, selectedModel = 'deepseek' })
   const [copied, setCopied] = useState(false)
   const { history, save } = useWorkbenchHistory('variable-analyzer')
   const loading = status === 'running'
+  // F-043 修复：组件卸载时 abort 进行中的 streamChat
+  const abortRef = useRef(null)
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const handleAnalyze = async () => {
     if (!code.trim() || loading) return
@@ -48,12 +51,17 @@ export default function VariableAnalyzer({ addLog, selectedModel = 'deepseek' })
     setResult('')
     addLog?.('info', `[变量分析] ${code.length} 字符`)
     let fullResult = ''
+    // F-043：传 signal 支持卸载时取消；重入时先 abort 前一个请求
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
       await streamChat({
         model_id: selectedModel,
         messages: [{ role: 'user', content: VARIABLE_PROMPT + code }],
         temperature: 0.2,
+        signal: controller.signal,
         onToken: (token) => { fullResult += token; setResult(prev => prev + token) },
         onDone: (data) => {
           save({ label: code.slice(0, 40), code, result: fullResult })

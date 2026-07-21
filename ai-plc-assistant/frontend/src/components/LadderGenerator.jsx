@@ -38,6 +38,9 @@ export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) 
   const [displayMode, setDisplayMode] = useState('graph')
   const { history, save } = useWorkbenchHistory('ladder-generator')
   const resultRef = useRef(null)
+  // F-043 修复：组件卸载时 abort 进行中的 generateLadder
+  const abortRef = useRef(null)
+  useEffect(() => () => abortRef.current?.abort(), [])
   const loading = status === 'running'
   const pipelineLoading = pipelineStatus === 'running'
 
@@ -49,21 +52,39 @@ export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) 
     setResult(null)
     setPipelineResult(null)
     addLog?.('info', `[梯形图] 生成: ${description.slice(0, 50)}...`)
+    // F-043：传 signal 支持卸载时取消；重入时先 abort 前一个请求
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
-      const data = await generateLadder(description, {}, '', selectedModel)
+      const data = await generateLadder(description, {}, '', selectedModel, controller.signal)
       setResult(data)
       save({ label: description.slice(0, 40), description, result: data })
-      addLog?.('info', `[梯形图] ${data.title} (${data.mode})`)
-      // 判定结果状态：有 networks 为 success，无 networks 为 no_result
-      const hasNetworks = data.structured?.networks?.length > 0
-      setStatus(hasNetworks ? 'success' : 'no_result')
-      setStatusMessage(hasNetworks ? `生成完成：${data.title}` : '生成完成但无 Network')
+      // P3-LOW-03：识别主模型不可用 fallback（后端在 model 不可用时返回 fallback 标记）
+      if (data?.fallback) {
+        addLog?.('warn', `[梯形图] 主模型不可用，已切换到 ${data.model}`)
+        setStatus('model_unavailable')
+        setStatusMessage(`主模型不可用，已切换到 ${data.model}`)
+      } else {
+        addLog?.('info', `[梯形图] ${data.title} (${data.mode})`)
+        const hasNetworks = data.structured?.networks?.length > 0
+        setStatus(hasNetworks ? 'success' : 'no_result')
+        setStatusMessage(hasNetworks ? `生成完成：${data.title}` : '生成完成但无 Network')
+      }
     } catch (err) {
       addLog?.('error', `[梯形图] ${err.message}`)
       const isOffline = /Failed to fetch|NetworkError|network/i.test(err.message)
-      setStatus(isOffline ? 'offline' : 'failed')
-      setStatusMessage(err.message)
+      // P3-LOW-03：识别主模型不可用（后端明确返回 model unavailable / no model / model not found）
+      // 正则收敛避免匹配 "model_id" 等普通词
+      const isModelUnavailable = !isOffline && /model.*unavailable|model.*not.*found|no.*model.*available/i.test(err.message)
+      if (isModelUnavailable) {
+        setStatus('model_unavailable')
+        setStatusMessage(`主模型不可用: ${err.message}`)
+      } else {
+        setStatus(isOffline ? 'offline' : 'failed')
+        setStatusMessage(err.message)
+      }
     }
   }
 

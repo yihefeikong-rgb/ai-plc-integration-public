@@ -21,7 +21,10 @@
     "dist": "npm run dist:electron",
     "test": "vitest run",
     "test:watch": "vitest",
-    "capture:baseline": "node scripts/capture-baseline.mjs"
+    "test:e2e": "playwright test",
+    "capture:baseline": "node scripts/capture-baseline.mjs",
+    "screenshot:responsive": "node scripts/responsive-screenshot.mjs",
+    "lighthouse": "node scripts/run-lighthouse.mjs"
   },
   "build": {
     "appId": "com.aiplc.assistant",
@@ -60,9 +63,11 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
+    "cross-env": "^10.1.0",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
     "jsdom": "^24.1.1",
+    "lighthouse": "^13.4.1",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
     "vite": "^5.3.1",

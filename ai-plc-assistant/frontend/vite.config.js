@@ -34,6 +34,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // P6 修复：Vitest 默认会匹配 *.spec.js，但 e2e/ 下的 spec 是 Playwright E2E 测试
+    // 用 @playwright/test 的 test/expect，不能在 jsdom 环境跑。
+    // 显式 include 只跑 src/ 下的 *.test.{js,jsx}
+    include: ['src/**/*.{test,spec}.{js,jsx}'],
+    exclude: ['e2e/**', 'node_modules/**', 'dist/**', 'playwright-report/**'],
   },
   server: {
     port: 5173,
