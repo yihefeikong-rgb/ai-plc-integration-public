@@ -1,117 +1,80 @@
 # AGENTS.md — AI 接入 PLC
 
-本文件是当前工作区的首要指令文件。`OpenCode.md` 不存在，不能作为路径、操作规则或安全边界的来源。
+本文件是当前工作区的首要协作与安全规则。它只定义长期有效的工作方式；历史阶段、旧测试数量和旧分支状态应从 Git、代码、配置和测试结果重新确认，不能把它们当成当前授权。
 
-## 第一阶段协作层边界
+## 语言与优先级
 
-当前只落地 **CCB + Codex + Claude Code 协作层 Phase 1**。
+- 面向用户的回答、计划、风险说明和交接一律使用中文。
+- 当前用户的明确指令决定任务范围，但不能覆盖本文的 PLC、安全、凭据和真实控制红线；其余优先级为 `AGENTS.md` > 代码/配置/测试 > `claude.md` > `.plans/` 中的历史记录。
+- `OpenCode.md` 不存在，不得作为路径、命令或安全边界的来源。
+- 遇到指令、文档和代码相互矛盾时，停止猜测，说明冲突并以可验证的源码事实为准。
 
-- 允许改动：`AGENTS.md`、`claude.md`、`.ccb/`、`.plans/ai-plc-integration/`、`.plans/ai-plc-integration/agents/`、`.plans/ai-plc-integration/bridge/`
-- 禁止改动：`backend`、`frontend`、`docs`、`mcp-servers`、`edge-gateway`、`orchestrator`、`scripts`、`tests`
-- 禁止触碰：业务代码、PLC 控制逻辑、S7 通信、TIA Openness、MCP 服务、前后端接口、前端页面
-- 禁止行为：重构现有项目结构、移动/删除/重命名现有核心文件、启用 hooks、orchestrator、无人值守、自动轮询
+## 当前工作基线
 
-本阶段只搭建规则文件、状态模板、Agent 协议和人工闭环文件。
+- 当前分支和工作树状态以 `git status -sb`、`git log`、`git remote -v` 为准；不要把旧 handoff 中的“未提交”或旧分支名当作事实。
+- `.plans/ai-plc-integration/` 是项目记忆和计划入口，但其中较早的路线图、进度和审计快照可能滞后。涉及当前行为时，必须与代码、配置和测试交叉核对。
+- `mcp-servers/tia-mcp/config.yaml` 的 `target` 节是 V21、工程路径、PLCSIM 实例和 PLC IP 的唯一控制目标来源。目标漂移必须拒绝，不得从旧文档、环境猜测或用户输入旁路覆盖。
+- 默认离线测试只覆盖软件行为。它不证明 TIA 项目已加载、下载已完成、CPU 处于 RUN、PLC 可读，或 Factory I/O 已联动。
 
-## 第二阶段 A：离线红测临时授权
+## 变更原则
 
-用户已于 2026-07-15 明确确认开始审查计划的执行。本节是对“第一阶段协作层边界”的**窄范围临时例外**，只用于由其他模型建立第一批失败契约测试；除本节列出的文件外，第一阶段限制继续有效。
+开始任何改动前，先明确：目标、已知事实、必要假设、影响范围和可验证的成功标准。多步骤任务使用简短计划，例如：
 
-- 允许修改：
-  - `orchestrator/tests/test_nl_to_plcsim_live_contract.py`
-  - `orchestrator/tests/test_mcp_credentials_contract.py`（允许新建）
-  - `.plans/ai-plc-integration/refactor_phase2a_pipeline_auth_red_tests.md`
-  - `.plans/ai-plc-integration/refactor_phase2a_red_test_results.md`（允许新建）
-- 禁止修改：所有生产代码，包括 `orchestrator/*.py`、`orchestrator/workflows/*.py`、`backend`、`frontend`、`mcp-servers`、`safety`、`scripts` 和根 `tests/`。
-- 只允许运行计划文件中列出的纯离线测试；禁止启动 TIA、PLCSIM、Factory I/O、MCP 子进程、后端服务或桌面程序。
-- 本阶段目标是稳定复现失败，不得为了让测试通过而修改生产实现。
-- 完成红测后必须停止并交回 Codex 审查；不得自动 `git add`、`commit`、`push`，不得扩大授权目录。
+1. 定位相关代码或配置 → 验证：复现或静态证据。
+2. 做最小改动 → 验证：对应离线测试。
+3. 复核范围与风险 → 验证：`git diff --check` 和工作树状态。
 
-## 第二阶段 B：首批契约绿色实现授权
+- 只改实现用户目标所必需的文件；不要顺手重构、格式化或清理无关遗留代码。
+- 修改产生的无用导入、变量或测试夹具应一并删除；既有无关遗留物只报告，不擅自删除。
+- 对 Bug 优先写或运行能复现它的测试；对文档、配置和纯流程变更，使用相应的静态检查或命令验证。
+- 历史 Phase 1 / Phase 2 的窄范围授权已经完成，不再用它们阻止经用户明确授权的新工作；新任务仍必须单独界定范围、风险和验证方式。
 
-用户已于 2026-07-15 进一步明确授权 Codex 使用子代理实施并由 Codex 审核。第二阶段 B 只允许把第二阶段 A 的两组契约从 RED 推进到 GREEN：
+## PLC、TIA 与安全边界
 
-- 允许修改：
-  - `orchestrator/core.py`
-  - `orchestrator/workflows/nl_to_plcsim_pipeline.py`
-  - `orchestrator/registry.py`
-  - `orchestrator/mcp_client.py`
-  - `orchestrator/mcp_pool.py`
-  - `orchestrator/server_configs.py`
-  - `orchestrator/tests/test_nl_to_plcsim_live_contract.py`
-  - `orchestrator/tests/test_api.py`
-  - `orchestrator/tests/test_core.py`
-  - `orchestrator/tests/test_mcp_credentials_contract.py`
-  - `orchestrator/tests/test_mcp_pool.py`
-  - `mcp-servers/robot-mcp/server.py`（仅允许修正认证令牌的环境默认值）
-  - `mcp-servers/robot-mcp/test_simulated_backend.py`（仅允许增加认证默认值测试）
-  - `.plans/ai-plc-integration/refactor_phase2a_red_test_results.md`
-- 目标 1：把 `authenticated_operator` 从用户业务输入中分离为受信执行元数据，工作流白名单仍只校验业务字段。
-- 目标 2：由 MCP adapter 在传输边界注入服务器凭据，拒绝调用者自带凭据，缺失凭据时在调用 session 前失败关闭，日志不得暴露令牌；连接池必须串行化断开与同名重连，避免旧、新 MCP 实例并存。
-- 禁止修改：上述清单之外的生产代码、测试和配置；禁止顺手重构、统一所有工具返回类型或扩大到确认令牌、Robot、设备身份等后续阶段。
-- 只允许运行纯离线单元/契约测试；禁止启动 TIA、PLCSIM、Factory I/O、真实 MCP 子进程、后端服务或桌面程序。
-- 子代理不得执行 `git add`、`commit`、`push`；每个任务必须先看到对应测试按预期失败，再做最小实现并交回 Codex 双重审查。
+以下规则优先于功能交付速度：
 
-## 快速命令
+- 禁止操作急停回路、F-CPU 或安全 PLC 逻辑。
+- 不得绕过认证、确认令牌、互锁、影子检查或 HMAC 审计链。令牌、密码和 API Key 不得写入日志、提交或回复。
+- 启动 TIA、PLCSIM、Factory I/O、真实 MCP 子进程、后端服务或任何可能读写控制目标的程序，必须有用户对该次动态操作的明确授权。
+- 动态操作前先读取唯一控制目标并执行必要的只读前置检查；`preflight.py` 通过只代表环境门槛，不代表下载或 PLC 可读。
+- 报告动态验证时必须按证据层级说明：进程存在 → 项目已加载 → 下载完成 → CPU RUN → PLC 可读。不得合并成“已测试通过”。
+- 真实设备、生产环境或目标身份不清楚时，停止并向用户确认；不要用 mock 成功替代现场成功。
 
-| 命令 | 操作 |
-|------|------|
-| `D:/Python3/python.exe scripts/preflight.py --json` | 只读环境门槛检查；不等同于下载或 PLC 可读 |
-| `D:/Python3/python.exe -m pytest` | 默认只收集/运行离线测试，已排除硬件、桌面和网络标记 |
-| `start.bat` | 启动本地后端；其内嵌 orchestrator 是 MCP 子进程的唯一生命周期所有者 |
-| `D:/Python3/python.exe scripts/p3_flow.py` | 可能恢复、下载或启动仿真；仅在隔离目标、人工确认后使用 |
+## 测试与命令
 
-已移除不存在的 `start_all.py`、`run_gateway.py`、`auto_full_pipeline.py` 和 `scripts/launch_factory_io.py` 命令。不得把本文档中的命令视为连接真实 PLC 的授权。
+| 命令 | 用途与边界 |
+|---|---|
+| `D:/Python3/python.exe -m pytest` | 默认离线测试；`pytest.ini` 排除 integration、hardware、desktop、network 标记。 |
+| `D:/Python3/python.exe scripts/preflight.py --json` | 只读环境门槛检查，不触发下载或 PLC 读写。 |
+| `start.bat` | 启动本地后端；仅在用户明确要求启动本地服务时使用。 |
+| `D:/Python3/python.exe scripts/p3_flow.py` | 可能恢复、下载或启动仿真；必须先获得明确动态操作授权。 |
 
-## 关键架构事实
+- 根目录测试与 `ai-plc-assistant/backend` 测试分开运行，避免同名 `tests` 包造成导入路径冲突。
+- 不启动未被当前任务需要的服务、子进程或桌面程序。
 
-- **唯一控制目标**：`mcp-servers/tia-mcp/config.yaml` 的 `target` 节是 V21、`demo_V21.ap21`、`factoryio` 和 `192.168.0.110` 的唯一来源；`validate_control_target()` 发现漂移即阻断。
-- **项目根路径**：`config_loader.py:23` — `_PROJECT_ROOT = Path(__file__).parent.parent.parent`
-- **TIA 通信链**：`server.py(FastMCP) → JSON 临时文件 → TiaWorker.exe(C# .NET Framework 4.8) → TIA Openness DLL`
-- **下载策略优先级（V21）**：`TiaWorker(C#, headless) → Python API(GUI) → UI Automation → 手动`
-- **LAD 生成链**：`自然语言 → DeepSeek → LadderSpec JSON → CartGen(.NET 8) → SimaticML XML → 导入 TIA`
-- **TiaWorker.csproj** 目标 .NET Framework 4.8（编译到 `bin/`）；**CartGen.csproj** 目标 net8.0
-- **TIA Portal 版本**: V21（2023），模块化 DLL 加载路径已适配
-- **PLCSIM Advanced 版本**: V8.0（向后兼容 V5.0+ API）
-- `.env` 可覆盖配置变量，但空值不会覆盖安全默认值；任何 V18、旧项目、实例名或 IP 漂移都会被目标契约拒绝。
+## 协作与人工闭环
 
-## 已知 Bug
+- Codex、Claude Code 和 bridge 只是可选协作机制，不是业务执行器。
+- 需要人工审查的 bridge 任务保持在 `NEED_CODEX_REVIEW`，由人工记录 PASS、CONDITIONAL PASS 或 BLOCK；不得自动批准、自动续跑或隐式扩大权限。
+- 不启用 hooks、自动轮询、无人值守循环或后台控制链。除非用户明确请求，不创建子代理来替代人工审查。
+- 不强制指定某个模型名称或“固定角色链”；选择协作方式应服从当前任务、可用能力和独立审查需要。
 
-- **ConveyorControl FB501** 已在 TIA 项目中但**未在 OB1 中调用**，下载后传送带不会响应
-- **TIA 每次下载需重新扫描设备**（西门子已知行为，非缺陷）
-- **TCP/IP 模式**: 需先安装 PLCSIM 虚拟网卡（VirtualSwitchMisconfigured）
-- **ConveyorControl FB501**：历史记录称其未在 OB1 调用；当前仓库未完成真实 TIA 验证，不能据此判断现场状态。
-- **Factory I/O / PLCSIM**：TCP/IP、Softbus、自动连接和场景启动均未在本次修复中动态验证；不得作为部署结论。
-- **机器人、OPC UA、三菱 MCP**：没有经过真实硬件验收。
-- **缓存清理**：不要执行递归删除命令作为常规修复步骤；先确认程序已关闭、目标路径和影响范围。
+## Git 与发布
 
-## PythonNET 注意事项
+- 修改前后查看 `git status -sb`；保留用户已有的未提交和未跟踪文件，不把它们混入当前工作。
+- 未经用户明确要求，不执行 `git add`、`commit`、`push`、`reset`、强推或删除分支。
+- `origin` 是私有主仓，`public` 是公开镜像。推送公开镜像必须得到明确授权；推送前核对两个 remote 的 `master` 指针。
+- 合并外部 bundle 或分支前必须审查改动范围、冲突、安全影响，并在隔离环境运行相关离线测试。通过测试不替代真实控制链验收。
+- 重大变更必须在同一提交更新 `README.md` 与 `README_EN.md`：包括用户可见能力、架构入口、控制/安全/认证边界、依赖、默认测试范围和验收结论。纯内部重构若无需更新，须在审查或提交说明中明确原因。
 
-- **PythonNET 3.0+** 调用 PLCSIM API 时必须用枚举类型，不能用 int 隐式转换。正确写法：`instance.Interface = SimulationInterface.TCPIP` 而非 `instance.Interface = TCPIP`
+## 会话恢复与交接
 
-## 已有指令文件（优先级从上到下）
+新会话按需读取：
 
-- **`AGENTS.md`** — 当前工作区指令与安全边界。
-- **`claude.md`** — 历史项目总纲；与代码冲突时以代码、配置和测试为准。
-- `.plans/ai-plc-integration/docs/invariants.md` — 不可破坏约束。
+1. `AGENTS.md`
+2. `.plans/ai-plc-integration/handoff.md`
+3. `.plans/ai-plc-integration/task_plan.md`、`progress.md`、`findings.md`
+4. `decisions.md`、`tech_debt.md`、`risks.md`
+5. 任务直接相关的代码、配置、测试和 `docs/invariants.md`
 
-`OpenCode.md` 当前不存在，不能作为规则或命令来源。
-
----
-
-## Project Brain 读取顺序
-
-新会话恢复上下文时，按以下顺序读取 `.plans/ai-plc-integration/` 下文件：
-
-1. `handoff.md` — 上次交接状态
-2. `task_plan.md` — 当前路线图
-3. `progress.md` — 最新进度
-4. `findings.md` — 已有结论
-5. `decisions.md` — 架构决策
-6. `tech_debt.md` — 技术债务
-7. `risks.md` — 项目风险
-8. `docs/architecture.md` — 架构真相
-9. `docs/api-contracts.md` — API 契约
-10. `docs/invariants.md` — 不可破坏约束
-
-> 每次会话结束时，Documenter 负责更新 `handoff.md`。
+交接或完成报告至少写清：改了什么、验证了什么、哪些结论仍只是离线证据、下一步是否需要用户授权。只有任务明确要求时才更新项目计划或 handoff 文件。
