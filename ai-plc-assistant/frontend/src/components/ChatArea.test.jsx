@@ -30,7 +30,7 @@ vi.mock('react-markdown', () => ({
   default: ({ children }) => <div data-testid="react-markdown">{children}</div>,
 }))
 
-import ChatArea from './ChatArea'
+import ChatArea from './chat/ChatArea'
 
 afterEach(() => {
   cleanup()
@@ -43,11 +43,8 @@ function renderChatArea(messages, props = {}) {
       messages={messages}
       onSend={vi.fn()}
       onStop={vi.fn()}
-      pendingInput=""
-      setPendingInput={vi.fn()}
       sending={false}
       selectedModel="deepseek"
-      addLog={vi.fn()}
       onOpenTemplates={vi.fn()}
       onAddAttachment={vi.fn()}
       currentProject={null}

@@ -81,7 +81,7 @@ vi.mock('./MainWorkspace', () => ({
     </div>
   ),
 }))
-vi.mock('./InspectorPanel', () => ({
+vi.mock('./inspectors/InspectorPanel', () => ({
   default: () => <div data-testid="inspector-panel">Inspector</div>,
 }))
 vi.mock('./BottomPanel', () => ({

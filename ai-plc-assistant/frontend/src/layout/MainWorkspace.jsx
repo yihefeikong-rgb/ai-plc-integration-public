@@ -1,4 +1,4 @@
-import ChatArea from '../components/ChatArea'
+import ChatArea from '../components/chat/ChatArea'
 import Dashboard from '../components/Dashboard'
 import CodeExplainer from '../components/CodeExplainer'
 import IoTableGenerator from '../components/IoTableGenerator'
@@ -6,7 +6,7 @@ import FaultDiagnosis from '../components/FaultDiagnosis'
 import LadderGenerator from '../components/LadderGenerator'
 import VariableAnalyzer from '../components/VariableAnalyzer'
 import SettingsPanel from '../components/SettingsPanel'
-import OrchestratorPanel from '../components/OrchestratorPanel'
+import OrchestratorPanel from '../components/orchestrator/OrchestratorPanel'
 import RobotPanel from '../components/RobotPanel'
 
 /**
