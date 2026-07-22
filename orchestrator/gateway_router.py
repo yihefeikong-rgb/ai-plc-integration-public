@@ -6,6 +6,8 @@ import logging
 import os
 from typing import Any
 
+from orchestrator.mcp_client import ToolResult
+
 _logger = logging.getLogger(__name__)
 
 READ_ROUTE_MAP = {
@@ -22,10 +24,24 @@ def is_tia_read_operation(operation: str) -> bool:
 
 async def _call(pool, endpoint: tuple[str, str], arguments: dict[str, Any]) -> tuple[dict | None, str]:
     try:
-        return await pool.call_tool(*endpoint, arguments), ""
+        return normalize_tool_result(await pool.call_tool(*endpoint, arguments))
     except Exception as exc:
         _logger.warning("只读影子调用失败: %s.%s: %s", endpoint[0], endpoint[1], exc)
         return None, str(exc)
+
+
+def normalize_tool_result(raw: Any) -> tuple[dict | None, str]:
+    """将连接池真实返回值收敛为可比较的工具结果。"""
+    if isinstance(raw, ToolResult):
+        if not raw.ok:
+            return None, raw.error or "MCP 工具调用失败"
+        raw = raw.data
+    if not isinstance(raw, dict):
+        return None, "MCP 工具返回不是对象"
+    if raw.get("ok") is False or raw.get("success") is False:
+        error = raw.get("error") or raw.get("message") or "MCP 工具返回失败"
+        return None, str(error)
+    return raw, ""
 
 
 def _block_set(result: dict | None) -> set[tuple[str, str, str, str]]:

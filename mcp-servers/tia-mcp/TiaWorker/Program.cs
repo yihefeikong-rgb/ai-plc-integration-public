@@ -1064,6 +1064,8 @@ namespace TiaWorker
         static Project GetOrOpenProject(TiaPortal tia, string projectPath)
         {
             var targetPath = new FileInfo(projectPath).FullName;
+            if (!File.Exists(targetPath))
+                throw new InvalidOperationException("受控项目路径不存在或不可访问。");
 
             // 先检查已打开的项目
             foreach (Project proj in tia.Projects)
@@ -1080,19 +1082,17 @@ namespace TiaWorker
                 catch { }
             }
 
-            // 没找到精确匹配，但如果只有一个项目，就用它
-            if (tia.Projects.Count == 1)
-            {
-                var onlyProject = tia.Projects[0];
-                if (IsDebugEnabled)
-                    Console.Error.WriteLine($"[TiaWorker] Using the only open project: {onlyProject.Name}");
-                return onlyProject;
-            }
-
-            // 没找到，尝试打开
+            // 未找到精确匹配时，只能打开唯一受控目标。
             if (IsDebugEnabled)
                 Console.Error.WriteLine($"[TiaWorker] Opening project: {targetPath}");
-            return tia.Projects.Open(new FileInfo(projectPath));
+            var openedProject = tia.Projects.Open(new FileInfo(targetPath));
+            if (openedProject.Path == null ||
+                !openedProject.Path.FullName.Equals(targetPath, StringComparison.OrdinalIgnoreCase))
+            {
+                try { openedProject.Close(); } catch { }
+                throw new InvalidOperationException("TIA 返回的项目身份与受控目标不一致。");
+            }
+            return openedProject;
         }
 
         static int ExportBlock(string json)

@@ -91,9 +91,14 @@ def gateway_list_providers() -> list[dict]:
 
 
 @mcp.tool(name="gateway.list_capabilities", description="列出 Gateway 支持的所有工具名称")
-def gateway_list_capabilities() -> list[str]:
+def gateway_list_capabilities() -> dict:
     """列出所有可用工具"""
     return get_context().list_capabilities()
+
+
+def _verify_target_identity(provider: Any) -> dict | None:
+    result = provider.verify_target_identity()
+    return None if result.ok else result.to_dict()
 
 
 # ── TIA 项目工具 ──
@@ -114,6 +119,8 @@ def tia_project_list() -> dict:
     provider, err = _get_read_provider()
     if err:
         return err
+    if identity_error := _verify_target_identity(provider):
+        return identity_error
     return provider.list_blocks().to_dict()
 
 
@@ -126,6 +133,8 @@ def tia_block_list() -> dict:
     provider, err = _get_read_provider()
     if err:
         return err
+    if identity_error := _verify_target_identity(provider):
+        return identity_error
     return provider.list_blocks().to_dict()
 
 
@@ -135,6 +144,8 @@ def tia_block_get_interface(block_name: str) -> dict:
     provider, err = _get_read_provider()
     if err:
         return err
+    if identity_error := _verify_target_identity(provider):
+        return identity_error
     return provider.get_block_interface(block_name).to_dict()
 
 
@@ -144,6 +155,8 @@ def tia_block_get_xml(block_name: str) -> dict:
     provider, err = _get_read_provider()
     if err:
         return err
+    if identity_error := _verify_target_identity(provider):
+        return identity_error
     return provider.get_block_xml(block_name).to_dict()
 
 
@@ -156,6 +169,8 @@ def tia_hardware_list() -> dict:
     provider, err = _get_read_provider()
     if err:
         return err
+    if identity_error := _verify_target_identity(provider):
+        return identity_error
     return provider.list_devices().to_dict()
 
 

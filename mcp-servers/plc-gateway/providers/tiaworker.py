@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+import os
 
 from plc_gateway.providers.base import ProviderResult, TiaProvider
 from mcp_common.tiaworker_client import TiaWorkerClient
@@ -59,9 +60,36 @@ class TiaWorkerProvider(TiaProvider):
             warnings=raw.get("warnings", []),
         )
 
+    @staticmethod
+    def _same_project_path(actual: object, expected: str) -> bool:
+        if not isinstance(actual, str) or not actual.strip() or not expected:
+            return False
+        if not os.path.isabs(actual) or not os.path.isabs(expected):
+            return False
+        return os.path.normcase(os.path.normpath(os.path.abspath(actual))) == os.path.normcase(
+            os.path.normpath(os.path.abspath(expected))
+        )
+
+    def verify_target_identity(self) -> ProviderResult:
+        result = self._result(self._run(TIAWORKER_COMMAND_MAP["get_project_info"]), "tia.project.verify_identity")
+        if not result.ok:
+            return result
+        actual_path = result.result.get("path") if isinstance(result.result, dict) else None
+        if not self._same_project_path(actual_path, self._project_path):
+            return ProviderResult.error_result(
+                "tia.project.verify_identity",
+                "TIA 实际项目与唯一受控目标不一致",
+                code="TARGET_MISMATCH",
+                provider=self.name,
+                status="blocked",
+            )
+        return result
+
     def get_project_info(self) -> ProviderResult:
-        raw = self._run(TIAWORKER_COMMAND_MAP["get_project_info"])
-        return self._result(raw, "tia.project.info")
+        result = self.verify_target_identity()
+        if result.ok:
+            result.operation = "tia.project.info"
+        return result
 
     def list_blocks(self) -> ProviderResult:
         raw = self._run(TIAWORKER_COMMAND_MAP["list_blocks"])

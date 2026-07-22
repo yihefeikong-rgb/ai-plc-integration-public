@@ -121,13 +121,12 @@ def test_bootstrap_list_capabilities():
     cfg = GatewayConfig(debug=True)
     ctx = bootstrap_gateway(cfg)
     caps = ctx.list_capabilities()
-    assert "gateway.get_info" in caps
-    assert "gateway.list_providers" in caps
-    assert "gateway.list_capabilities" in caps
-    assert "tia.block.list" in caps
-    assert "tia.block.get_xml" in caps
-    assert "tia.project.list" in caps
-    assert "tia.hardware.list" in caps
+    assert caps["declared_count"] == len(caps["exposed"])
+    assert {"gateway.get_info", "gateway.list_providers", "gateway.list_capabilities"}.issubset(caps["available"])
+    assert "tia.block.list" in caps["exposed"]
+    assert "tia.block.get_xml" in caps["exposed"]
+    assert "tia.project.list" in caps["exposed"]
+    assert "tia.hardware.list" in caps["exposed"]
 
 
 def test_server_fastmcp_tools():

@@ -105,3 +105,10 @@ def test_default_read_provider_is_honored_without_fallback():
     policy.register_provider(tiacommander)
 
     assert policy.get_read_provider() is tiacommander
+
+
+def test_gateway_rejects_tiacommander_as_default_read_provider_without_identity_support():
+    from plc_gateway.bootstrap import bootstrap_gateway
+
+    with pytest.raises(RuntimeError, match="身份校验"):
+        bootstrap_gateway(GatewayConfig(default_read_provider="tiacommander"))

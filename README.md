@@ -52,7 +52,7 @@
 | 桌面/后端 | FastAPI、React/Vite、Electron 配置、路由与工作流代码存在；根 `start.bat` 仅启动本地后端。前端 Vitest **136 测试通过**（11 文件，关键路径覆盖率 72%）；P0-P5 批次已修复 6 个 HIGH（不伪造原则：删除 Inspector/Dashboard 硬编码假数据 + 脱敏 testResult.reply + fallback headers 补 localControlHeaders），并完成 F-019 机器人 4 模式 + L3 安全等级 + 9 字段高风险确认、F-037 useTabs 单一 state object 根治、5 工具页 ToolStatusBar 10 状态机、附件上传真实 API、CSP `script-src 'self'` 收紧 + `connect-src` 环境变量化、ErrorBoundary 脱敏、9+ 处 `catch {}` 加日志。 | 不代表 Electron 打包、所有第三方模型或所有 UI 流程已在每台机器验证。E2E、Lighthouse、响应式 4 尺寸截图回归、OrchestratorPanel/ChatArea/InspectorPanel 文件拆分（P6/P7）尚未完成。 |
 | TIA/PLCSIM 主链 | 受控 V21 目标、TIA Worker、CartGen、下载与 snap7 回读代码路径存在。 | 当前整改版本尚未完成 TIA V21 → PLCSIM Advanced V8 → snap7 → Factory I/O 的完整动态验收。有效的本地 PLCSIM Advanced 许可证、项目加载、下载成功与 CPU 可读均是独立前提。 |
 | 真实现场 | 代码对控制目标、写入参数、认证主体、一次性确认和跨进程审计链设置了防护。 | 不代表可连接真实 PLC、F-CPU、安全回路或生产环境。当前 README 不授予此类操作权限。 |
-| PLC Gateway | FastMCP 启动骨架、只读 Provider 接口与影子迁移代码存在；当前仅完成离线验证。 | 不代表 Gateway 已完成 Provider 真实调用、唯一目标动态校验、影子结果一致性、写入安全链整合或 TiaCommander 动态验证。 |
+| PLC Gateway | FastMCP 仅暴露 9 个只读入口；影子路由规范化真实 `ToolResult`，TiaWorker 每次项目读取前校验实际项目路径。当前仅完成离线验证。 | 不代表 Gateway 已完成 TIA/TiaCommander 真实调用、动态影子一致性、写入安全链整合或 TiaCommander 动态验证。 |
 
 历史状态文件、旧计划和旧架构图仅可作为线索。发生冲突时，请优先相信当前代码、`mcp-servers/tia-mcp/config.yaml`、测试配置和实际运行证据。
 

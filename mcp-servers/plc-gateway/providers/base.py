@@ -109,6 +109,16 @@ class TiaProvider(ABC):
         """获取项目信息"""
         ...
 
+    def verify_target_identity(self) -> ProviderResult:
+        """确认 Provider 当前实际打开的项目就是受控目标。"""
+        return ProviderResult.error_result(
+            "tia.project.verify_identity",
+            f"{self.name} 未实现实际项目身份校验",
+            code="TARGET_IDENTITY_UNAVAILABLE",
+            provider=self.name,
+            status="blocked",
+        )
+
     @abstractmethod
     def list_blocks(self) -> ProviderResult:
         """列出项目中的所有块"""

@@ -72,9 +72,27 @@ class GatewayContext:
             })
         return result
 
-    def list_capabilities(self) -> list[str]:
-        """列出所有可用工具名称"""
-        return [t.name for t in self.registry.all_tools()]
+    def list_capabilities(self) -> dict:
+        """只声明 FastMCP 实际暴露且当前 Provider 可执行的能力。"""
+        exposed = [
+            "gateway.get_info", "gateway.list_providers", "gateway.list_capabilities",
+            "tia.project.info", "tia.project.list", "tia.block.list",
+            "tia.block.get_interface", "tia.block.get_xml", "tia.hardware.list",
+        ]
+        provider = self.routing.get_read_provider() if self.routing else None
+        available = exposed[:3]
+        unavailable = {}
+        if provider and provider.available:
+            available.extend(name for name in exposed[3:] if name != "tia.block.get_xml")
+            unavailable["tia.block.get_xml"] = "TiaWorker XML 导出协议尚未验证"
+        else:
+            unavailable = {name: "没有可用的只读 Provider" for name in exposed[3:]}
+        return {
+            "declared_count": len(exposed),
+            "exposed": exposed,
+            "available": available,
+            "unavailable": unavailable,
+        }
 
 
 def _find_tiaworker_exe(config: GatewayConfig) -> str:
@@ -99,6 +117,9 @@ def _find_tiaworker_exe(config: GatewayConfig) -> str:
 def _init_providers(ctx: GatewayContext) -> dict[str, TiaProvider]:
     """初始化所有 Provider"""
     providers: dict[str, TiaProvider] = {}
+
+    if ctx.config.default_read_provider == "tiacommander":
+        raise RuntimeError("TiaCommander 尚未实现实际项目身份校验，不能作为默认只读 Provider")
 
     tiaworker_exe = _find_tiaworker_exe(ctx.config)
     if tiaworker_exe:

@@ -19,5 +19,8 @@ jobs:
           python -m pytest
           tests/test_gateway_batch3.py
           tests/test_gateway_remediation.py
+          tests/test_gateway_target_identity.py
+          tests/test_gateway_capabilities.py
           orchestrator/tests/test_gateway_shadow_routing.py
           -m "not integration and not hardware and not desktop and not network and not tia and not tiacommander"
+      - run: python -m compileall plc_gateway orchestrator

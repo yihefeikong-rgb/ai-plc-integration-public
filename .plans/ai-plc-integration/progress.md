@@ -634,3 +634,10 @@ pytest orchestrator/tests/ -v
 ### 当前验证边界
 - 离线单元与 Mock 测试只能证明软件契约；不证明 TIA 项目加载、下载完成、CPU RUN 或 PLC 可读。
 - 任何未来动态验证仅允许从 `get-project-info`、`list-devices`、`list-blocks` 等只读命令开始，并须另获明确授权。
+
+### 第三轮离线整改（R7–R11）
+- `ToolResult` 已在影子路由边界规范化；失败、空值和非对象结果不会参与成功比较。
+- TiaWorker 不再复用“唯一已打开项目”；目标文件不存在、打开后路径不匹配均失败关闭。Gateway 在每次项目读取前重新校验实际返回路径。
+- `gateway.list_capabilities` 只声明 FastMCP 实际暴露的 9 个只读入口；XML 导出明确标为不可用，不再把注册表中的规划或写工具宣称为可用。
+- GitHub Actions 已扩展为离线目标身份、能力声明、影子路由测试和 Python 编译检查；尚无远端 Actions 成功证据。
+- 未启动 TIA、PLCSIM、后端或任何 MCP 子进程；项目加载、下载、CPU RUN、PLC 可读与只读动态验证仍待单独授权。
