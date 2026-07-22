@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from mcp_common.config import load_yaml_config
+
 
 @dataclass
 class GatewayConfig:
@@ -22,6 +24,9 @@ class GatewayConfig:
 
     tia_version: str = "V21"
     """TIA Portal 版本号"""
+
+    target_profile: str = ""
+    """唯一受控目标配置的 profile 名称"""
 
     # ── Provider 配置 ──
     tiaworker_exe: str = ""
@@ -65,10 +70,14 @@ class GatewayConfig:
 
     @classmethod
     def from_env(cls) -> GatewayConfig:
-        """从环境变量加载配置"""
+        """从唯一受控目标加载配置；环境变量只覆盖 YAML 已允许的字段。"""
+        target = load_yaml_config("mcp-servers/tia-mcp/config.yaml").target
+        if str(target.tia_version).upper() != "V21":
+            raise ValueError("PLC Gateway 仅接受唯一受控目标中的 TIA V21 配置")
         return cls(
-            target_project=os.environ.get("GATEWAY_TARGET_PROJECT", ""),
-            tia_version=os.environ.get("GATEWAY_TIA_VERSION", "V21"),
+            target_project=target.project_path,
+            tia_version=target.tia_version,
+            target_profile=target.profile,
             tiaworker_exe=os.environ.get("GATEWAY_TIAWORKER_EXE", ""),
             tiacommander_dir=os.environ.get("GATEWAY_TIACOMMANDER_DIR", ""),
             tiacommander_enabled=os.environ.get("GATEWAY_TIACOMMANDER_ENABLED", "0") == "1",
@@ -85,7 +94,9 @@ class GatewayConfig:
     def to_dict(self) -> dict:
         """导出配置为字典（用于调试和状态报告）"""
         return {
-            "target_project": self.target_project,
+            "target_profile": self.target_profile,
+            "target_configured": bool(self.target_project),
+            "target_project_name": Path(self.target_project).name if self.target_project else "",
             "tia_version": self.tia_version,
             "tiaworker_exe": self.tiaworker_exe,
             "tiacommander_enabled": self.tiacommander_enabled,

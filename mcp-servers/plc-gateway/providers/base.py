@@ -17,7 +17,15 @@ class ErrorInfo:
     code: str = ""
     message: str = ""
     retryable: bool = False
-    side_effect_state: str = "unknown"
+    side_effect_state: str = "none"
+
+    def to_dict(self) -> dict:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "retryable": self.retryable,
+            "side_effect_state": self.side_effect_state,
+        }
 
 
 @dataclass
@@ -34,13 +42,27 @@ class ProviderResult:
     reconcile_required: bool = False
 
     def __post_init__(self):
-        if self.error is None and not self.ok:
-            self.error = ErrorInfo(message="未知错误")
+        if self.ok:
+            self.status = "success"
+            self.error = None
+            self.reconcile_required = False
+        else:
+            if isinstance(self.error, str):
+                self.error = ErrorInfo(code="ERROR", message=self.error)
+            elif self.error is None:
+                self.error = ErrorInfo(code="UNKNOWN", message="未知错误")
+            if self.reconcile_required:
+                self.status = "reconcile_required"
+                self.error.side_effect_state = "unknown"
+            elif self.status not in {"error", "unavailable", "blocked"}:
+                self.status = "error"
+        self.provider = self.provider or "unknown"
+        self.operation = self.operation or "unknown"
 
     def to_dict(self) -> dict:
         return {
             "ok": self.ok,
-            "status": self.status if self.ok else "error",
+            "status": self.status,
             "operation": self.operation,
             "operation_id": self.operation_id,
             "provider": self.provider,
@@ -53,11 +75,15 @@ class ProviderResult:
     @classmethod
     def error_result(cls, operation: str, message: str,
                      code: str = "ERROR", retryable: bool = False,
-                     reconcile_required: bool = False) -> "ProviderResult":
+                     reconcile_required: bool = False,
+                     provider: str = "unknown",
+                     status: str = "error") -> "ProviderResult":
         """创建错误结果"""
         return cls(
             ok=False,
             operation=operation,
+            provider=provider,
+            status=status,
             error=ErrorInfo(code=code, message=message, retryable=retryable),
             reconcile_required=reconcile_required,
         )

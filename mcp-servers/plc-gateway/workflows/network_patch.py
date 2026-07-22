@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from providers.base import ProviderResult, TiaProvider
+from plc_gateway.providers.base import ProviderResult, TiaProvider
 
 # 支持的初始操作（逐步扩展）
 _SUPPORTED_OPERATIONS = frozenset([

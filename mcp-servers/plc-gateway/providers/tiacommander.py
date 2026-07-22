@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from providers.base import ProviderResult, TiaProvider
+from plc_gateway.providers.base import ProviderResult, TiaProvider
 
 _logger = logging.getLogger(__name__)
 

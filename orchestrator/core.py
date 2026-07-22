@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -244,7 +245,10 @@ class WorkflowContext:
                 self._audit_control_intent(tool_full_name, kwargs)
 
                 server_name, tool_name = parts
-                result = self._call_mcp_sync(server_name, tool_name, kwargs)
+                if server_name == "tia-mcp" and tool_name == "list_blocks":
+                    result = self._call_tia_read_sync(kwargs)
+                else:
+                    result = self._call_mcp_sync(server_name, tool_name, kwargs)
                 result = self._unwrap_tool_result(result)
 
                 # 审计日志: 记录 MCP 工具调用
@@ -376,6 +380,17 @@ class WorkflowContext:
             "请使用 engine.run_async() 并使用 async def 定义工作流。"
         )
 
+    def _call_tia_read_sync(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """将真实的旧 TIA 块列表调用接入 Gateway 影子路由。"""
+        from orchestrator.gateway_router import route_tia_read
+
+        return asyncio.run(route_tia_read(
+            self._pool,
+            "tia.block.list",
+            arguments,
+            mode=os.environ.get("PLC_GATEWAY_MODE", "shadow"),
+        ))
+
     async def call_async(self, tool_full_name: str, **kwargs) -> dict[str, Any]:
         """异步调用 MCP 工具（用于 async def 工作流）。
 
@@ -425,7 +440,17 @@ class WorkflowContext:
                 self._audit_control_intent(tool_full_name, kwargs)
 
                 server_name, tool_name = parts
-                result = await self._pool.call_tool(server_name, tool_name, kwargs)
+                if server_name == "tia-mcp" and tool_name == "list_blocks":
+                    from orchestrator.gateway_router import route_tia_read
+
+                    result = await route_tia_read(
+                        self._pool,
+                        "tia.block.list",
+                        kwargs,
+                        mode=os.environ.get("PLC_GATEWAY_MODE", "shadow"),
+                    )
+                else:
+                    result = await self._pool.call_tool(server_name, tool_name, kwargs)
                 result = self._unwrap_tool_result(result)
 
                 # 审计日志

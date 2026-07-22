@@ -2,7 +2,7 @@
 
 - **编号**: ADR-001
 - **日期**: 2026-07-22
-- **状态**: Accepted (Implementation In Progress)
+- **状态**: Proposed (migration remediation in progress)
 - **作者**: Architecture Team
 - **审查人**: TBD
 - **影响范围**: mcp-servers/, orchestrator/, safety/, mcp_common/, edge-gateway/
@@ -34,7 +34,7 @@
 
 ### 2.1 核心决策
 
-**PLC Engineering Gateway 是唯一对外工业 MCP**。所有外部 AI Agent（包括 Claude Code、Claude Desktop 及其他 MCP 客户端）只能通过 PLC Engineering Gateway 与工业设备交互。Gateway 是系统对外暴露的唯一工业 MCP 服务器入口。
+**目标架构是 PLC Engineering Gateway 作为唯一对外工业 MCP**。该迁移尚未完成；现有 MCP 入口不能因本 ADR 而被视为已停用或已通过 Gateway 验收。
 
 ### 2.2 架构分层
 

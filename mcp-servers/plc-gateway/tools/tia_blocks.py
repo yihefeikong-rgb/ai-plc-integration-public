@@ -16,11 +16,11 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
-from registry import (
+from plc_gateway.registry import (
     BLOCK_GET_XML, BLOCK_GET_INTERFACE, LAD_DESCRIBE,
     get_registry, register_tool,
 )
-from providers.base import ProviderResult, TiaProvider
+from plc_gateway.providers.base import ProviderResult, TiaProvider
 
 
 def register_block_analysis_tools(registry=None) -> None:

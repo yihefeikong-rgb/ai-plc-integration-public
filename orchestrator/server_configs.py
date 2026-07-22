@@ -97,8 +97,8 @@ PLC_GATEWAY = ServerInfo(
     name="plc-gateway",
     description="PLC Engineering Gateway — 统一工程态网关（阴影模式，9 工具）",
     command=PYTHON_EXECUTABLE,
-    args=["server.py"],
-    cwd=_server_cwd("mcp-servers", "plc-gateway"),
+    args=["-m", "plc_gateway.server"],
+    cwd=str(PROJECT_ROOT),
 )
 
 # ============================================================================

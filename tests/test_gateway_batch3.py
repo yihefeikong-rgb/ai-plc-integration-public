@@ -1,31 +1,14 @@
-"""
-PLC Gateway — Batch 3 验收测试（从 Gateway 目录运行）
-
-运行方式：
-  cd mcp-servers/plc-gateway && python -m pytest ../../tests/test_gateway_batch3.py -v
-"""
+"""PLC Gateway — Batch 3 验收测试（可从仓库根目录运行）。"""
 
 from __future__ import annotations
 
 import os
-import sys
-from pathlib import Path
-
-
-def _ensure_gw_path():
-    """确保 gateway 目录在 sys.path 中"""
-    p = Path(__file__).resolve().parents[2] / "mcp-servers" / "plc-gateway"
-    ps = str(p)
-    if ps in sys.path:
-        sys.path.remove(ps)
-    sys.path.insert(0, ps)
-
-
-_ensure_gw_path()
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 def test_config_defaults():
-    from config import GatewayConfig
+    from plc_gateway.config import GatewayConfig
     cfg = GatewayConfig()
     assert cfg.tia_version == "V21"
     assert cfg.safety_enabled is True
@@ -33,39 +16,44 @@ def test_config_defaults():
     assert cfg.default_read_provider == "tiaworker"
 
 
-def test_config_from_env():
-    os.environ["GATEWAY_TARGET_PROJECT"] = "/test/project"
-    os.environ["GATEWAY_TIA_VERSION"] = "V18"
+def test_config_from_unified_target():
     os.environ["GATEWAY_TIACOMMANDER_ENABLED"] = "1"
     os.environ["GATEWAY_SAFETY_ENABLED"] = "0"
     os.environ["GATEWAY_DEBUG"] = "1"
 
-    from config import GatewayConfig
-    cfg = GatewayConfig.from_env()
-    assert cfg.target_project == "/test/project"
-    assert cfg.tia_version == "V18"
+    from plc_gateway.config import GatewayConfig
+    target = SimpleNamespace(
+        project_path="D:/test/demo_V21.ap21",
+        tia_version="V21",
+        profile="isolated_plcsim_v21",
+    )
+    with patch("plc_gateway.config.load_yaml_config", return_value=SimpleNamespace(target=target)):
+        cfg = GatewayConfig.from_env()
+    assert cfg.target_project == "D:/test/demo_V21.ap21"
+    assert cfg.tia_version == "V21"
+    assert cfg.target_profile == "isolated_plcsim_v21"
     assert cfg.tiacommander_enabled is True
     assert cfg.safety_enabled is False
     assert cfg.debug is True
 
-    for k in ["GATEWAY_TARGET_PROJECT", "GATEWAY_TIA_VERSION",
-              "GATEWAY_TIACOMMANDER_ENABLED", "GATEWAY_SAFETY_ENABLED",
+    for k in ["GATEWAY_TIACOMMANDER_ENABLED", "GATEWAY_SAFETY_ENABLED",
               "GATEWAY_DEBUG"]:
         os.environ.pop(k, None)
 
 
 def test_config_to_dict():
-    from config import GatewayConfig
+    from plc_gateway.config import GatewayConfig
     cfg = GatewayConfig(target_project="/test")
     d = cfg.to_dict()
-    assert d["target_project"] == "/test"
+    assert d["target_configured"] is True
+    assert "target_project" not in d
     assert d["tia_version"] == "V21"
     assert "safety_enabled" in d
 
 
 def test_bootstrap_context():
-    from config import GatewayConfig
-    from bootstrap import bootstrap_gateway
+    from plc_gateway.config import GatewayConfig
+    from plc_gateway.bootstrap import bootstrap_gateway
 
     cfg = GatewayConfig(safety_enabled=True, debug=True)
     ctx = bootstrap_gateway(cfg)
@@ -78,8 +66,8 @@ def test_bootstrap_context():
 
 
 def test_bootstrap_context_disabled_safety():
-    from config import GatewayConfig
-    from bootstrap import bootstrap_gateway
+    from plc_gateway.config import GatewayConfig
+    from plc_gateway.bootstrap import bootstrap_gateway
 
     cfg = GatewayConfig(safety_enabled=False, debug=True)
     ctx = bootstrap_gateway(cfg)
@@ -87,8 +75,8 @@ def test_bootstrap_context_disabled_safety():
 
 
 def test_bootstrap_registers_tools():
-    from config import GatewayConfig
-    from bootstrap import bootstrap_gateway
+    from plc_gateway.config import GatewayConfig
+    from plc_gateway.bootstrap import bootstrap_gateway
 
     cfg = GatewayConfig(debug=True)
     ctx = bootstrap_gateway(cfg)
@@ -96,8 +84,8 @@ def test_bootstrap_registers_tools():
 
 
 def test_bootstrap_context_to_dict():
-    from config import GatewayConfig
-    from bootstrap import bootstrap_gateway
+    from plc_gateway.config import GatewayConfig
+    from plc_gateway.bootstrap import bootstrap_gateway
 
     cfg = GatewayConfig(debug=True)
     ctx = bootstrap_gateway(cfg)
@@ -111,8 +99,8 @@ def test_bootstrap_context_to_dict():
 
 
 def test_bootstrap_provider_info():
-    from config import GatewayConfig
-    from bootstrap import bootstrap_gateway
+    from plc_gateway.config import GatewayConfig
+    from plc_gateway.bootstrap import bootstrap_gateway
 
     cfg = GatewayConfig(debug=True)
     ctx = bootstrap_gateway(cfg)
@@ -127,8 +115,8 @@ def test_bootstrap_provider_info():
 
 
 def test_bootstrap_list_capabilities():
-    from config import GatewayConfig
-    from bootstrap import bootstrap_gateway
+    from plc_gateway.config import GatewayConfig
+    from plc_gateway.bootstrap import bootstrap_gateway
 
     cfg = GatewayConfig(debug=True)
     ctx = bootstrap_gateway(cfg)
@@ -144,7 +132,7 @@ def test_bootstrap_list_capabilities():
 
 def test_server_fastmcp_tools():
     import asyncio
-    from server import mcp, get_context
+    from plc_gateway.server import mcp, get_context
 
     ctx = get_context()
     assert ctx is not None
@@ -168,7 +156,7 @@ def test_server_fastmcp_tools():
 
 
 def test_unavailable_provider():
-    from bootstrap import _UnavailableProvider
+    from plc_gateway.bootstrap import _UnavailableProvider
 
     p = _UnavailableProvider("test")
     assert p.name == "test"

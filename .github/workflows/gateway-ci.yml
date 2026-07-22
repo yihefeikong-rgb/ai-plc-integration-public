@@ -1,0 +1,23 @@
+name: Gateway offline validation
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  offline-gateway-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt
+      - run: >-
+          python -m pytest
+          tests/test_gateway_batch3.py
+          tests/test_gateway_remediation.py
+          orchestrator/tests/test_gateway_shadow_routing.py
+          -m "not integration and not hardware and not desktop and not network and not tia and not tiacommander"

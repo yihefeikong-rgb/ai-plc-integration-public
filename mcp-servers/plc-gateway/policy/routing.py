@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from providers.base import ProviderResult, TiaProvider
-from policy.risk_levels import RiskLevel, is_default_disabled
+from plc_gateway.providers.base import ProviderResult, TiaProvider
+from plc_gateway.policy.risk_levels import RiskLevel, is_default_disabled
 
 
 class RoutingPolicy:
@@ -65,16 +65,9 @@ class RoutingPolicy:
         return [name for name, p in self._providers.items() if p.available]
 
 
-# ── 全局路由策略实例 ──
-_policy = RoutingPolicy()
-
-
-def get_policy() -> RoutingPolicy:
-    return _policy
-
-
 def configure_default_routing(tiaworker_provider: TiaProvider | None = None) -> RoutingPolicy:
-    """配置默认路由（TiaWorker 为唯一提供者）"""
+    """创建新的默认路由策略，避免跨 bootstrap 残留 Provider。"""
+    policy = RoutingPolicy()
     if tiaworker_provider:
-        _policy.register_provider(tiaworker_provider)
-    return _policy
+        policy.register_provider(tiaworker_provider)
+    return policy

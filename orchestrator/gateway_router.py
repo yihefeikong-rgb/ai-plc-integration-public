@@ -1,156 +1,107 @@
-"""
-PLC Engineering Gateway Router — 编排层网关路由
-
-管理 PLC Gateway 与旧 MCP 服务器的路由决策和阴影比较。
-
-路由模式：
-  shadow（默认）— 同时调用 Gateway 和旧 MCP，比较结果但不影响主流程
-  primary — Gateway 接管 TIA 只读操作，旧 MCP 作为 fallback
-  off — 不启用 Gateway
-"""
+"""Gateway 与旧 TIA MCP 的受控只读影子路由。"""
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 _logger = logging.getLogger(__name__)
 
-# TIA 只读操作映射：工具名 -> 对应旧 MCP 服务器
-_TIA_READ_OPS: dict[str, str] = {
-    "tia.project.info": "tia-mcp",
-    "tia.project.list": "tia-mcp",
-    "tia.block.list": "tia-mcp",
-    "tia.block.get_xml": "tia-mcp",
-    "tia.block.get_interface": "tia-mcp",
-    "tia.hardware.list": "tia-mcp",
+READ_ROUTE_MAP = {
+    "tia.block.list": {
+        "gateway": ("plc-gateway", "tia.block.list"),
+        "legacy": ("tia-mcp", "list_blocks"),
+    },
 }
 
 
-def is_tia_read_operation(tool_name: str) -> bool:
-    """判断是否为 TIA 只读操作"""
-    return tool_name in _TIA_READ_OPS
+def is_tia_read_operation(operation: str) -> bool:
+    return operation in READ_ROUTE_MAP
 
 
-def get_legacy_server(tool_name: str) -> str | None:
-    """获取 TIA 只读操作对应的旧 MCP 服务器名"""
-    return _TIA_READ_OPS.get(tool_name)
-
-
-async def call_gateway(pool, tool_name: str, arguments: dict | None = None) -> dict | None:
-    """调用 Gateway 的工具，失败时返回 None"""
+async def _call(pool, endpoint: tuple[str, str], arguments: dict[str, Any]) -> tuple[dict | None, str]:
     try:
-        result = await pool.call_tool("plc-gateway", tool_name, arguments or {})
-        return result
-    except Exception as e:
-        _logger.warning(f"Gateway 调用失败 ({tool_name}): {e}")
-        return None
+        return await pool.call_tool(*endpoint, arguments), ""
+    except Exception as exc:
+        _logger.warning("只读影子调用失败: %s.%s: %s", endpoint[0], endpoint[1], exc)
+        return None, str(exc)
 
 
-async def call_legacy(pool, tool_name: str, arguments: dict | None = None) -> dict | None:
-    """调用旧 MCP 服务器的工具，失败时返回 None"""
-    server = get_legacy_server(tool_name)
-    if not server:
-        return None
-    try:
-        result = await pool.call_tool(server, tool_name, arguments or {})
-        return result
-    except Exception as e:
-        _logger.warning(f"旧 MCP 调用失败 ({server}.{tool_name}): {e}")
-        return None
+def _block_set(result: dict | None) -> set[tuple[str, str, str, str]]:
+    if not isinstance(result, dict):
+        return set()
+    data = result.get("result", result)
+    blocks = data.get("blocks", data.get("Blocks", [])) if isinstance(data, dict) else data
+    if not isinstance(blocks, list):
+        return set()
+    normalized = set()
+    for block in blocks:
+        if not isinstance(block, dict):
+            normalized.add((str(block), "", "", ""))
+            continue
+        normalized.add((
+            str(block.get("name", block.get("Name", ""))),
+            str(block.get("type", block.get("BlockType", ""))),
+            str(block.get("number", block.get("Number", ""))),
+            str(block.get("language", block.get("Language", ""))),
+        ))
+    return normalized
 
 
-def compare_results(gateway_result: dict | None, legacy_result: dict | None) -> dict:
-    """比较 Gateway 和旧 MCP 的结果差异"""
-    # 提取语义关键字段进行比较
-    gw_ok = gateway_result is not None and gateway_result.get("ok", False)
-    legacy_ok = legacy_result is not None
-
-    comparison = {
-        "gateway_ok": gw_ok,
+def compare_results(operation: str, gateway_result: dict | None, legacy_result: dict | None) -> dict:
+    """比较标准化只读结果；不记录项目路径、完整 XML 或原始载荷。"""
+    gateway_ok = bool(gateway_result and gateway_result.get("ok") is True)
+    legacy_ok = bool(legacy_result and legacy_result.get("ok", True) is not False)
+    comparison: dict[str, Any] = {
+        "operation": operation,
+        "gateway_ok": gateway_ok,
         "legacy_ok": legacy_ok,
         "semantic_match": False,
-        "differences": [],
+        "differences": {"missing_in_gateway": [], "extra_in_gateway": [], "field_mismatches": []},
     }
-
-    if gw_ok and legacy_ok:
-        # 比较结果中的关键字段
-        gw_data = gateway_result.get("result", {}) or {}
-        legacy_data = legacy_result
-
-        # 对于块列表，比较数量
-        if isinstance(gw_data, dict) and isinstance(legacy_data, dict):
-            gw_keys = set(gw_data.keys())
-            legacy_keys = set(legacy_data.keys())
-            if gw_keys != legacy_keys:
-                comparison["differences"].append(
-                    f"字段差异: Gateway={gw_keys}, Legacy={legacy_keys}")
-            else:
-                comparison["semantic_match"] = True
-        elif isinstance(gw_data, list) and isinstance(legacy_data, list):
-            if len(gw_data) == len(legacy_data):
-                comparison["semantic_match"] = True
-            else:
-                comparison["differences"].append(
-                    f"数量差异: Gateway={len(gw_data)}, Legacy={len(legacy_data)}")
-    elif gw_ok and not legacy_ok:
-        comparison["differences"].append("Gateway 成功但旧 MCP 失败")
-    elif not gw_ok and legacy_ok:
-        comparison["differences"].append("旧 MCP 成功但 Gateway 失败")
-
+    if not (gateway_ok and legacy_ok):
+        return comparison
+    gateway_blocks = _block_set(gateway_result)
+    legacy_blocks = _block_set(legacy_result)
+    comparison["differences"]["missing_in_gateway"] = sorted(item[0] for item in legacy_blocks - gateway_blocks)
+    comparison["differences"]["extra_in_gateway"] = sorted(item[0] for item in gateway_blocks - legacy_blocks)
+    comparison["semantic_match"] = gateway_blocks == legacy_blocks
     return comparison
 
 
-async def route_tia_read(pool, tool_name: str, arguments: dict | None = None,
+async def route_tia_read(pool, canonical_operation: str, arguments: dict[str, Any] | None = None,
                          mode: str = "shadow") -> dict:
-    """路由 TIA 只读操作
-
-    Args:
-        pool: MCP 连接池
-        tool_name: 工具名
-        arguments: 工具参数
-        mode: 路由模式（shadow/primary/off）
-
-    Returns:
-        操作结果
-    """
+    """路由已登记只读操作；影子模式始终返回旧 MCP 结果。"""
+    route = READ_ROUTE_MAP.get(canonical_operation)
+    if route is None:
+        return {"ok": False, "status": "blocked", "error": f"未登记的 Gateway 只读操作: {canonical_operation}"}
+    args = arguments or {}
     if mode == "off":
-        # 直接调用旧 MCP
-        result = await call_legacy(pool, tool_name, arguments)
-        if result is None:
-            return {"ok": False, "error": f"旧 MCP 不可用: {tool_name}"}
-        return result
-
-    if mode == "shadow":
-        # 并行调用 Gateway 和旧 MCP
-        gw_task = call_gateway(pool, tool_name, arguments)
-        legacy_task = call_legacy(pool, tool_name, arguments)
-        gw_result, legacy_result = await asyncio.gather(gw_task, legacy_task)
-
-        # 比较结果
-        comparison = compare_results(gw_result, legacy_result)
-        if comparison["differences"]:
-            _logger.warning(f"Gateway 阴影比较发现差异 [{tool_name}]: "
-                           f"{comparison['differences']}")
-
-        # 阴影模式返回旧 MCP 结果
-        if legacy_result is not None:
-            return legacy_result
-        if gw_result is not None:
-            _logger.info(f"Gateway 阴影模式提供 fallback: {tool_name}")
-            return gw_result
-        return {"ok": False, "error": f"Gateway 和旧 MCP 均不可用: {tool_name}"}
-
+        result, error = await _call(pool, route["legacy"], args)
+        return result or {"ok": False, "status": "error", "error": f"旧 MCP 不可用: {error}"}
     if mode == "primary":
-        # Gateway 优先
-        result = await call_gateway(pool, tool_name, arguments)
-        if result is not None:
-            return result
-        # Gateway 失败时 fallback 到旧 MCP
-        _logger.warning(f"Gateway 不可用，fallback 到旧 MCP: {tool_name}")
-        result = await call_legacy(pool, tool_name, arguments)
-        if result is not None:
-            return result
-        return {"ok": False, "error": f"Gateway 和旧 MCP 均不可用: {tool_name}"}
+        if os.environ.get("PLC_GATEWAY_PRIMARY_ACK") != "I_UNDERSTAND_READ_MIGRATION":
+            return {"ok": False, "status": "blocked", "error": "Primary 只读迁移尚未确认"}
+        result, error = await _call(pool, route["gateway"], args)
+        return result or {"ok": False, "status": "error", "error": f"Gateway 不可用: {error}"}
+    if mode != "shadow":
+        return {"ok": False, "status": "blocked", "error": f"未知 Gateway 路由模式: {mode}"}
 
-    return {"ok": False, "error": f"未知路由模式: {mode}"}
+    gateway_task = _call(pool, route["gateway"], args)
+    legacy_task = _call(pool, route["legacy"], args)
+    (gateway_result, gateway_error), (legacy_result, legacy_error) = await asyncio.gather(gateway_task, legacy_task)
+    comparison = compare_results(canonical_operation, gateway_result, legacy_result)
+    _logger.info(
+        "Gateway 影子比较 operation=%s gateway_ok=%s legacy_ok=%s semantic_match=%s differences=%d",
+        canonical_operation, comparison["gateway_ok"], comparison["legacy_ok"], comparison["semantic_match"],
+        sum(len(value) for value in comparison["differences"].values()),
+    )
+    if legacy_result is not None:
+        return legacy_result
+    return {
+        "ok": False,
+        "status": "error",
+        "error": f"旧 MCP 不可用: {legacy_error}",
+        "gateway_diagnostics": {"available": gateway_result is not None, "error": gateway_error},
+    }

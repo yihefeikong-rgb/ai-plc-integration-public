@@ -8,8 +8,7 @@ PLC Engineering Gateway — FastMCP Server
   python server.py
 
 环境变量配置:
-  GATEWAY_TARGET_PROJECT    - 目标 TIA 项目路径
-  GATEWAY_TIA_VERSION       - TIA 版本（默认 V21）
+  目标项目与 TIA 版本均来自 mcp-servers/tia-mcp/config.yaml 的 target 节
   GATEWAY_TIACOMMANDER_DIR  - TiaCommander 目录（可选）
   GATEWAY_TIACOMMANDER_ENABLED=1 - 启用 TiaCommander
   GATEWAY_SAFETY_ENABLED=0  - 禁用安全链
@@ -22,15 +21,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# 将 Gateway 包目录加入 sys.path（目录名含连字符，无法用标准包导入）
-_GATEWAY_DIR = Path(__file__).resolve().parent
-if str(_GATEWAY_DIR) not in sys.path:
-    sys.path.insert(0, str(_GATEWAY_DIR))
+# 直接执行 ``server.py`` 时仍支持旧入口；标准入口是
+# ``python -m plc_gateway.server``，它不依赖目录顺序。
+if __package__ in (None, ""):
+    _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
 
 from fastmcp import FastMCP
 
-from bootstrap import bootstrap_gateway, GatewayContext
-from registry import ToolCategory, RiskLevel, get_registry
+from plc_gateway.bootstrap import bootstrap_gateway, GatewayContext
+from plc_gateway.registry import ToolCategory, RiskLevel, get_registry
 
 _logger = logging.getLogger(__name__)
 
@@ -58,11 +59,14 @@ def _get_read_provider() -> tuple[Any, dict | None]:
     if not provider or not provider.available:
         return None, {"ok": False, "error": "没有可用的只读 Provider"}
 
-    # 安全链：检查项目目标（如果已配置）
-    if ctx.safety and ctx.config.target_project:
-        result = ctx.safety.check_target("", ctx.config.target_project)
+    if not ctx.config.target_project:
+        return None, {"ok": False, "status": "blocked", "error": {"code": "TARGET_NOT_CONFIGURED", "message": "未配置唯一受控项目目标"}}
+
+    # Provider 只能携带由统一配置注入的项目路径；空路径或漂移均失败关闭。
+    if ctx.safety:
+        result = ctx.safety.check_target(getattr(provider, "project_path", ""), ctx.config.target_project)
         if not result.allowed:
-            return None, {"ok": False, "error": result.reason}
+            return None, {"ok": False, "status": "blocked", "error": {"code": "TARGET_MISMATCH", "message": result.reason}}
 
     return provider, None
 

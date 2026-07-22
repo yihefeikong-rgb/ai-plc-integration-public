@@ -44,7 +44,7 @@ This repository does **not** claim that:
 
 ## Current evidence status
 
-As of **2026-07-21**, the repository has the following evidence boundary:
+As of **2026-07-22**, the repository has the following evidence boundary:
 
 | Area | Confirmed fact | What must not be inferred |
 | --- | --- | --- |
@@ -52,6 +52,7 @@ As of **2026-07-21**, the repository has the following evidence boundary:
 | Desktop and backend | FastAPI, React/Vite, Electron configuration, routes, and workflow code are present. The root `start.bat` launches the local backend only. Frontend Vitest reports **136 passing tests** (11 files, 72% critical-path coverage); P0-P5 batches fixed 6 HIGH issues (no-fabrication principle: removed hardcoded fake data in Inspector/Dashboard, redacted testResult.reply, added localControlHeaders to fallback fetch), and delivered F-019 robot 4-mode control + L3 safety level + 9-field high-risk confirmation, F-037 useTabs single-state-object root fix, ToolStatusBar 10-state machine across 5 tool pages, real attachment-upload API, CSP `script-src 'self'` tightening with env-var `connect-src`, ErrorBoundary redaction, and logging for 9+ silent `catch {}` blocks. | This does not prove Electron packaging, every external model, or every UI path on every machine. E2E, Lighthouse, responsive 4-size screenshot regression, and OrchestratorPanel/ChatArea/InspectorPanel file splits (P6/P7) remain pending. |
 | TIA/PLCSIM path | A controlled V21 target, TIA Worker, CartGen, download path, and snap7 readback path exist in source. | The corrected revision has not completed end-to-end dynamic acceptance for TIA V21 → PLCSIM Advanced V8 → snap7 → Factory I/O. A valid local PLCSIM Advanced license, loaded project, successful download, and readable CPU are separate prerequisites. |
 | Real field equipment | Code contains target, write-parameter, authenticated-actor, one-time-confirmation, and cross-process-audit guards. | It does not authorize connection to real PLCs, F-CPUs, safety circuits, or production environments. |
+| PLC Gateway | A FastMCP startup skeleton, read-only provider interface, and shadow-migration code exist; evidence is offline only. | This does not prove real provider calls, dynamic target validation, shadow-result equivalence, write-chain integration, or TiaCommander validation. |
 
 Historical plans and status reports are clues only. When they conflict, prefer current source, `mcp-servers/tia-mcp/config.yaml`, test configuration, and direct runtime evidence.
 
@@ -63,6 +64,7 @@ Historical plans and status reports are clues only. When they conflict, prefer c
 | `orchestrator/` | MCP subprocess pool, tool registry, workflow engine, and single lifecycle-owner lock. Registers S7 monitoring, TIA multi-block, NL→PLCSIM, robot Pick & Place, and robot-monitor workflows. | A registered workflow is not evidence of field acceptance. |
 | `mcp-servers/tia-mcp/` | FastMCP, TIA Openness calls, C# `TiaWorker`, .NET 8 `CartGen`, LadderSpec validation, SCL/LAD generation, and PLCSIM helper paths. | Requires compatible local TIA V21 installation, permissions, and licenses. |
 | `mcp-servers/plc-mcp-bridge/` | Bridge tools for S7 runtime, TIA engineering, PLCSIM, Factory I/O, tags, blocks, UDTs, and diagnostics. | Read/write and engineering mutations require safety gates, target constraints, and human process. |
+| `mcp-servers/plc-gateway/` | A FastMCP skeleton under migration; its read-only tools, TiaWorker Provider, and shadow comparison remain under remediation and offline verification. | Gateway write tools are not exposed. Source presence or Mock tests are not dynamic TIA/TiaCommander validation. |
 | `mcp-servers/{opcua,modbus,mitsubishi,robot}-mcp/` | Experimental MCP implementations for OPC UA, Modbus TCP, Mitsubishi MC protocol, and robot scenarios. | They have no unified real-hardware acceptance claim. Do not connect them to field devices by default. |
 | `mcp_common/` and `safety/` | Shared configuration, single control target, confirmation tokens, interlocks, static pre-checks, and chained audit logging with cross-process exclusion. | Engineering safeguards only; not a functional-safety certification. |
 | `plc-code-templates/` | SCL, LAD, PLCopen/XML, and example PLC assets. | Presence of an asset does not prove import, compilation, or download success. |

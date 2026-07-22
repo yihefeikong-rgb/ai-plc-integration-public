@@ -11,14 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
-
-class RiskLevel(Enum):
-    """风险等级 L0-L4"""
-    L0_READ_ONLY = "L0"       # 纯读取，无需人工确认
-    L1_FILE_GEN = "L1"        # 本地文件生成，不修改 TIA
-    L2_TIA_EDIT = "L2"        # TIA 工程修改，需 Preview/Apply
-    L3_SIM_CONTROL = "L3"     # 仿真控制，需人工确认
-    L4_REAL_DEVICE = "L4"     # 真实设备操作，默认禁用
+from plc_gateway.policy.risk_levels import RiskLevel
 
 
 class ToolCategory(Enum):

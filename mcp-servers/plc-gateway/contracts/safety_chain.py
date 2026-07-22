@@ -28,11 +28,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable
 
-from policy.risk_levels import (
+from plc_gateway.policy.risk_levels import (
     RiskLevel, is_default_disabled, requires_preview,
     requires_confirmation, requires_backup,
 )
-from contracts.preview_apply import (
+from plc_gateway.contracts.preview_apply import (
     PreviewManager, get_preview_manager, PreviewToken,
     ApplyFailureState, AuditEvent,
 )

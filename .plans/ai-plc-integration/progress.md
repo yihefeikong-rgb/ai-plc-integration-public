@@ -624,25 +624,13 @@ pytest orchestrator/tests/ -v
 
 ---
 
-## 2026-07-22：PLC Gateway Batch 3-11 实施完成
+## 2026-07-22：PLC Gateway 当前状态更正与第二轮整改
 
-### 完成事项
-- **Batch 3**: 创建 `server.py`/`bootstrap.py`/`config.py`，FastMCP 9 个 L0 工具
-- **Batch 4**: Orchestrator 阴影模式集成（shadow/off/primary 三态）
-- **Batch 5**: TiaCommander 只读加固（`read_only=True` 默认，写操作拒绝）
-- **Batch 6**: 安全链 HMAC 签名 + 持久化审计链 + 原子 Apply + 失败状态
-- **Batch 8**: Network Patch 严格验证 + JSON Schema + ASCII Diff
-- **Batch 10**: Gateway Router 阴影比较 + 路由 (shadow/primary/off)
-- **Batch 11**: ADR-003-provider-routing.md 路由规则文档
-- **Batch 1**: TiaWorker `TIAWORKER_COMMAND_MAP` + operation_id
-- **Batch 2**: 统一 `ProviderResult`（含 `provider` 字段 + `ErrorInfo`）
-- **Batch 0**: ADR-001 状态更新为 Accepted、README 架构图更新
+### 当前事实
+- FastMCP 启动骨架存在，但此前“Batch 3–11 全部完成”的声明不构成运行验收。
+- 以下项仍需以代码、离线测试和后续只读动态证据分别整改：TiaWorker Provider 调用、错误契约、唯一控制目标、Provider 路由、影子双调用、正式安全链整合、TiaCommander 动态验证和 Network Patch Apply。
+- 当前 Gateway 不开放写工具；本轮不得执行下载、写入、TiaCommander 写模式或真实 PLC 操作。
 
-### 验证
-- 11/11 网关测试通过
-- 45/45 orchestrator 测试通过
-- 代码审查通过（3 个 HIGH 已修复）
-
-### 下一步
-- Batch 7: V21 XML Fixture（需要真实 TIA 导出文件）
-- Batch 9: TiaCommander guarded apply（需要 TiaCommander 运行环境）
+### 当前验证边界
+- 离线单元与 Mock 测试只能证明软件契约；不证明 TIA 项目加载、下载完成、CPU RUN 或 PLC 可读。
+- 任何未来动态验证仅允许从 `get-project-info`、`list-devices`、`list-blocks` 等只读命令开始，并须另获明确授权。

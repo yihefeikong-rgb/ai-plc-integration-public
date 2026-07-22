@@ -2,7 +2,7 @@
 
 - **编号**: ADR-003
 - **日期**: 2026-07-22
-- **状态**: Accepted
+- **状态**: Proposed (read-only migration validation)
 - **作者**: Architecture Team
 - **审查人**: TBD
 - **影响范围**: mcp-servers/plc-gateway/, orchestrator/
@@ -15,8 +15,8 @@ PLC Engineering Gateway 支持多种 TIA 后端 Provider，当前包括：
 
 | Provider | 类型 | 可用性 | 写入能力 | 适用场景 |
 |----------|------|--------|---------|---------|
-| TiaWorker | 项目自有开源 | 默认启用 | 创建/编译/下载 | 日常开发、CI/CD |
-| TiaCommander | 外部闭源 | 可选（默认关闭） | 网络级修改 | 精确网络编辑 |
+| TiaWorker | 项目自有开源 | 只读迁移期使用 | Gateway 未暴露写能力 | 离线/受控只读验证 |
+| TiaCommander | 外部闭源 | 可选（默认关闭） | Gateway 当前不启用写模式 | 后续独立审查 |
 
 双 Provider 架构需要明确的**路由规则**和**所有权边界**，避免：
 - 同一操作由不同 Provider 执行导致结果不一致

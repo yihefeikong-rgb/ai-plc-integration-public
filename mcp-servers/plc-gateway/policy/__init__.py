@@ -1,9 +1,9 @@
 """Policy 初始化"""
-from policy.risk_levels import RiskLevel, is_default_disabled, requires_preview, requires_confirmation, requires_backup
-from policy.routing import RoutingPolicy, get_policy, configure_default_routing
+from plc_gateway.policy.risk_levels import RiskLevel, is_default_disabled, requires_preview, requires_confirmation, requires_backup
+from plc_gateway.policy.routing import RoutingPolicy, configure_default_routing
 
 __all__ = [
     "RiskLevel", "is_default_disabled", "requires_preview",
     "requires_confirmation", "requires_backup",
-    "RoutingPolicy", "get_policy", "configure_default_routing",
+    "RoutingPolicy", "configure_default_routing",
 ]

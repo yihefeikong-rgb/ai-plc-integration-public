@@ -20,14 +20,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from config import GatewayConfig
-from providers.base import TiaProvider, ProviderResult
-from providers.tiaworker import TiaWorkerProvider
-from providers.tiacommander import create_provider as create_tiacommander
-from registry import get_registry, register_default_tools, ToolCategory
-from policy.routing import RoutingPolicy, configure_default_routing
-from contracts.safety_chain import SafetyChain, get_safety_chain
-from contracts.preview_apply import get_preview_manager
+from plc_gateway.config import GatewayConfig
+from plc_gateway.providers.base import TiaProvider, ProviderResult
+from plc_gateway.providers.tiaworker import TiaWorkerProvider
+from mcp_common.tiaworker_client import TiaWorkerClient
+from plc_gateway.providers.tiacommander import create_provider as create_tiacommander
+from plc_gateway.registry import get_registry, register_default_tools, ToolCategory
+from plc_gateway.policy.routing import RoutingPolicy, configure_default_routing
+from plc_gateway.contracts.safety_chain import SafetyChain, get_safety_chain
+from plc_gateway.contracts.preview_apply import get_preview_manager
 
 _logger = logging.getLogger(__name__)
 
@@ -101,8 +102,9 @@ def _init_providers(ctx: GatewayContext) -> dict[str, TiaProvider]:
 
     tiaworker_exe = _find_tiaworker_exe(ctx.config)
     if tiaworker_exe:
+        client = TiaWorkerClient(tiaworker_exe, tia_version=ctx.config.tia_version)
         providers["tiaworker"] = TiaWorkerProvider(
-            tiaworker_exe, tia_version=ctx.config.tia_version)
+            client, project_path=ctx.config.target_project)
         _logger.info(f"TiaWorker 已初始化")
     else:
         providers["tiaworker"] = _UnavailableProvider("tiaworker")
@@ -138,8 +140,9 @@ def _init_safety(ctx: GatewayContext) -> SafetyChain:
 
 def _init_routing(ctx: GatewayContext) -> RoutingPolicy:
     """初始化路由策略"""
-    policy = configure_default_routing(
-        tiaworker_provider=ctx.providers.get("tiaworker"),
+    policy = RoutingPolicy(
+        default_read=ctx.config.default_read_provider,
+        default_write=ctx.config.default_write_provider,
     )
     for name, provider in ctx.providers.items():
         policy.register_provider(provider)
@@ -165,7 +168,7 @@ class _UnavailableProvider(TiaProvider):
         return True
 
     def _err(self, operation: str) -> ProviderResult:
-        return ProviderResult.error_result(operation, f"{self._name} 不可用")
+        return ProviderResult.error_result(operation, f"{self._name} 不可用", provider=self._name, status="unavailable")
 
     def get_project_info(self) -> ProviderResult:
         return self._err(f"{self._name}.project.info")
@@ -240,7 +243,7 @@ def bootstrap_gateway(config: GatewayConfig | None = None) -> GatewayContext:
 
 def _register_system_tools(ctx: GatewayContext) -> None:
     """注册系统工具到注册表（幂等，跳过已注册项）"""
-    from registry import register_tool, ToolMetadata, RiskLevel
+    from plc_gateway.registry import register_tool, ToolMetadata, RiskLevel
 
     _system_tools = [
         ToolMetadata(

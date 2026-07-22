@@ -32,7 +32,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from providers.base import ProviderResult, TiaProvider, ErrorInfo
+from plc_gateway.providers.base import ProviderResult, TiaProvider, ErrorInfo
 
 # 受保护的测试块名称
 _PROTECTED_BLOCKS = frozenset(["OB1", "OB100", "OB121", "OB122"])
