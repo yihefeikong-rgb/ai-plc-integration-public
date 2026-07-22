@@ -21,6 +21,13 @@
     <Delete Files="@(SiemensFilesToDelete)" />
   </Target>
 
+  <!-- 排除测试目录，避免 SDK 风格项目自动包含测试文件 -->
+  <ItemGroup>
+    <Compile Remove="TiaWorker.Tests\**\*.cs" />
+    <EmbeddedResource Remove="TiaWorker.Tests\**\*" />
+    <None Remove="TiaWorker.Tests\**\*" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>

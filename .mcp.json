@@ -1,13 +1,3 @@
 {
-  "mcpServers": {
-    "plc-mcp-bridge": {
-      "command": "python",
-      "args": [
-        "mcp-servers/plc-mcp-bridge/server.py"
-      ]
-    },
-    "tiacommander": {
-      "command": "mcp-servers/tiacommander-mcp/TiaCommander.exe"
-    }
-  }
+  "mcpServers": {}
 }
