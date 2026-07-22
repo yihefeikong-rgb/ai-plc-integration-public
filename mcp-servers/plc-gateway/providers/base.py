@@ -12,16 +12,30 @@ from typing import Any
 
 
 @dataclass
+class ErrorInfo:
+    """结构化错误信息"""
+    code: str = ""
+    message: str = ""
+    retryable: bool = False
+    side_effect_state: str = "unknown"
+
+
+@dataclass
 class ProviderResult:
-    """Provider 操作的标准返回格式"""
+    """Provider 操作的标准返回格式（统一 GatewayResult）"""
     ok: bool
     status: str = "success"
     operation: str = ""
     operation_id: str = ""
+    provider: str = ""
     result: dict | None = None
     warnings: list[str] = field(default_factory=list)
-    error: str | None = None
+    error: ErrorInfo | None = None
     reconcile_required: bool = False
+
+    def __post_init__(self):
+        if self.error is None and not self.ok:
+            self.error = ErrorInfo(message="未知错误")
 
     def to_dict(self) -> dict:
         return {
@@ -29,11 +43,24 @@ class ProviderResult:
             "status": self.status if self.ok else "error",
             "operation": self.operation,
             "operation_id": self.operation_id,
+            "provider": self.provider,
             "result": self.result or {},
             "warnings": self.warnings,
-            "error": self.error if not self.ok else None,
+            "error": self.error.to_dict() if self.error else (None if self.ok else {"message": "未知错误", "code": "UNKNOWN"}),
             "reconcile_required": self.reconcile_required,
         }
+
+    @classmethod
+    def error_result(cls, operation: str, message: str,
+                     code: str = "ERROR", retryable: bool = False,
+                     reconcile_required: bool = False) -> "ProviderResult":
+        """创建错误结果"""
+        return cls(
+            ok=False,
+            operation=operation,
+            error=ErrorInfo(code=code, message=message, retryable=retryable),
+            reconcile_required=reconcile_required,
+        )
 
 
 class TiaProvider(ABC):

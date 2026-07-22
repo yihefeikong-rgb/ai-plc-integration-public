@@ -43,7 +43,7 @@ async def bootstrap(
         BootstrapResult 包含连接成功和失败的服务器信息
     """
     from orchestrator.core import get_engine
-    from orchestrator.server_configs import ALL_SERVERS
+    from orchestrator.server_configs import ALL_SERVERS, SHADOW_SERVERS, _GATEWAY_MODE
     from orchestrator.workflows import register_all_workflows
 
     if pool is None:
@@ -91,6 +91,23 @@ async def bootstrap(
     _logger.info(
         f"启动引导完成: {len(result.connected)} 连接, {len(result.failed)} 失败"
     )
+
+    # 连接阴影模式服务器（仅记录，不影响主流程）
+    if SHADOW_SERVERS:
+        _logger.info(f"阴影模式服务器: {[s.name for s in SHADOW_SERVERS]}")
+        for info in SHADOW_SERVERS:
+            try:
+                await asyncio.wait_for(pool.connect_server(info), timeout=10.0)
+                adapter = pool.get_adapter(info.name)
+                if adapter is not None:
+                    tools = await asyncio.wait_for(adapter.list_tools(), timeout=5.0)
+                    registry.register_server(info)
+                    for tool in tools:
+                        registry.register_tool(info.name, tool)
+                result.connected.append(f"{info.name}(shadow)")
+                _logger.info(f"阴影服务器 {info.name} 已连接")
+            except Exception as e:
+                _logger.warning(f"阴影服务器 {info.name} 连接失败: {e}")
 
     return result
 

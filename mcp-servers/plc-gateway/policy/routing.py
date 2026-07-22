@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..providers.base import ProviderResult, TiaProvider
-from .risk_levels import RiskLevel, is_default_disabled
+from providers.base import ProviderResult, TiaProvider
+from policy.risk_levels import RiskLevel, is_default_disabled
 
 
 class RoutingPolicy:

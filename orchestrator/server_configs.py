@@ -5,6 +5,7 @@
 供编排层在连接真实 MCP 服务器时使用。
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -84,6 +85,23 @@ DESKTOP_MCP = ServerInfo(
 )
 
 # ============================================================================
+# PLC Engineering Gateway — 阴影模式
+# ============================================================================
+# PLC_GATEWAY_MODE 环境变量控制：
+#   shadow (默认) — 启动但不参与主路由，仅用于比较验证
+#   off — 不启动
+#   primary — 正式接管 TIA 工程态操作（需显式设置）
+_GATEWAY_MODE = os.environ.get("PLC_GATEWAY_MODE", "shadow")
+
+PLC_GATEWAY = ServerInfo(
+    name="plc-gateway",
+    description="PLC Engineering Gateway — 统一工程态网关（阴影模式，9 工具）",
+    command=PYTHON_EXECUTABLE,
+    args=["server.py"],
+    cwd=_server_cwd("mcp-servers", "plc-gateway"),
+)
+
+# ============================================================================
 # 集成测试用服务器
 # ============================================================================
 
@@ -109,6 +127,14 @@ ALL_SERVERS: list[ServerInfo] = [
     # DESKTOP_MCP — 使用非标准 JSON-RPC，不兼容 MCP 协议，暂不自动连接
     # TEST_ECHO — 仅用于集成测试，不自动连接
 ]
+
+# 阴影模式服务器列表（仅用于比较，不影响主流程）
+SHADOW_SERVERS: list[ServerInfo] = []
+if _GATEWAY_MODE == "shadow":
+    SHADOW_SERVERS = [PLC_GATEWAY]
+elif _GATEWAY_MODE == "primary":
+    SHADOW_SERVERS = []
+    ALL_SERVERS.append(PLC_GATEWAY)
 
 # 按名称快速查找
 SERVER_MAP: dict[str, ServerInfo] = {s.name: s for s in ALL_SERVERS}

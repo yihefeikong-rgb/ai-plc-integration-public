@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <SW.Blocks.PlcBlock ID="1">
+    <Name>TestFC</Name>
+    <Network Number="0" Title="网络标题1">
+      <NetworkTitle>
+        <Title>网络标题1</Title>
+      </NetworkTitle>
+      <Comment>
+        <Title>测试注释</Title>
+      </Comment>
+      <FlgNet>
+        <Parts>
+          <Part UId="1">
+            <Operand>
+              <Name>tag1</Name>
+              <Address>DB1.DBX0.0</Address>
+            </Operand>
+          </Part>
+        </Parts>
+        <Wires>
+          <Wire Source="1" Target="2" />
+        </Wires>
+        <Access>
+          <OperandRef UId="1" />
+        </Access>
+      </FlgNet>
+    </Network>
+    <Network Number="1" Title="网络标题2">
+      <NetworkTitle>
+        <Title>网络标题2</Title>
+      </NetworkTitle>
+      <Call>
+        <Name>MyFC1</Name>
+        <Parameter Name="input1" Address="DB1.DBW0" />
+        <Parameter Name="output1" Address="DB1.DBW2" />
+      </Call>
+    </Network>
+  </SW.Blocks.PlcBlock>
+</Document>

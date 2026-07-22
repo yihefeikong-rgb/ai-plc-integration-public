@@ -623,3 +623,26 @@ pytest orchestrator/tests/ -v
 - 前端 UI 增强（实时数据刷新、WebSocket 推送等）
 
 ---
+
+## 2026-07-22：PLC Gateway Batch 3-11 实施完成
+
+### 完成事项
+- **Batch 3**: 创建 `server.py`/`bootstrap.py`/`config.py`，FastMCP 9 个 L0 工具
+- **Batch 4**: Orchestrator 阴影模式集成（shadow/off/primary 三态）
+- **Batch 5**: TiaCommander 只读加固（`read_only=True` 默认，写操作拒绝）
+- **Batch 6**: 安全链 HMAC 签名 + 持久化审计链 + 原子 Apply + 失败状态
+- **Batch 8**: Network Patch 严格验证 + JSON Schema + ASCII Diff
+- **Batch 10**: Gateway Router 阴影比较 + 路由 (shadow/primary/off)
+- **Batch 11**: ADR-003-provider-routing.md 路由规则文档
+- **Batch 1**: TiaWorker `TIAWORKER_COMMAND_MAP` + operation_id
+- **Batch 2**: 统一 `ProviderResult`（含 `provider` 字段 + `ErrorInfo`）
+- **Batch 0**: ADR-001 状态更新为 Accepted、README 架构图更新
+
+### 验证
+- 11/11 网关测试通过
+- 45/45 orchestrator 测试通过
+- 代码审查通过（3 个 HIGH 已修复）
+
+### 下一步
+- Batch 7: V21 XML Fixture（需要真实 TIA 导出文件）
+- Batch 9: TiaCommander guarded apply（需要 TiaCommander 运行环境）

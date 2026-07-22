@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NetworkPatch",
+  "description": "PLC 网络级 Patch 的 JSON Schema",
+  "type": "object",
+  "required": ["block", "base_hash", "operations"],
+  "properties": {
+    "block": {
+      "type": "string",
+      "description": "目标块名称（如 FC1、DB10）",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "base_hash": {
+      "type": "string",
+      "description": "块当前内容的 SHA-256 哈希",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "provider": {
+      "type": "string",
+      "description": "目标 Provider（可选，默认由路由决定）",
+      "enum": ["tiaworker", "tiacommander"]
+    },
+    "operations": {
+      "type": "array",
+      "description": "操作列表",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["operation", "network_index"],
+        "properties": {
+          "operation": {
+            "type": "string",
+            "description": "操作类型",
+            "enum": [
+              "update_network_title",
+              "update_network_comment"
+            ]
+          },
+          "network_index": {
+            "type": "integer",
+            "description": "网络索引（从 0 开始）",
+            "minimum": 0
+          },
+          "expected_network_hash": {
+            "type": "string",
+            "description": "当前网络的预期 Hash（可选）",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "new_title": {
+            "type": "string",
+            "description": "新标题（用于 update_network_title）"
+          },
+          "new_comment": {
+            "type": "string",
+            "description": "新注释（用于 update_network_comment）"
+          }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"operation": {"const": "update_network_title"}}},
+            "then": {"required": ["new_title"]}
+          },
+          {
+            "if": {"properties": {"operation": {"const": "update_network_comment"}}},
+            "then": {"required": ["new_comment"]}
+          }
+        ]
+      }
+    }
+  }
+}

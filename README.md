@@ -64,6 +64,7 @@
 | `mcp-servers/tia-mcp/` | FastMCP、TIA Openness 调用、C# `TiaWorker`、.NET 8 `CartGen`、LadderSpec 校验、SCL/LAD 生成和 PLCSIM 辅助脚本。 | 面向受控 TIA V21 / 隔离 PLCSIM 目标；运行需要本机安装、权限与许可证。 |
 | `mcp-servers/plc-mcp-bridge/` | S7 运行态、TIA 工程态、PLCSIM、Factory I/O、标签、块、UDT 与诊断工具的桥接层。 | 具有读写与工程变更能力的工具必须经安全门、目标约束和人工流程。 |
 | `mcp-servers/{opcua,modbus,mitsubishi,robot}-mcp/` | OPC UA、Modbus TCP、三菱 MC 协议和机器人场景的 MCP 实验实现。 | 没有在真实硬件上完成统一验收；默认不应连接现场设备。 |
+| `mcp-servers/plc-gateway/` | PLC Engineering Gateway — 统一工程态网关。包含 TiaWorker 和 TiaCommander 双 Provider、9 个 L0 只读 FastMCP 工具、安全链（HMAC 签名 + 持久化审计）、Network Patch 预览和严格验证。 | 仅 L0 只读工具默认暴露；写操作需通过安全链和人工确认。TiaCommander 默认关闭且只读。 |
 | `mcp_common/` 与 `safety/` | 统一配置、唯一控制目标、确认令牌、互锁、静态预检，以及带跨进程互斥的链式审计日志。 | 是软件防护层，不构成功能安全认证。 |
 | `plc-code-templates/` | SCL、LAD、PLCopen/XML 和示例程序资产。 | 生成或模板存在不代表已经导入、编译或下载成功。 |
 | `edge-gateway/` 与 `docker-compose.yml` | 可选的 Modbus、InfluxDB、Grafana、OpenPLC 与 AI 网关集成。 | 依赖独立环境变量、容器与网络配置；不属于默认离线启动路径。 |
@@ -75,11 +76,15 @@ flowchart LR
     UI["Electron + React 工作台"] --> API["FastAPI 本地后端"]
     API --> ORCH["Orchestrator\nMCP 生命周期所有者"]
     API --> DATA["SQLite / ChromaDB\n设置、对话、项目、检索"]
+    ORCH --> GW["PLC Engineering Gateway\n阴影/主模式"]
     ORCH --> TIA["TIA MCP\nTiaWorker + CartGen"]
     ORCH --> PLC["PLC MCP Bridge\nS7 / 工程 / PLCSIM"]
     ORCH --> PROTO["OPC UA / Modbus / Mitsubishi / Robot MCP"]
+    GW --> TW["TiaWorker Provider\n子进程调用"]
+    GW --> TC["TiaCommander Provider\nMCP stdio 客户端（可选只读）"]
+    GW --> SAFE["安全链\nHMAC + 审计 + 确认"]
     TIA --> SIM["隔离 PLCSIM / Factory I/O\n仅在人工验收时"]
-    PLC --> SAFE["目标契约、互锁、确认、审计"]
+    PLC --> SAFE
     SAFE --> SIM
 ```
 

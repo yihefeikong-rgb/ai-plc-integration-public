@@ -2,7 +2,7 @@
 
 - **编号**: ADR-001
 - **日期**: 2026-07-22
-- **状态**: Proposed
+- **状态**: Accepted (Implementation In Progress)
 - **作者**: Architecture Team
 - **审查人**: TBD
 - **影响范围**: mcp-servers/, orchestrator/, safety/, mcp_common/, edge-gateway/
