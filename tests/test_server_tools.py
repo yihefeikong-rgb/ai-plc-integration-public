@@ -772,7 +772,7 @@ class TestSafetyGate:
         result = server._safety_gate("download_to_plcsim", block_name="Test")
         assert result is not None
         assert result["status"] == "error"
-        assert "安全链拒绝" in result["message"]
+        assert "安全链拒绝" in result["error"]
 
 
 # ═══════════════════════════════════════════════════════════════

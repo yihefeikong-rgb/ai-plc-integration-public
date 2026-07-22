@@ -47,7 +47,8 @@ def _safety_gate(operation: str, block_name: str = "") -> dict | None:
     if not result.allowed:
         audit_log(operation, user_input=block_name, block_name=block_name,
                   success=False, detail=f"安全链拒绝: {result.reason}")
-        return {"status": "error", "message": f"安全链拒绝工程态操作: {result.reason}"}
+        return _make_result(ok=False, operation=operation,
+                            error=f"安全链拒绝工程态操作: {result.reason}")
 
 # SVG 渲染器（可选，渲染失败不影响主流程）
 try:
@@ -111,6 +112,38 @@ def _worker_error(
         result["reconcile_required"] = True
         result["error"] = f"{message}；操作结果未知，必须先只读对账，禁止重试 {command}"
     return result
+
+
+def _make_result(
+    ok: bool = True,
+    *,
+    operation: str = "",
+    result: any = None,
+    warnings: list | None = None,
+    error: str | None = None,
+    reconcile_required: bool = False,
+    operation_id: str = "",
+    extra: dict | None = None,
+) -> dict:
+    """统一返回格式（计划 1 阶段 1.3）
+
+    所有 MCP 工具应使用此函数构造返回，确保前端和 Orchestrator 可统一解析。
+    """
+    if not operation_id:
+        operation_id = uuid.uuid4().hex
+    ret = {
+        "ok": ok,
+        "status": "success" if ok else "error",
+        "operation": operation,
+        "operation_id": operation_id,
+        "result": result if result is not None else {},
+        "warnings": warnings or [],
+        "error": error if not ok else None,
+        "reconcile_required": reconcile_required,
+    }
+    if extra:
+        ret.update(extra)
+    return ret
 
 
 def _run_worker(command: str, payload: dict) -> dict:
@@ -837,9 +870,9 @@ def _clean_xml(xml_path: str) -> None:
         f.write(xml)
 
 
-def _import_xml_into_tia(xml_path: str, project_path: str) -> dict:
+def _import_xml_into_tia(xml_path: str) -> dict:
     """将 SimaticML XML 导入 TIA Portal"""
-    p = project_path or cfg.tia.project_path
+    p = _resolve_path("")
     if not p:
         raise ValueError("未指定项目路径，请在 config.yaml 或 .env 中设置 TIA_PROJECT_PATH")
 
@@ -859,7 +892,7 @@ def _import_xml_into_tia(xml_path: str, project_path: str) -> dict:
         compiler.Compile()
         project.Save()
 
-    return {"status": "ok"}
+    return _make_result(ok=True, operation="_import_xml_into_tia")
 
 
 def _render_lad_svg(spec: dict) -> str:
@@ -904,36 +937,41 @@ def create_ladder_block(
         return gate
     # 不允许硬编码模板绕过 LadderSpec 的结构和语义安全闸门。
     if description == "cart3cycle":
-        return {
-            "status": "error",
-            "error": "cart3cycle 硬编码路径未提供可审计 LadderSpec，已在导入前安全阻断",
-        }
+        return _make_result(ok=False, operation="create_ladder_block",
+                            error="cart3cycle 硬编码路径未提供可审计 LadderSpec，已在导入前安全阻断")
 
     # AI 生成流程
     try:
+        # 统一路径校验：任何非受控项目路径都被拒绝
+        _resolve_path(project_path)
         spec = _gen_lad_spec(description, block_name)
         _require_ladder_semantic_safety(spec)
         xml_path = _run_cartgen(spec)
         _clean_xml(xml_path)
-        _import_xml_into_tia(xml_path, project_path)
+        _import_xml_into_tia(xml_path)
         svg_preview = _render_lad_svg(spec)
         _audit_lad_creation(description, spec.get("blockName"),
                             len(spec.get("networks", [])), "ok")
-        return {"status": "ok", "blockName": spec.get("blockName"),
-                "networks": len(spec.get("networks", [])),
-                "xmlPath": xml_path, "svg_preview": svg_preview}
+        return _make_result(ok=True, operation="create_ladder_block",
+                            result={
+                                "blockName": spec.get("blockName"),
+                                "networks": len(spec.get("networks", [])),
+                                "xmlPath": xml_path,
+                                "svg_preview": svg_preview,
+                            })
     except json.JSONDecodeError as e:
-        return {"status": "error", "error": f"DeepSeek 返回的不是合法 JSON: {e}"}
+        return _make_result(ok=False, operation="create_ladder_block",
+                            error=f"DeepSeek 返回的不是合法 JSON: {e}")
     except ValueError as e:
-        return {"status": "error", "error": str(e)}
+        return _make_result(ok=False, operation="create_ladder_block", error=str(e))
     except Exception as e:
-        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+        return _make_result(ok=False, operation="create_ladder_block",
+                            error=f"{type(e).__name__}: {e}")
 
 
 # ─── 一键全流程 ───────────────────────────────────────
 
 
-@mcp.tool()
 @mcp.tool()
 def call_fb_in_ob1(
     fb_names: list,
@@ -957,20 +995,23 @@ def call_fb_in_ob1(
     try:
         path = _resolve_path(project_path)
     except ValueError as e:
-        return {"status": "error", "error": str(e)}
-    
+        return _make_result(ok=False, operation="call_fb_in_ob1", error=str(e))
+
     try:
         from call_fb_in_ob1 import insert_fb_calls
         result = insert_fb_calls(fb_names)
-        return {
-            "status": "ok" if result == 0 else "error",
-            "message": "OB1 调用链创建成功" if result == 0 else f"返回码：{result}",
-            "fb_names": fb_names,
-        }
+        rc = result == 0
+        return _make_result(ok=rc, operation="call_fb_in_ob1",
+                            result={
+                                "fb_names": fb_names,
+                                "return_code": result,
+                                "message": "OB1 调用链创建成功" if rc else f"返回码：{result}",
+                            })
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        return _make_result(ok=False, operation="call_fb_in_ob1", error=str(e))
 
 
+@mcp.tool()
 def full_pipeline(
     description: str,
     block_name: str = "",
@@ -998,13 +1039,13 @@ def full_pipeline(
 
     # ── Step 1: 生成 LAD FB ──
     result = create_ladder_block(description, block_name or "AutoGen", project_path, auth_token=auth_token)
-    if result.get("status") != "ok":
-        return {"status": "error", "step": "create_ladder_block",
-                "error": result.get("error", "LAD FB 生成失败"),
-                "steps": steps}
-    gen_block_name = result["blockName"]
+    if not result.get("ok"):
+        return _make_result(ok=False, operation="full_pipeline",
+                            error=result.get("error", "LAD FB 生成失败"),
+                            extra={"step": "create_ladder_block", "steps": steps})
+    gen_block_name = result["result"]["blockName"]
     steps.append({"step": "create_ladder_block", "blockName": gen_block_name,
-                   "networks": result.get("networks", 0)})
+                   "networks": result["result"].get("networks", 0)})
 
     # ── Step 2: 生成 IO 映射 SCL ──
     try:
@@ -1032,8 +1073,9 @@ def full_pipeline(
             else:
                 steps.append({"step": "gen_io_map", "status": "skipped",
                                "reason": "未找到模板 JSON 文件，跳过 IO 映射"})
-                return {"status": "ok", "blockName": gen_block_name, "steps": steps,
-                        "warning": "IO 映射跳过：未找到模板 JSON"}
+                return _make_result(ok=True, operation="full_pipeline",
+                                    result={"blockName": gen_block_name, "steps": steps},
+                                    warnings=["IO 映射跳过：未找到模板 JSON"])
 
         io_map_scl = generate_io_map(json_path)
         io_map_name = f"IO_Map_{gen_block_name}"
@@ -1046,7 +1088,8 @@ def full_pipeline(
         steps.append({"step": "gen_io_map", "sclPath": scl_path, "blockName": io_map_name})
     except Exception as e:
         steps.append({"step": "gen_io_map", "status": "error", "error": str(e)})
-        return {"status": "error", "step": "gen_io_map", "error": str(e), "steps": steps}
+        return _make_result(ok=False, operation="full_pipeline",
+                            error=str(e), extra={"step": "gen_io_map", "steps": steps})
 
     # ── Step 3: OB1 调用链 ──
     try:
@@ -1056,13 +1099,15 @@ def full_pipeline(
                        "result": "success" if call_result == 0 else f"code={call_result}"})
     except Exception as e:
         steps.append({"step": "ob1_calls", "status": "error", "error": str(e)})
-        return {"status": "error", "step": "ob1_calls", "error": str(e), "steps": steps}
+        return _make_result(ok=False, operation="full_pipeline",
+                            error=str(e), extra={"step": "ob1_calls", "steps": steps})
 
     audit_log("full_pipeline", user_input=description, block_name=gen_block_name,
               result="ok", steps_count=len(steps))
-    return {"status": "ok", "blockName": gen_block_name,
-            "networks": result.get("networks", 0),
-            "steps": steps}
+    return _make_result(ok=True, operation="full_pipeline",
+                        result={"blockName": gen_block_name,
+                                "networks": result["result"].get("networks", 0),
+                                "steps": steps})
 
 
 def _deepseek_chat(messages: list) -> dict:
