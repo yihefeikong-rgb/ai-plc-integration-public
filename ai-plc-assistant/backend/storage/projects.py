@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+import threading
 import time
 import uuid
 from typing import Optional
@@ -11,26 +12,35 @@ class ProjectStore:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
+        self._init_lock = threading.Lock()
 
     def initialize(self):
-        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS projects (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL DEFAULT '',
-                plc_type TEXT NOT NULL DEFAULT 'S7-1200',
-                tia_version TEXT NOT NULL DEFAULT 'V18',
-                language TEXT NOT NULL DEFAULT 'SCL',
-                description TEXT DEFAULT '',
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                last_opened_at REAL NOT NULL
-            )
-        """)
-        self._conn.commit()
+        with self._init_lock:
+            if self._conn is not None:
+                return self
+            os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS projects (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        path TEXT NOT NULL DEFAULT '',
+                        plc_type TEXT NOT NULL DEFAULT 'S7-1200',
+                        tia_version TEXT NOT NULL DEFAULT 'V18',
+                        language TEXT NOT NULL DEFAULT 'SCL',
+                        description TEXT DEFAULT '',
+                        created_at REAL NOT NULL,
+                        updated_at REAL NOT NULL,
+                        last_opened_at REAL NOT NULL
+                    )
+                """)
+                conn.commit()
+            except Exception:
+                conn.close()
+                raise
+            self._conn = conn
         return self
 
     @property

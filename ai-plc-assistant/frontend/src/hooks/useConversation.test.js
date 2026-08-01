@@ -225,19 +225,26 @@ describe('useConversation', () => {
     const { result } = renderConv()
     await waitFor(() => expect(listConversations).toHaveBeenCalled())
     // streamChat 监听 signal abort，abort 时 reject 让 handleSend 走 catch 分支
-    streamChat.mockImplementation(({ signal }) => new Promise((_, reject) => {
-      if (signal) signal.addEventListener('abort', () => reject(new Error('aborted')))
-    }))
+    let markStreamStarted
+    const streamStarted = new Promise((resolve) => { markStreamStarted = resolve })
+    streamChat.mockImplementation(({ signal }) => {
+      markStreamStarted()
+      return new Promise((_, reject) => {
+        if (signal) signal.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    })
     let sendPromise
-    act(() => { sendPromise = result.current.handleSend('测试') })
-    // 等待 handleSend 进入 await streamChat（让 abortRef.current 被赋值）
-    await new Promise((r) => setTimeout(r, 0))
-    // 调用 handleStop
-    act(() => { result.current.handleStop() })
+    await act(async () => {
+      sendPromise = result.current.handleSend('测试')
+      // 等待 handleSend 进入 await streamChat（让 abortRef.current 被赋值）
+      await streamStarted
+    })
+    await act(async () => {
+      result.current.handleStop()
+      await sendPromise
+    })
     // AbortController.abort 应被调用
     expect(abortSpy).toHaveBeenCalled()
-    // 等 handleSend 完成
-    await act(async () => { await sendPromise })
     // sending 应回到 false
     expect(result.current.sending).toBe(false)
     abortSpy.mockRestore()

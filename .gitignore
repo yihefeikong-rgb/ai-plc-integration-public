@@ -102,6 +102,9 @@ mcp-servers/tiacommander-mcp/
 # Bridge 运行态产物（每次闭环生成，不纳入版本控制）
 .plans/ai-plc-integration/bridge/runs/
 
+# Claude Code 本地配置（不纳入版本控制）
+.claude/
+
 # Lighthouse 性能报告（每次跑都变，不 tracked）
 docs/frontend/lighthouse-report.html
 docs/frontend/lighthouse-report.json

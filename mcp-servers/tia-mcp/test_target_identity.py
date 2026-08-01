@@ -20,13 +20,15 @@ def configure(module):
     module.cfg = types.SimpleNamespace(
         simulation=types.SimpleNamespace(
             backend="advanced",
-            advanced=types.SimpleNamespace(plc_ip="192.168.0.110"),
+            advanced=types.SimpleNamespace(plc_ip="192.168.0.1"),
         ),
         factory_io=types.SimpleNamespace(plcsim_instance="factoryio"),
     )
     module.validate_control_target = lambda: types.SimpleNamespace(
-        plc_ip="192.168.0.110",
+        project_path=Path(r"D:\PLC\demo_V21\demo_V21.ap21"),
+        plc_ip="192.168.0.1",
         plcsim_instance="factoryio",
+        device_name="S7-1500/ET200MP station_1",
     )
 
 
@@ -37,7 +39,7 @@ def test_verified_target_accepts_only_the_configured_single_instance(monkeypatch
         get_instances=lambda: [{"name": "factoryio", "state": "run"}],
     ))
 
-    assert module._verified_plcsim_target() == "192.168.0.110"
+    assert module._verified_plcsim_target() == "192.168.0.1"
 
 
 @pytest.mark.parametrize("instances", [[], [{"name": "other", "state": "run"}], [
@@ -63,3 +65,16 @@ def test_verified_target_rejects_a_free_target_ip(monkeypatch):
 
     with pytest.raises(ValueError, match="配置目标"):
         module._verified_plcsim_target("10.0.0.2")
+
+
+def test_tiaworker_payload_uses_the_configured_s7_1500_device():
+    module = load_download_module()
+    configure(module)
+
+    payload = module._build_tiaworker_download_input(
+        "192.168.0.1", 180, "download-test"
+    )
+
+    assert payload["TargetIp"] == "192.168.0.1"
+    assert payload["DeviceName"] == "S7-1500/ET200MP station_1"
+    assert payload["ProjectPath"].endswith("demo_V21.ap21")

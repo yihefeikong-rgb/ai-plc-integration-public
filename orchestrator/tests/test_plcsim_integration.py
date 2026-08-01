@@ -13,6 +13,13 @@ from pathlib import Path
 
 import pytest
 
+from mcp_common.control_target import (
+    TargetConfigurationError,
+    get_control_target,
+    require_control_ip,
+)
+from config_loader import cfg as _tia_cfg
+
 # 添加 bridge 源码路径以便 s7_adapter import
 BRIDGE_ROOT = Path(__file__).parent.parent.parent / "mcp-servers" / "plc-mcp-bridge"
 if str(BRIDGE_ROOT) not in sys.path:
@@ -20,14 +27,15 @@ if str(BRIDGE_ROOT) not in sys.path:
 
 pytestmark = [pytest.mark.integration]
 
-# PLCSIM Advanced 默认配置
-DEFAULT_IP = "192.168.0.1"
-DEFAULT_RACK = 0
-DEFAULT_SLOT = 1
-DEFAULT_PORT = 102
+CONTROL_TARGET = get_control_target()
+
+PLCSIM_IP = CONTROL_TARGET.plc_ip
+PLCSIM_RACK = int(_tia_cfg.simulation.advanced.rack)
+PLCSIM_SLOT = int(_tia_cfg.simulation.advanced.slot)
+PLCSIM_PORT = int(_tia_cfg.simulation.advanced.port)
 
 
-def _try_connect_plcsim(ip=DEFAULT_IP, rack=DEFAULT_RACK, slot=DEFAULT_SLOT, port=DEFAULT_PORT):
+def _try_connect_plcsim():
     """尝试连接 PLCSIM，返回 (client, error_msg)。
 
     成功: (snap7.Client, None)
@@ -40,7 +48,7 @@ def _try_connect_plcsim(ip=DEFAULT_IP, rack=DEFAULT_RACK, slot=DEFAULT_SLOT, por
 
     client = snap7.client.Client()
     try:
-        client.connect(ip, rack, slot, port)
+        client.connect(PLCSIM_IP, PLCSIM_RACK, PLCSIM_SLOT, PLCSIM_PORT)
         return client, None
     except Exception as exc:
         try:
@@ -94,21 +102,10 @@ class TestConnectionLifecycle:
         connected = plcsim_client.get_connected()
         assert connected is True
 
-    def test_connect_with_invalid_ip(self):
-        """连接到不可达 IP 应抛出异常而非卡住"""
-        import snap7
-        c = snap7.client.Client()
-        with pytest.raises(Exception):
-            c.connect("192.168.99.99", 0, 1, 102)
-        c.destroy()
-
-    def test_connect_with_wrong_rack_slot(self):
-        """连接到错误 rack/slot 应报错"""
-        import snap7
-        c = snap7.client.Client()
-        with pytest.raises(Exception):
-            c.connect(DEFAULT_IP, 99, 99, 102)
-        c.destroy()
+    def test_target_drift_rejected_before_connect(self):
+        """非唯一控制目标必须在任何网络连接前被拒绝。"""
+        with pytest.raises(TargetConfigurationError):
+            require_control_ip("203.0.113.10")
 
     def test_disconnect_and_reconnect(self):
         """断开后可以重新连接"""
@@ -163,40 +160,41 @@ class TestMerkerReadWrite:
 
     def test_mb_write_then_read(self, plcsim_client):
         """写入 MB0=42，回读验证"""
-        plcsim_client.mb_write(0, 1, bytearray([42]))
-        data = plcsim_client.mb_read(0, 1)
-        assert data[0] == 42
-
-        # 恢复为 0
-        plcsim_client.mb_write(0, 1, bytearray([0]))
+        original = plcsim_client.mb_read(0, 1)
+        try:
+            plcsim_client.mb_write(0, 1, bytearray([42]))
+            data = plcsim_client.mb_read(0, 1)
+            assert data[0] == 42
+        finally:
+            plcsim_client.mb_write(0, 1, original)
 
     def test_mw_write_then_read(self, plcsim_client):
         """写入 MW0=12345，回读验证"""
         from snap7 import util as snap7_util
+        original = plcsim_client.mb_read(0, 2)
         data = bytearray(2)
         snap7_util.set_int(data, 0, 12345)
-        plcsim_client.mb_write(0, 2, data)
-
-        readback = plcsim_client.mb_read(0, 2)
-        value = snap7_util.get_int(readback, 0)
-        assert value == 12345
-
-        # 恢复
-        plcsim_client.mb_write(0, 2, bytearray([0, 0]))
+        try:
+            plcsim_client.mb_write(0, 2, data)
+            readback = plcsim_client.mb_read(0, 2)
+            value = snap7_util.get_int(readback, 0)
+            assert value == 12345
+        finally:
+            plcsim_client.mb_write(0, 2, original)
 
     def test_md_write_then_read(self, plcsim_client):
         """写入 MD0=3.14，回读验证"""
         from snap7 import util as snap7_util
+        original = plcsim_client.mb_read(0, 4)
         data = bytearray(4)
         snap7_util.set_real(data, 0, 3.14)
-        plcsim_client.mb_write(0, 4, data)
-
-        readback = plcsim_client.mb_read(0, 4)
-        value = snap7_util.get_real(readback, 0)
-        assert abs(value - 3.14) < 0.01
-
-        # 恢复
-        plcsim_client.mb_write(0, 4, bytearray([0, 0, 0, 0]))
+        try:
+            plcsim_client.mb_write(0, 4, data)
+            readback = plcsim_client.mb_read(0, 4)
+            value = snap7_util.get_real(readback, 0)
+            assert abs(value - 3.14) < 0.01
+        finally:
+            plcsim_client.mb_write(0, 4, original)
 
     def test_m_bit_write_then_read(self, plcsim_client):
         """写入 M0.0=True，回读验证"""
@@ -205,16 +203,13 @@ class TestMerkerReadWrite:
         original = plcsim_client.mb_read(0, 1)
         data = bytearray(original)
         snap7_util.set_bool(data, 0, 0, True)
-        plcsim_client.mb_write(0, 1, data)
-
-        # 回读
-        readback = plcsim_client.mb_read(0, 1)
-        bit0 = snap7_util.get_bool(readback, 0, 0)
-        assert bit0 is True
-
-        # 恢复
-        snap7_util.set_bool(data, 0, 0, False)
-        plcsim_client.mb_write(0, 1, data)
+        try:
+            plcsim_client.mb_write(0, 1, data)
+            readback = plcsim_client.mb_read(0, 1)
+            bit0 = snap7_util.get_bool(readback, 0, 0)
+            assert bit0 is True
+        finally:
+            plcsim_client.mb_write(0, 1, original)
 
 
 # ---------------------------------------------------------------------------
@@ -244,18 +239,19 @@ class TestDbReadWrite:
     def test_db_write_then_read(self, plcsim_client):
         """写入 DB1.byte0=99，回读验证"""
         try:
-            plcsim_client.db_write(1, 0, bytearray([99]))
-            readback = plcsim_client.db_read(1, 0, 1)
+            original = plcsim_client.db_read(1, 0, 1)
         except Exception as e:
             msg = str(e).lower()
             if any(kw in msg for kw in ("not found", "doesn't exist", "error", "invalid")):
                 pytest.skip(f"DB1 不可用（PLC 可能未加载项目）: {e}")
             raise
 
-        assert readback[0] == 99
-
-        # 恢复
-        plcsim_client.db_write(1, 0, bytearray([0]))
+        try:
+            plcsim_client.db_write(1, 0, bytearray([99]))
+            readback = plcsim_client.db_read(1, 0, 1)
+            assert readback[0] == 99
+        finally:
+            plcsim_client.db_write(1, 0, original)
 
 
 # ---------------------------------------------------------------------------
@@ -282,18 +278,18 @@ class TestS7AdapterWithRealPLC:
         assert val in (True, False)
 
     def test_adapter_read_mw(self, adapter):
-        adapter._client.mb_write(0, 2, bytearray([0]))
         val = adapter.read_mw(0)
         assert isinstance(val, int)
 
     def test_adapter_write_then_read_mw(self, adapter):
-        result = adapter.write_mw(10, 256)
-        assert "✅" in result
-        val = adapter.read_mw(10)
-        assert val == 256
-
-        # 恢复
-        adapter.write_mw(10, 0)
+        original = adapter.read_mw(10)
+        try:
+            result = adapter.write_mw(10, 256)
+            assert "✅" in result
+            val = adapter.read_mw(10)
+            assert val == 256
+        finally:
+            adapter.write_mw(10, original)
 
     def test_adapter_read_address_M0_0(self, adapter):
         val = adapter.read_address("M0.0")
@@ -304,13 +300,14 @@ class TestS7AdapterWithRealPLC:
         assert isinstance(val, int)
 
     def test_adapter_write_address_MD4(self, adapter):
-        result = adapter.write_address("MD4", 2.718)
-        assert "✅" in result
-        val = adapter.read_address("MD4")
-        assert abs(val - 2.718) < 0.1
-
-        # 恢复
-        adapter.write_address("MD4", 0.0)
+        original = adapter.read_address("MD4")
+        try:
+            result = adapter.write_address("MD4", 2.718)
+            assert "✅" in result
+            val = adapter.read_address("MD4")
+            assert abs(val - 2.718) < 0.1
+        finally:
+            adapter.write_address("MD4", original)
 
     def test_adapter_disconnect_and_not_connected(self, adapter):
         adapter.disconnect()

@@ -4,6 +4,7 @@ import logging
 import os
 import uuid
 import shutil
+import threading
 from pathlib import Path
 from typing import List, Optional
 
@@ -91,39 +92,48 @@ class KnowledgeEngine:
         self.embedding_model = embedding_model
         self._client = None
         self._collection = None
+        self._init_lock = threading.Lock()
 
     def initialize(self):
         """初始化 ChromaDB 客户端和集合"""
-        os.makedirs(self.db_path, exist_ok=True)
-        self._client = chromadb.PersistentClient(
-            path=self.db_path,
-            settings=Settings(anonymized_telemetry=False),
-        )
-
-        # 创建嵌入函数（中文模型或默认英文）
-        ef = _create_embedding_function(self.embedding_model) if self.embedding_model else None
-
-        # 处理维度迁移：旧集合(384维) → 新集合(512维)
-        try:
-            self._collection = self._client.get_or_create_collection(
-                name="plc_knowledge",
-                embedding_function=ef,
-                metadata={"hnsw:space": "cosine"},
+        with self._init_lock:
+            if self._client is not None and self._collection is not None:
+                return self
+            os.makedirs(self.db_path, exist_ok=True)
+            client = chromadb.PersistentClient(
+                path=self.db_path,
+                settings=Settings(anonymized_telemetry=False),
             )
-            # 测试维度兼容性
-            if self._collection.count() > 0 and ef:
+
+            # 创建嵌入函数（中文模型或默认英文）
+            ef = _create_embedding_function(self.embedding_model) if self.embedding_model else None
+
+            # 处理维度迁移：旧集合(384维) → 新集合(512维)
+            try:
+                collection = client.get_or_create_collection(
+                    name="plc_knowledge",
+                    embedding_function=ef,
+                    metadata={"hnsw:space": "cosine"},
+                )
+                # 测试维度兼容性
+                if collection.count() > 0 and ef:
+                    try:
+                        collection.query(query_texts=["测试"], n_results=1)
+                    except Exception:
+                        raise KnowledgeMigrationRequiredError(
+                            "嵌入维度不匹配；为保护现有知识库已拒绝自动删除。"
+                            "请先备份并执行显式迁移。"
+                        )
+            except Exception as e:
+                logger.error("知识库初始化失败: %s", e)
+                # 初始化或迁移异常绝不能以删除用户集合作为“恢复”手段。
                 try:
-                    self._collection.query(query_texts=["测试"], n_results=1)
+                    client.close()
                 except Exception:
-                    raise KnowledgeMigrationRequiredError(
-                        "嵌入维度不匹配；为保护现有知识库已拒绝自动删除。"
-                        "请先备份并执行显式迁移。"
-                    )
-        except Exception as e:
-            logger.error("知识库初始化失败: %s", e)
-            # 初始化或迁移异常绝不能以删除用户集合作为“恢复”手段。
-            self._collection = None
-            raise
+                    logger.exception("释放失败的知识库客户端时出错")
+                raise
+            self._client = client
+            self._collection = collection
 
         return self
 

@@ -66,14 +66,14 @@ PLCSIM Advanced 实例：
 ```
 Name:      任意（如 s7-1500）
 Mode:      TCP/IP <Local>
-IP:        10.0.0.1
+IP:        192.168.0.1
 Subnet:    255.255.255.0
 ```
 
 验证：
 ```powershell
-ping 10.0.0.1          # 应 <1ms
-Test-NetConnection 10.0.0.1 -Port 102  # 应 True
+ping 192.168.0.1          # 应 <1ms
+Test-NetConnection 192.168.0.1 -Port 102  # 应 True
 ```
 
 ---
@@ -170,7 +170,7 @@ Factory I/O → Scenes → `Sorting by Height (Basic)`
 |------|-----|
 | Driver | `Siemens S7-1200/1500` |
 | Model | `S7-1500` |
-| Host | `10.0.0.1` |
+| Host | `192.168.0.1` |
 | Bool Inputs offset | `10` |
 | Bool Inputs count | 根据传感器数 |
 | Bool Outputs offset | `10` |
@@ -193,7 +193,7 @@ Factory I/O → Scenes → `Sorting by Height (Basic)`
 | 症状 | 可能原因 | 检查 |
 |------|---------|------|
 | Factory I/O 连不上 | 实例名不对 | PLCSIM Advanced 实例名必须是 `factoryio`（方式A） |
-| | IP 不通 / 端口不对 | `ping 10.0.0.1` + `Test-NetConnection 10.0.0.1 -Port 102`（方式B）|
+| | IP 不通 / 端口不对 | `ping 192.168.0.1` + `Test-NetConnection 192.168.0.1 -Port 102`（方式B）|
 | | TIA Portal 没下载 | 确认已下载到 PLCSIM Advanced |
 | 连上了但 IO 不动 | 偏移量不匹配 | Factory I/O 驱动 offset 和 OB1 中的 %I/%Q 地址要一致 |
 | | 标签没导入 | TIA Portal 确认标签表中存在对应标签 |

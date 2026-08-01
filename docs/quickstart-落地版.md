@@ -251,8 +251,9 @@ python scripts/e2e_smoke.py
 
 **Q: "下载到 PLCSIM 失败"**
 1. PLCSIM Advanced 实例是否已创建？
-2. IP 地址是否与配置一致？（默认 192.168.0.110）
-3. 运行 `python scripts/preflight.py` 检查 PLCSIM 状态
+2. IP 地址是否与配置一致？（默认 192.168.0.1）
+3. TIA 下载设备是否为 `S7-1500/ET200MP station_1`（CPU item `PLC_2`）？
+4. 运行 `python scripts/preflight.py` 检查 PLCSIM 状态
 
 **Q: "snap7 读取失败"**
 1. 安装 python-snap7：`pip install python-snap7`

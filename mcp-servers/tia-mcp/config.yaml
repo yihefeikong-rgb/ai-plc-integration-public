@@ -10,7 +10,8 @@ target:
   tia_version: "${TIA_VERSION:V21}"
   project_path: "${TIA_PROJECT_PATH:D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo_V21\\demo_V21.ap21}"
   plcsim_instance: "${PLCSIM_INSTANCE:factoryio}"
-  plc_ip: "${PLCSIM_TARGET_IP:192.168.0.110}"
+  plc_ip: "${PLCSIM_TARGET_IP:192.168.0.1}"
+  device_name: "${TIA_DEVICE_NAME:S7-1500/ET200MP station_1}"
 
 # ── TIA Portal ──
 tia:

@@ -26,6 +26,7 @@ _SHADOWED_MODULES = (
     "mcp_common",
     "mcp_common.config",
     "mcp_common.audit",
+    "mcp_common.control_target",
     "safety",
     "safety.validator",
     "influxdb_client",
@@ -43,10 +44,14 @@ class _FakeSettings:
     influxdb_token = "t"; influxdb_org = "o"; influxdb_bucket = "b"
     modbus_host = "localhost"; modbus_port = "502"
     def get(self, k, d=None):
-        return {"s7_plc_ip": "192.168.0.110", "s7_rack": "0", "s7_slot": "1"}.get(k, d)
+        return {"s7_plc_ip": "192.168.0.1", "s7_rack": "0", "s7_slot": "1"}.get(k, d)
 
 sys.modules["mcp_common.config"].env_config = MagicMock(return_value=_FakeSettings())
 sys.modules["mcp_common.audit"] = MagicMock()
+sys.modules["mcp_common.control_target"] = MagicMock()
+sys.modules["mcp_common.control_target"].get_control_target = MagicMock(
+    return_value=types.SimpleNamespace(plc_ip="192.168.0.1")
+)
 
 sys.modules["safety"] = MagicMock()
 sys.modules["safety.validator"] = MagicMock()

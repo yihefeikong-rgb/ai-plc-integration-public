@@ -217,6 +217,9 @@ class TestGenIoMapCli:
                 [sys.executable, "-m", "gen_io_map", path],
                 capture_output=True, text=True, timeout=30,
                 cwd=str(Path(__file__).parent.parent / "mcp-servers" / "tia-mcp"),
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                encoding="utf-8",
+                errors="replace",
             )
             assert "FUNCTION_BLOCK" in result.stdout
         finally:
@@ -235,6 +238,8 @@ class TestGenIoMapCli:
                 capture_output=True, text=True, timeout=30,
                 cwd=str(Path(__file__).parent.parent / "mcp-servers" / "tia-mcp"),
                 env=env,
+                encoding="utf-8",
+                errors="replace",
             )
             assert result.returncode == 0
             with open(out.name, encoding="utf-8-sig") as f:
@@ -254,6 +259,9 @@ class TestGenIoMapCli:
             [sys.executable, "-m", "gen_io_map"],
             capture_output=True, text=True, timeout=30,
             cwd=str(Path(__file__).parent.parent / "mcp-servers" / "tia-mcp"),
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            encoding="utf-8",
+            errors="replace",
         )
         assert result.returncode == 1
         assert "用法" in result.stdout or "generate_io_map" in result.stdout

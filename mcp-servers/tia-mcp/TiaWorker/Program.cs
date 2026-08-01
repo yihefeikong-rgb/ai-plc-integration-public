@@ -15,6 +15,7 @@ using System.Xml.Linq;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.Download;
 using Siemens.Engineering.Connection;
+using Siemens.Engineering.Online;
 
 namespace TiaWorker
 {
@@ -28,6 +29,8 @@ namespace TiaWorker
 
         // 唯一受支持的隔离控制目标版本。命令行只能重复声明 V21，不能切换目标。
         private static string _tiaMajorVersion = "V21";
+        private const string ApprovedDownloadDeviceName = "S7-1500/ET200MP station_1";
+        private const string ApprovedDownloadTargetIp = "192.168.0.1";
 
         // TIA Portal 安装根目录，优先从环境变量 TIA_PORTAL_ROOT 读取
         private static string _tiaPortalRoot =>
@@ -415,9 +418,9 @@ namespace TiaWorker
                             var desc = msg.Description ?? "";
                             var line = 0;
                             int severity = 1;  // 1=error, 2=warning
-                            if (msg.State == CompilerResultMessageState.Error)
+                            if (msg.State == CompilerResultState.Error)
                                 severity = 1;
-                            else if (msg.State == CompilerResultMessageState.Warning)
+                            else if (msg.State == CompilerResultState.Warning)
                                 severity = 2;
 
                             errorList.Add(new
@@ -452,6 +455,16 @@ namespace TiaWorker
                 Console.WriteLine(JsonError("Missing ProjectPath"));
                 return 1;
             }
+            if (!string.Equals(input.DeviceName, ApprovedDownloadDeviceName, StringComparison.Ordinal))
+            {
+                Console.WriteLine(JsonError($"DeviceName must be {ApprovedDownloadDeviceName}"));
+                return 1;
+            }
+            if (!string.Equals(input.TargetIp, ApprovedDownloadTargetIp, StringComparison.Ordinal))
+            {
+                Console.WriteLine(JsonError($"TargetIp must be {ApprovedDownloadTargetIp}"));
+                return 1;
+            }
 
             var interfaceName = input?.InterfaceName ?? "PN/IE";
             var targetIp = input?.TargetIp ?? "";
@@ -473,23 +486,15 @@ namespace TiaWorker
                 var downloadItem = FindDownloadableItem(device);
                 if (downloadItem == null)
                 {
-                    Console.WriteLine(JsonOk(new
-                    {
-                        note = "auto",
-                        message = "未找到可自动下载的设备接口。请在 TIA Portal GUI 中手动下载。"
-                    }));
-                    return 0;
+                    Console.WriteLine(JsonError("未找到可下载的设备接口"));
+                    return 1;
                 }
 
                 var downloadProvider = downloadItem.GetService<DownloadProvider>();
                 if (downloadProvider == null)
                 {
-                    Console.WriteLine(JsonOk(new
-                    {
-                        note = "auto",
-                        message = "DownloadProvider 不可用。请在 TIA Portal GUI 中手动下载。"
-                    }));
-                    return 0;
+                    Console.WriteLine(JsonError("DownloadProvider 不可用"));
+                    return 1;
                 }
 
                 // 2. 配置下载连接
@@ -499,12 +504,8 @@ namespace TiaWorker
                     var mode = connConfig.Modes.Find(interfaceName);
                     if (mode == null)
                     {
-                        Console.WriteLine(JsonOk(new
-                        {
-                            note = "auto",
-                            message = $"未找到通信模式 '{interfaceName}'。请在 TIA Portal GUI 中手动下载。"
-                        }));
-                        return 0;
+                        Console.WriteLine(JsonError($"未找到通信模式 '{interfaceName}'"));
+                        return 1;
                     }
 
                     // 调试：枚举所有接口
@@ -514,58 +515,50 @@ namespace TiaWorker
                         if (IsDebugEnabled) Console.Error.WriteLine($"[TiaWorker]   接口: {iface.Name}");
                     }
 
-                    // 优先选择 PLCSIM Softbus 接口（不含 "Ethernet"/"Virtual"）
-                    ConfigurationPcInterface pcInterface = null;
-                    foreach (var iface in mode.PcInterfaces)
+                    // 仅在 PLCSIM 接口中查找；先尝试 Softbus，再尝试虚拟网卡。
+                    // 实例使用 TCP/IP Single Adapter 时，目标只会出现在虚拟网卡下。
+                    var candidateInterfaces = DownloadInterfaceSelector.FilterAndOrder(
+                        mode.PcInterfaces,
+                        iface => iface.Name);
+                    if (candidateInterfaces.Count == 0)
                     {
-                        var name = iface.Name ?? "";
-                        if (name.IndexOf("PLCSIM", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            // Softbus 模式接口名不含 "Ethernet"/"Virtual"
-                            if (name.IndexOf("Ethernet", StringComparison.OrdinalIgnoreCase) < 0 &&
-                                name.IndexOf("Virtual", StringComparison.OrdinalIgnoreCase) < 0)
-                            {
-                                pcInterface = iface;
-                                break;
-                            }
-                            // 记住第一个候选（可能在列表前面）
-                            if (pcInterface == null)
-                                pcInterface = iface;
-                        }
-                    }
-                    if (pcInterface == null)
-                    {
-                        Console.WriteLine(JsonOk(new
-                        {
-                            note = "auto",
-                            message = "未找到可用 PC 接口。请在 TIA Portal GUI 中手动下载。"
-                        }));
-                        return 0;
+                        Console.WriteLine(JsonError("未找到可用的 PLCSIM PC 接口"));
+                        return 1;
                     }
 
-                    // 找目标设备配置
                     IConfiguration targetConfig = null;
+                    var lookupErrors = new List<string>();
                     if (!string.IsNullOrEmpty(targetIp))
                     {
-                        // 先找子网中的地址
-                        foreach (var subnet in pcInterface.Subnets)
+                        foreach (var candidate in candidateInterfaces)
                         {
-                            try
+                            foreach (var subnet in candidate.Subnets)
                             {
-                                targetConfig = subnet.Addresses.Find(targetIp);
-                                if (targetConfig != null) break;
+                                try
+                                {
+                                    targetConfig = subnet.Addresses.Find(targetIp);
+                                    if (targetConfig != null)
+                                        break;
+                                }
+                                catch (Exception ex)
+                                {
+                                    lookupErrors.Add($"{candidate.Name}: {ex.Message}");
+                                }
                             }
-                            catch { }
+                            if (targetConfig != null) break;
                         }
                     }
                     if (targetConfig == null)
                     {
-                        Console.WriteLine(JsonOk(new
+                        if (lookupErrors.Count > 0)
                         {
-                            note = "auto",
-                            message = "未找到目标 PLC。请在 TIA Portal GUI 中手动下载。"
-                        }));
-                        return 0;
+                            Console.WriteLine(JsonError(
+                                $"查询 PLCSIM 目标失败: {string.Join(" | ", lookupErrors.Take(3))}"
+                            ));
+                            return 1;
+                        }
+                        Console.WriteLine(JsonError($"未在 PLCSIM 接口中找到目标 PLC {targetIp}"));
+                        return 1;
                     }
 
                     // 3. 设置下载目标为 PLCSIM Advanced（V21 关键！否则默认找真实硬件）
@@ -640,6 +633,16 @@ namespace TiaWorker
                 Console.WriteLine(JsonError("Missing ProjectPath"));
                 return 1;
             }
+            if (!string.Equals(input.DeviceName, ApprovedDownloadDeviceName, StringComparison.Ordinal))
+            {
+                Console.WriteLine(JsonError($"DeviceName must be {ApprovedDownloadDeviceName}"));
+                return 1;
+            }
+            if (!string.Equals(input.TargetIp, ApprovedDownloadTargetIp, StringComparison.Ordinal))
+            {
+                Console.WriteLine(JsonError($"TargetIp must be {ApprovedDownloadTargetIp}"));
+                return 1;
+            }
 
             var interfaceName = input?.InterfaceName ?? "PN/IE";
             var targetIp = input?.TargetIp ?? "";
@@ -662,15 +665,15 @@ namespace TiaWorker
                     var downloadItem = FindDownloadableItem(device);
                     if (downloadItem == null)
                     {
-                        Console.WriteLine(JsonOk(new { note = "no_device", message = "未找到可下载的设备接口" }));
-                        return 0;
+                        Console.WriteLine(JsonError("未找到可下载的设备接口"));
+                        return 1;
                     }
 
                     var downloadProvider = downloadItem.GetService<DownloadProvider>();
                     if (downloadProvider == null)
                     {
-                        Console.WriteLine(JsonOk(new { note = "no_provider", message = "DownloadProvider 不可用" }));
-                        return 0;
+                        Console.WriteLine(JsonError("DownloadProvider 不可用"));
+                        return 1;
                     }
 
                     // 配置下载连接
@@ -678,46 +681,53 @@ namespace TiaWorker
                     var mode = connConfig.Modes.Find(interfaceName);
                     if (mode == null)
                     {
-                        Console.WriteLine(JsonOk(new { note = "no_mode", message = $"未找到通信模式 '{interfaceName}'" }));
-                        return 0;
+                        Console.WriteLine(JsonError($"未找到通信模式 '{interfaceName}'"));
+                        return 1;
                     }
 
-                    // 优先选择 PLCSIM Softbus 接口
-                    ConfigurationPcInterface pcInterface = null;
-                    foreach (var iface in mode.PcInterfaces)
+                    // 仅在 PLCSIM 接口中查找；先尝试 Softbus，再尝试虚拟网卡。
+                    var candidateInterfaces = DownloadInterfaceSelector.FilterAndOrder(
+                        mode.PcInterfaces,
+                        iface => iface.Name);
+                    if (candidateInterfaces.Count == 0)
                     {
-                        var name = iface.Name ?? "";
-                        if (name.IndexOf("PLCSIM", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            if (name.IndexOf("Ethernet", StringComparison.OrdinalIgnoreCase) < 0 &&
-                                name.IndexOf("Virtual", StringComparison.OrdinalIgnoreCase) < 0)
-                            {
-                                pcInterface = iface;
-                                break;
-                            }
-                            pcInterface ??= iface;
-                        }
-                    }
-                    if (pcInterface == null)
-                    {
-                        Console.WriteLine(JsonOk(new { note = "no_interface", message = "未找到可用 PC 接口" }));
-                        return 0;
+                        Console.WriteLine(JsonError("未找到可用的 PLCSIM PC 接口"));
+                        return 1;
                     }
 
-                    // 找目标 PLC 地址
                     IConfiguration targetConfig = null;
+                    var lookupErrors = new List<string>();
                     if (!string.IsNullOrEmpty(targetIp))
                     {
-                        foreach (var subnet in pcInterface.Subnets)
+                        foreach (var candidate in candidateInterfaces)
                         {
-                            try { targetConfig = subnet.Addresses.Find(targetIp); if (targetConfig != null) break; }
-                            catch { }
+                            foreach (var subnet in candidate.Subnets)
+                            {
+                                try
+                                {
+                                    targetConfig = subnet.Addresses.Find(targetIp);
+                                    if (targetConfig != null)
+                                        break;
+                                }
+                                catch (Exception ex)
+                                {
+                                    lookupErrors.Add($"{candidate.Name}: {ex.Message}");
+                                }
+                            }
+                            if (targetConfig != null) break;
                         }
                     }
                     if (targetConfig == null)
                     {
-                        Console.WriteLine(JsonOk(new { note = "no_target", message = "未找到目标 PLC" }));
-                        return 0;
+                        if (lookupErrors.Count > 0)
+                        {
+                            Console.WriteLine(JsonError(
+                                $"查询 PLCSIM 目标失败: {string.Join(" | ", lookupErrors.Take(3))}"
+                            ));
+                            return 1;
+                        }
+                        Console.WriteLine(JsonError($"未在 PLCSIM 接口中找到目标 PLC {targetIp}"));
+                        return 1;
                     }
 
                     // 设置下载目标为 PLCSIM Advanced
@@ -2820,9 +2830,10 @@ namespace TiaWorker
 
                 try
                 {
-                    var tagMgr = plc.GetService<TagTableManager>();
-                    if (tagMgr == null) { Console.WriteLine(JsonError("TagTableManager not available")); return 1; }
-                    var tables = tagMgr.TagTables;
+                    var tables = plc.TagTableGroup?.TagTables;
+                    if (tables == null) { Console.WriteLine(JsonError("Tag tables not available")); return 1; }
+                    var editingLanguage = project.LanguageSettings?.EditingLanguage?.Culture?.Name;
+                    var referenceLanguage = project.LanguageSettings?.ReferenceLanguage?.Culture?.Name;
 
                     var lines = new List<string> { "TableName,TagName,DataType,Address,Comment" };
                     int total = 0;
@@ -2831,7 +2842,12 @@ namespace TiaWorker
                         foreach (var tag in table.Tags)
                         {
                             var addr = tag.LogicalAddress ?? "";
-                            var comment = (tag.Comment ?? "").Replace("\"", "\"\"");
+                            var comment = (tag.Comment?.Items
+                                .OrderByDescending(item => string.Equals(item.Language?.Culture?.Name, editingLanguage, StringComparison.OrdinalIgnoreCase))
+                                .ThenByDescending(item => string.Equals(item.Language?.Culture?.Name, referenceLanguage, StringComparison.OrdinalIgnoreCase))
+                                .ThenBy(item => item.Language?.Culture?.Name, StringComparer.OrdinalIgnoreCase)
+                                .Select(item => item.Text)
+                                .FirstOrDefault() ?? "").Replace("\"", "\"\"");
                             lines.Add($"\"{table.Name}\",\"{tag.Name}\",\"{tag.DataTypeName}\",\"{addr}\",\"{comment}\"");
                             total++;
                         }
@@ -2865,11 +2881,11 @@ namespace TiaWorker
 
                 try
                 {
-                    var tagMgr = plc.GetService<TagTableManager>();
-                    if (tagMgr == null) { Console.WriteLine(JsonError("TagTableManager not available")); return 1; }
+                    var tables = plc.TagTableGroup?.TagTables;
+                    if (tables == null) { Console.WriteLine(JsonError("Tag tables not available")); return 1; }
 
                     var addressMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var table in tagMgr.TagTables)
+                    foreach (var table in tables)
                     {
                         foreach (var tag in table.Tags)
                         {
@@ -2911,14 +2927,14 @@ namespace TiaWorker
 
                 try
                 {
-                    var tagMgr = plc.GetService<TagTableManager>();
-                    if (tagMgr == null) { Console.WriteLine(JsonError("TagTableManager not available")); return 1; }
+                    var tables = plc.TagTableGroup?.TagTables;
+                    if (tables == null) { Console.WriteLine(JsonError("Tag tables not available")); return 1; }
 
                     var area = string.IsNullOrEmpty(input.Area) ? "M" : input.Area.ToUpper();
                     var startByte = input.StartByte;
                     var used = new HashSet<int>();
 
-                    foreach (var table in tagMgr.TagTables)
+                    foreach (var table in tables)
                     {
                         foreach (var tag in table.Tags)
                         {
@@ -2982,11 +2998,10 @@ namespace TiaWorker
                         var swContainer = device.GetService<SoftwareContainer>();
                         if (swContainer?.Software is PlcSoftware plc)
                         {
-                            var online = plc.GetService("Siemens.Engineering.IOnlineProvider");
+                            var online = plc.GetService<OnlineProvider>();
                             if (online != null)
                             {
-                                var stateProp = online.GetType().GetProperty("State");
-                                if (stateProp != null) status = stateProp.GetValue(online)?.ToString() ?? "UNKNOWN";
+                                status = online.State.ToString();
                             }
                         }
                     }
@@ -3023,10 +3038,10 @@ namespace TiaWorker
                     var swContainer = device.GetService<SoftwareContainer>();
                     if (swContainer?.Software is PlcSoftware plc)
                     {
-                        var online = plc.GetService("Siemens.Engineering.IOnlineProvider");
+                        var online = plc.GetService<OnlineProvider>();
                         if (online != null)
                         {
-                            online.GetType().GetMethod("GoOnline")?.Invoke(online, new object[] { });
+                            online.GoOnline();
                             Console.WriteLine(JsonOk(new { device = device.Name, online = true }));
                             return 0;
                         }
@@ -3062,10 +3077,10 @@ namespace TiaWorker
                     var swContainer = device.GetService<SoftwareContainer>();
                     if (swContainer?.Software is PlcSoftware plc)
                     {
-                        var online = plc.GetService("Siemens.Engineering.IOnlineProvider");
+                        var online = plc.GetService<OnlineProvider>();
                         if (online != null)
                         {
-                            online.GetType().GetMethod("GoOffline")?.Invoke(online, new object[] { });
+                            online.GoOffline();
                             Console.WriteLine(JsonOk(new { device = device.Name, online = false }));
                             return 0;
                         }
@@ -3147,7 +3162,7 @@ namespace TiaWorker
             }
         }
 
-        static void CollectDeviceItems(DeviceItemCollection items, List<object> result, int depth)
+        static void CollectDeviceItems(DeviceItemComposition items, List<object> result, int depth)
         {
             foreach (DeviceItem item in items)
             {
@@ -3168,7 +3183,7 @@ namespace TiaWorker
             }
         }
 
-        static void CollectSlots(DeviceItemCollection items, List<object> result, int depth)
+        static void CollectSlots(DeviceItemComposition items, List<object> result, int depth)
         {
             foreach (DeviceItem item in items)
             {
@@ -3197,7 +3212,7 @@ namespace TiaWorker
 
             try
             {
-                var projDir = new FileInfo(project.Path).Directory;
+                var projDir = project.Path?.Directory;
                 if (projDir == null) return;
                 var parent = projDir.Parent;
                 if (parent == null) return;

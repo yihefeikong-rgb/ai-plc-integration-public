@@ -61,6 +61,23 @@ def _verified_plcsim_target(requested_ip: str = "") -> str:
     return configured_ip
 
 
+def _build_tiaworker_download_input(
+    target_ip: str, timeout_sec: int, operation_prefix: str
+) -> dict:
+    """构造锁定到唯一工程设备的 TiaWorker 下载请求。"""
+    target = validate_control_target()
+    if target_ip != target.plc_ip:
+        raise ValueError("下载 IP 与唯一控制目标不一致")
+    return {
+        "ProjectPath": str(target.project_path),
+        "InterfaceName": "PN/IE",
+        "TargetIp": target.plc_ip,
+        "DeviceName": target.device_name,
+        "TimeoutSec": timeout_sec,
+        "OperationId": f"{operation_prefix}-{uuid.uuid4().hex}",
+    }
+
+
 def _ensure_tia_gui_running(timeout_sec: int = 120) -> bool:
     """确保 TIA Portal GUI 正在运行。
 
@@ -189,7 +206,14 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
                 DownloadOptions, DownloadResultState,
             )
 
-            dev = project.Devices[0]
+            device_name = validate_control_target().device_name
+            dev = next(
+                (device for device in project.Devices if str(device.Name) == device_name),
+                None,
+            )
+            if dev is None:
+                print(f'❌ 未找到唯一目标设备: {device_name}')
+                return 1
 
             def find_dp(item, depth=0):
                 if depth > 5: return None
@@ -431,15 +455,7 @@ def _try_download_via_tiaworker_gui(target_ip: str = "") -> int:
         return -1
 
     # 准备 JSON 输入
-    project_path = cfg.tia.project_path
-    input_data = {
-        "ProjectPath": project_path,
-        "InterfaceName": "PN/IE",
-        "TargetIp": target_ip,
-        "DeviceName": "",
-        "TimeoutSec": 180,
-        "OperationId": f"download-gui-{uuid.uuid4().hex}",
-    }
+    input_data = _build_tiaworker_download_input(target_ip, 180, "download-gui")
 
     import tempfile as _tf
     tmp = _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
@@ -518,15 +534,7 @@ def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = ""
         print(f'   ⚠ PLCSIM GUI 启动检查异常（继续）: {e}')
 
     # 准备 JSON 输入
-    project_path = cfg.tia.project_path
-    input_data = {
-        "ProjectPath": project_path,
-        "InterfaceName": "PN/IE",
-        "TargetIp": target_ip,
-        "DeviceName": "",
-        "TimeoutSec": 120,
-        "OperationId": f"download-{uuid.uuid4().hex}",
-    }
+    input_data = _build_tiaworker_download_input(target_ip, 120, "download")
 
     # 写入临时文件
     import tempfile as _tf

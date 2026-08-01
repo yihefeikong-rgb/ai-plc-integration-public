@@ -12,6 +12,9 @@ namespace TiaWorker
     /// </summary>
     public static class CommandValidator
     {
+        private const string ApprovedDownloadDeviceName = "S7-1500/ET200MP station_1";
+        private const string ApprovedDownloadTargetIp = "192.168.0.1";
+
         /// <summary>
         /// 验证 import-scl 命令的输入参数。
         /// 对应 Program.cs ImportScl() 的 JSON 反序列化后校验部分。
@@ -75,6 +78,10 @@ namespace TiaWorker
 
             if (string.IsNullOrEmpty(input.ProjectPath))
                 return (false, "Missing ProjectPath");
+            if (!string.Equals(input.DeviceName, ApprovedDownloadDeviceName, StringComparison.Ordinal))
+                return (false, $"DeviceName must be {ApprovedDownloadDeviceName}");
+            if (!string.Equals(input.TargetIp, ApprovedDownloadTargetIp, StringComparison.Ordinal))
+                return (false, $"TargetIp must be {ApprovedDownloadTargetIp}");
 
             return (true, null);
         }

@@ -6,16 +6,17 @@ echo   AI PLC Assistant
 echo ============================================
 echo.
 
-:: ── 杀掉旧进程 ──
-echo [1/4] 清理旧进程 ...
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8005,5173 -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if ($p) { Write-Host ('  杀掉端口 ' + $_.LocalPort + ' 上的进程 (PID ' + $_.OwningProcess + ')'); Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }"
-
-:: ── 清理 MCP 锁 ──
-echo [2/4] 清理 MCP 锁文件 ...
-if exist "%TEMP%\ai-plc-mcp-owner.lock" (
-    del /f /q "%TEMP%\ai-plc-mcp-owner.lock" >nul 2>&1
-    echo   已删除陈旧 MCP 锁文件
+:: ── 拒绝占用中的端口，避免误杀无关进程 ──
+echo [1/4] 检查端口 8005 和 5173 ...
+powershell -NoProfile -Command "$busy = @(Get-NetTCPConnection -LocalPort 8005,5173 -State Listen -ErrorAction SilentlyContinue); if ($busy.Count -gt 0) { $busy | ForEach-Object { Write-Host ('[FAIL] Port ' + $_.LocalPort + ' is already in use by PID ' + $_.OwningProcess) }; exit 1 }"
+if errorlevel 1 (
+    echo [FAIL] 启动端口已被占用；请确认并手动关闭对应服务后重试。
+    pause
+    exit /b 1
 )
+
+:: ── MCP owner lock 由后端校验，启动脚本不得擅自删除 ──
+echo [2/4] MCP 所有权锁由后端安全校验 ...
 
 :: ── 启动后端 ──
 echo [3/4] 启动后端 (端口 8005) ...

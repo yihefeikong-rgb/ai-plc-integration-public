@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 from mcp_common.config import env_config
 from mcp_common.audit import audit
+from mcp_common.control_target import get_control_target
 
 settings = env_config()
 
@@ -237,7 +238,7 @@ async def main(protocol: str = "s7"):
     else:
         # S7 协议模式（默认）
         s7 = S7Adapter()
-        ip = settings.get("s7_plc_ip", "192.168.0.110")
+        ip = get_control_target().plc_ip
         rack = int(settings.get("s7_rack", "0"))
         slot = int(settings.get("s7_slot", "1"))
         print(s7.connect(ip, rack, slot))

@@ -120,40 +120,38 @@ def check_plcsim_api() -> CheckResult:
     """检查 PLCSIM Advanced API 是否可用。"""
     r = CheckResult("PLCSIM Advanced API")
     try:
-        # 检查 PLCSIM Advanced 安装目录
         plcsim_dirs = [
             r"C:\Program Files\Siemens\S7-PLCSIM Advanced",
             r"D:\TIA FANG ZHEN\PLCSIMADV",
             os.getenv("PLCSIM_ADV_DIR", ""),
         ]
-        found = False
-        for d in plcsim_dirs:
-            if d and os.path.isdir(d):
-                found = True
-                r.detail = f"找到安装目录: {d}"
-                break
-
-        if not found:
+        install_dir = next((d for d in plcsim_dirs if d and os.path.isdir(d)), "")
+        if not install_dir:
             r.detail = "未找到 PLCSIM Advanced 安装目录"
             r.suggestion = "安装 S7-PLCSIM Advanced V5.0+，或检查 config.yaml 中的 advanced_install_dir"
+            return r
 
-        # 尝试调 API
-        try:
-            cmd = 'powershell -Command "Get-WmiObject Win32_Process | Where-Object {$_.Name -like \'*PLCSIM*\'-or $_.Name -like \'*Siemens.Simatic.PlcSim*\'-or $_.Name -like \'*AdvancedSimulator*\'} | Select-Object Name,ProcessId | Format-List"'
-            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-            if proc.stdout.strip():
-                r.passed = True
-                r.detail = f"{r.detail}; PLCSIM 进程已运行"
-            elif found:
-                r.passed = True  # 安装了但未运行也算通过
-            else:
-                r.suggestion = r.suggestion or "安装 S7-PLCSIM Advanced V5.0+"
-        except Exception:
-            if found:
-                r.passed = True
+        root = Path(__file__).resolve().parent.parent
+        api_script = root / "mcp-servers" / "tia-mcp" / "plcsim_api.py"
+        proc = subprocess.run(
+            [sys.executable, str(api_script), "list"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+        )
+        if proc.returncode == 0:
+            r.passed = True
+            r.detail = f"API 查询成功；安装目录: {install_dir}"
+        else:
+            r.detail = "PLCSIM Advanced 已安装，但 API 查询失败"
+            r.suggestion = "检查 PLCSIM Runtime Manager、许可证和当前进程权限级别"
 
     except Exception as e:
         r.detail = f"检查失败: {e}"
+        r.suggestion = "检查 PLCSIM Advanced API 安装、运行时和权限"
     return r
 
 
@@ -163,16 +161,14 @@ def check_deepseek_api_key() -> CheckResult:
 
     deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
     if deepseek_key:
-        masked = deepseek_key[:6] + "****" + deepseek_key[-4:] if len(deepseek_key) > 10 else "****"
         r.passed = True
-        r.detail = f"已从环境变量加载: {masked}"
+        r.detail = "已从环境变量加载（值已隐藏）"
         return r
 
     deepseek_key = _read_dotenv_value("DEEPSEEK_API_KEY")
     if deepseek_key:
-        masked = deepseek_key[:6] + "****" + deepseek_key[-4:] if len(deepseek_key) > 10 else "****"
         r.passed = True
-        r.detail = f"已从 .env 加载: {masked}"
+        r.detail = "已从 .env 加载（值已隐藏）"
         return r
 
     # 检查 config.yaml

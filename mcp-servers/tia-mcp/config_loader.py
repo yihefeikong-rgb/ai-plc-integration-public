@@ -175,6 +175,9 @@ class _Config:
 
 def _looks_like_path(key: str, value: str) -> bool:
     """判断值是否像路径（需要 resolve）"""
+    # TIA 设备名可以包含 "/"，但它是工程对象身份，不是文件系统路径。
+    if key == "device_name":
+        return False
     # URL 不是路径
     if value.startswith(("http://", "https://", "tcp://")):
         return False
@@ -483,6 +486,7 @@ class ControlTarget:
     project_path: PureWindowsPath  # 控制目标为 Windows 路径语义，与运行平台无关
     plcsim_instance: str
     plc_ip: str
+    device_name: str
 
 
 def _read_attr(value: Any, path: tuple[str, ...]) -> Any:
@@ -505,6 +509,7 @@ def validate_control_target(config: Any | None = None) -> ControlTarget:
         project_path = PureWindowsPath(str(target.project_path))
         plcsim_instance = str(target.plcsim_instance)
         plc_ip = str(target.plc_ip)
+        device_name = str(target.device_name)
     except AttributeError as exc:
         raise TargetConfigurationError(f"唯一控制目标缺少字段: {exc}") from exc
 
@@ -517,13 +522,15 @@ def validate_control_target(config: Any | None = None) -> ControlTarget:
         errors.append("target.project_path 必须指向 demo_V21.ap21")
     if plcsim_instance != "factoryio":
         errors.append("target.plcsim_instance 必须为 factoryio")
+    if device_name != "S7-1500/ET200MP station_1":
+        errors.append("target.device_name 必须为 S7-1500/ET200MP station_1")
     try:
         ipaddress.ip_address(plc_ip)
     except ValueError:
         errors.append("target.plc_ip 不是有效 IP 地址")
     else:
-        if plc_ip != "192.168.0.110":
-            errors.append("target.plc_ip 必须为隔离 PLCSIM 地址 192.168.0.110")
+        if plc_ip != "192.168.0.1":
+            errors.append("target.plc_ip 必须为隔离 PLCSIM 地址 192.168.0.1")
 
     aliases = {
         ("tia", "version"): tia_version,
@@ -548,4 +555,5 @@ def validate_control_target(config: Any | None = None) -> ControlTarget:
         project_path=project_path,
         plcsim_instance=plcsim_instance,
         plc_ip=plc_ip,
+        device_name=device_name,
     )

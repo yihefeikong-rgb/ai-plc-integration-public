@@ -1,5 +1,12 @@
 """Generate run_p3_complete.bat with proper CRLF line endings."""
 import os
+import sys
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+from mcp_common.control_target import get_control_target
 
 bat_path = os.path.join(os.path.dirname(__file__), '..', 'run_p3_complete.bat')
 
@@ -16,7 +23,7 @@ L('set PYTHON=D:\\Python3\\python.exe')
 L('set SCRIPTS=mcp-servers\\tia-mcp')
 L('set GOLDEN="D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\factory_io1_golden.zip"')
 L('set STORAGE="D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\plcsim_storage"')
-L('set PLC_IP=10.0.0.1')
+L(f'set PLC_IP={get_control_target().plc_ip}')
 L('')
 L('echo.')
 L('echo ============================================')

@@ -1,11 +1,11 @@
 """Pipeline API 测试 — /api/pipeline/nl-to-sim。"""
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
-def _control_headers(monkeypatch):
-    monkeypatch.setenv("LOCAL_API_TOKEN", "pipeline-test-token")
-    return {"X-Local-Api-Token": "pipeline-test-token"}
+def _control_headers():
+    return {"X-Local-Api-Token": os.environ["LOCAL_API_TOKEN"]}
 
 
 class TestNlToSimPipeline:
@@ -39,7 +39,7 @@ class TestNlToSimPipeline:
                 "description": "三相异步电机正反转带急停和过载保护",
                 "block_name": "MotorFwdRev",
                 "launch_fio": False,
-            }, headers=_control_headers(monkeypatch))
+            }, headers=_control_headers())
 
         assert res.status_code == 200
         data = res.json()
@@ -58,7 +58,7 @@ class TestNlToSimPipeline:
         assert kwargs["input"]["authenticated_operator"].startswith("local-session:")
 
     def test_nl_to_sim_rejects_empty_description(self, client, monkeypatch):
-        res = client.post("/api/pipeline/nl-to-sim", json={"description": ""}, headers=_control_headers(monkeypatch))
+        res = client.post("/api/pipeline/nl-to-sim", json={"description": ""}, headers=_control_headers())
 
         assert res.status_code == 400
 
@@ -67,6 +67,6 @@ class TestNlToSimPipeline:
             "description": "电机启停",
             "project_path": "D:/untrusted/demo.ap21",
             "plc_ip": "10.0.0.2",
-        }, headers=_control_headers(monkeypatch))
+        }, headers=_control_headers())
 
         assert res.status_code == 422

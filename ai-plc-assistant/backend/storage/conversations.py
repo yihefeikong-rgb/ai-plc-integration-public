@@ -16,34 +16,43 @@ class ConversationStore:
         self.db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
         self._lock = threading.Lock()
+        self._init_lock = threading.Lock()
 
     def initialize(self):
-        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS conversations (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL DEFAULT '',
-                model_id TEXT NOT NULL DEFAULT 'deepseek',
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )
-        """)
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL DEFAULT '',
-                msg_type TEXT NOT NULL DEFAULT 'text',
-                metadata TEXT DEFAULT '{}',
-                created_at REAL NOT NULL,
-                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-            )
-        """)
-        self._conn.execute("PRAGMA foreign_keys = ON")
-        self._conn.commit()
+        with self._init_lock:
+            if self._conn is not None:
+                return self
+            os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS conversations (
+                        id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL DEFAULT '',
+                        model_id TEXT NOT NULL DEFAULT 'deepseek',
+                        created_at REAL NOT NULL,
+                        updated_at REAL NOT NULL
+                    )
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id TEXT PRIMARY KEY,
+                        conversation_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL DEFAULT '',
+                        msg_type TEXT NOT NULL DEFAULT 'text',
+                        metadata TEXT DEFAULT '{}',
+                        created_at REAL NOT NULL,
+                        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+                    )
+                """)
+                conn.execute("PRAGMA foreign_keys = ON")
+                conn.commit()
+            except Exception:
+                conn.close()
+                raise
+            self._conn = conn
         return self
 
     @property

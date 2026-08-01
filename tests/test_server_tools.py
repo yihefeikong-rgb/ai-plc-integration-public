@@ -125,7 +125,7 @@ def server():
     _target = SimpleNamespace(
         tia_version="V21",
         project_path=Path("C:\\test\\project.ap21"),
-        plc_ip="192.168.0.110",
+        plc_ip="192.168.0.1",
         plcsim_instance="factoryio",
     )
     _mock_cfg.target = _target

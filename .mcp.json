@@ -1,3 +1,16 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "tiacommander": {
+      "type": "stdio",
+      "command": "D:\\claude code xiangmu\\AI 接入PLC\\mcp-servers\\tiacommander-mcp\\TiaCommander.exe",
+      "args": []
+    },
+    "plc-mcp-bridge": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "mcp-servers/plc-mcp-bridge/server.py"
+      ]
+    }
+  }
 }

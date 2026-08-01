@@ -295,7 +295,7 @@ export default function RobotPanel({ currentProject }) {
         </div>
         {mode === ROBOT_MODES.REAL_CONTROL.id && !checkSafetyLevel('device-control') && (
           <div className="mt-2 text-2xs text-status-warn bg-status-warn/10 border border-status-warn/30 rounded px-2 py-1">
-            ⚠ 真实控制模式需要 Safety Level >= L3（设备控制）。请先在顶部状态栏切换安全等级。
+            ⚠ 真实控制模式需要 Safety Level &gt;= L3（设备控制）。请先在顶部状态栏切换安全等级。
           </div>
         )}
       </div>

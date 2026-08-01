@@ -10,13 +10,15 @@ Phase 2 端到端验证脚本 — 检查 "采集→分析→决策→写入→�
   python verify_phase2.py gateway          # 仅 EdgeGateway mock 模式
 """
 import sys
-import os
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT / "edge-gateway" / "src"))
-sys.path.insert(0, str(ROOT / "mcp-servers" / "plc-mcp-bridge"))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "edge-gateway" / "src"))
+sys.path.insert(0, str(PROJECT_ROOT / "mcp-servers" / "plc-mcp-bridge"))
+
+from mcp_common.control_target import get_control_target
 
 PASS = 0
 FAIL = 0
@@ -92,7 +94,7 @@ def test_s7(need_real: bool = False):
         return
 
     # 需要真实 PLCSIM
-    ip = os.getenv("S7_PLC_IP", "192.168.0.110")
+    ip = get_control_target().plc_ip
     result = adapter.connect(ip)
     check(f"S7 连接 {ip}", "成功" in result or "已连接" in result, result)
 

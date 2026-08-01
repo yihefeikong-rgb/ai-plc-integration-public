@@ -17,7 +17,7 @@ type = S7-PLCSIM
 plc_type = S7-1500
 
 # PLCSIM Advanced 实例 IP
-ip = 10.0.0.1
+ip = 192.168.0.1
 
 # 机架/槽位（S7-1500 默认 0/1）
 rack = 0

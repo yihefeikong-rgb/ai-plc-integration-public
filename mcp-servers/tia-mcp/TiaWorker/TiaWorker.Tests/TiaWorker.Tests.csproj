@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Compile Include="..\DownloadInterfaceSelector.cs" Link="DownloadInterfaceSelector.cs" />
   </ItemGroup>
 
 </Project>

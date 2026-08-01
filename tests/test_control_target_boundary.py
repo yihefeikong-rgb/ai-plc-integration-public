@@ -13,19 +13,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_control_target_helpers_only_accept_the_configured_isolated_target():
-    target = require_control_ip("192.168.0.110")
+    target = require_control_ip("192.168.0.1")
 
     assert target.plcsim_instance == "factoryio"
-    assert approved_opcua_endpoint() == "opc.tcp://192.168.0.110:4840"
-    assert require_opcua_endpoint("opc.tcp://192.168.0.110:4840") == target
+    assert approved_opcua_endpoint() == "opc.tcp://192.168.0.1:4840"
+    assert require_opcua_endpoint("opc.tcp://192.168.0.1:4840") == target
 
 
 @pytest.mark.parametrize(
     ("ip", "endpoint", "reject_ip", "reject_endpoint"),
     [
-        ("192.168.0.1", "opc.tcp://192.168.0.110:4840", True, False),
-        ("192.168.0.110", "opc.tcp://192.168.0.1:4840", False, True),
-        ("192.168.0.110", "opc.tcp://192.168.0.110:4841", False, True),
+        ("192.168.0.110", "opc.tcp://192.168.0.1:4840", True, False),
+        ("192.168.0.1", "opc.tcp://192.168.0.110:4840", False, True),
+        ("192.168.0.1", "opc.tcp://192.168.0.1:4841", False, True),
     ],
 )
 def test_control_target_helpers_reject_drift(ip, endpoint, reject_ip, reject_endpoint):
@@ -58,7 +58,7 @@ def test_runtime_control_entrypoints_delegate_target_selection_to_the_contract()
 
     for path in source_files:
         content = path.read_text(encoding="utf-8")
-        assert '"192.168.0.1"' not in content, path
+        assert '"192.168.0.110"' not in content, path
 
     for path in source_files:
         content = path.read_text(encoding="utf-8")

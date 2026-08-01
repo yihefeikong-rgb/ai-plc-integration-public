@@ -7,7 +7,8 @@
 ## TIA Portal
 - 版本: V21
 - PLCSIM: Advanced V8.0 (TCP/IP Single Adapter)
-- PLC IP: 192.168.0.110 (Rack=0, Slot=1)
+- PLC IP: 192.168.0.1 (Rack=0, Slot=1)
+- TIA 下载设备: `S7-1500/ET200MP station_1`（CPU item `PLC_2`）
 
 ## AI PLC Assistant
 - 后端端口: 8005

@@ -57,6 +57,9 @@ class TestLooksLikePath:
     def test_non_path_keys(self):
         assert not _looks_like_path("timeout", "30")
         assert not _looks_like_path("api_key", "sk-abc123")
+        assert not _looks_like_path(
+            "device_name", "S7-1500/ET200MP station_1"
+        )
 
     def test_file_extensions(self):
         assert _looks_like_path("anything", "config.yaml")

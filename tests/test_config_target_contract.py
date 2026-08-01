@@ -20,7 +20,8 @@ class TargetConfigContractTests(unittest.TestCase):
             "tia_version": "V21",
             "project_path": r"D:\PLC\demo_V21\demo_V21.ap21",
             "plcsim_instance": "factoryio",
-            "plc_ip": "192.168.0.110",
+            "plc_ip": "192.168.0.1",
+            "device_name": "S7-1500/ET200MP station_1",
         }
         target.update(overrides)
         return types.SimpleNamespace(target=types.SimpleNamespace(**target))
@@ -31,7 +32,8 @@ class TargetConfigContractTests(unittest.TestCase):
         self.assertEqual(target.tia_version, "V21")
         self.assertEqual(target.project_path.name, "demo_V21.ap21")
         self.assertEqual(target.plcsim_instance, "factoryio")
-        self.assertEqual(target.plc_ip, "192.168.0.110")
+        self.assertEqual(target.plc_ip, "192.168.0.1")
+        self.assertEqual(target.device_name, "S7-1500/ET200MP station_1")
 
     def test_target_contract_rejects_v18_or_a_mismatched_project(self):
         with self.assertRaises(config_loader.TargetConfigurationError):
@@ -43,7 +45,9 @@ class TargetConfigContractTests(unittest.TestCase):
         with self.assertRaises(config_loader.TargetConfigurationError):
             config_loader.validate_control_target(self._config(plcsim_instance="factory_io1"))
         with self.assertRaises(config_loader.TargetConfigurationError):
-            config_loader.validate_control_target(self._config(plc_ip="192.168.0.1"))
+            config_loader.validate_control_target(self._config(plc_ip="192.168.0.110"))
+        with self.assertRaises(config_loader.TargetConfigurationError):
+            config_loader.validate_control_target(self._config(device_name="PLC_1"))
 
     def test_legacy_accessors_are_aliases_of_the_target_source(self):
         self.assertEqual(config_loader.cfg.tia.version, config_loader.cfg.target.tia_version)
@@ -56,7 +60,7 @@ class TargetConfigContractTests(unittest.TestCase):
             config_loader.cfg.factory_io.plcsim_instance,
             config_loader.cfg.target.plcsim_instance,
         )
-        self.assertEqual(config_loader.cfg.target.plc_ip, "192.168.0.110")
+        self.assertEqual(config_loader.cfg.target.plc_ip, "192.168.0.1")
 
     def test_tiaworker_runtime_is_locked_to_the_v21_target(self):
         source = TIA_WORKER_PROGRAM.read_text(encoding="utf-8")

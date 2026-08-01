@@ -19,12 +19,12 @@ def load_security_module():
 @pytest.mark.asyncio
 async def test_local_control_requires_a_configured_matching_session_token(monkeypatch):
     module = load_security_module()
-    monkeypatch.delenv("LOCAL_API_TOKEN", raising=False)
+    monkeypatch.setattr(module.app_config, "local_api_token", "")
     with pytest.raises(HTTPException) as missing:
         await module.require_local_session(None)
     assert missing.value.status_code == 503
 
-    monkeypatch.setenv("LOCAL_API_TOKEN", "test-token")
+    monkeypatch.setattr(module.app_config, "local_api_token", "test-token")
     with pytest.raises(HTTPException) as invalid:
         await module.require_local_session("wrong")
     assert invalid.value.status_code == 401

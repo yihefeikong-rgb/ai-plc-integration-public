@@ -1,5 +1,6 @@
 """AI PLC Assistant — 测试配置与共享 fixtures。"""
 import json
+import logging
 import os
 import shutil
 import sys
@@ -30,6 +31,7 @@ os.environ.update({
     "PROJECT_DIR": str(_TEST_PROJECT_DIR),
     "PROMPTS_FILE": str(_TEST_DATA_ROOT / "prompts.json"),
     "AI_PLC_LOG_DIR": str(_TEST_DATA_ROOT / "logs"),
+    "AI_PLC_MCP_OWNER_LOCK": str(_TEST_DATA_ROOT / "mcp-owner.lock"),
     "EMBEDDING_MODEL": "offline-test",
     "LOCAL_API_TOKEN": "test-local-api-token",
     # 覆盖可能由开发环境 .env 提供的真实凭据，测试绝不迁移或读取它们。
@@ -64,7 +66,24 @@ def tmp_data_dir():
 def cleanup_test_data():
     """测试结束后仅删除本进程创建的临时目录。"""
     yield
-    shutil.rmtree(_TEST_DATA_ROOT, ignore_errors=True)
+    import main as _main_module
+    from chromadb.api.shared_system_client import SharedSystemClient
+
+    for store in (_main_module.conv_store, _main_module.project_store):
+        if store._conn is not None:
+            store._conn.close()
+            store._conn = None
+    _main_module.search_engine.close()
+    chroma_client = _main_module.knowledge_engine._client
+    if chroma_client is not None:
+        chroma_system = getattr(chroma_client, "_system", None)
+        if chroma_system is not None:
+            chroma_system.stop()
+    _main_module.knowledge_engine._collection = None
+    _main_module.knowledge_engine._client = None
+    SharedSystemClient.clear_system_cache()
+    logging.shutdown()
+    shutil.rmtree(_TEST_DATA_ROOT)
 
 
 @pytest.fixture(scope="session", autouse=True)

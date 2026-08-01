@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from mcp_common.control_target import get_control_target, require_control_ip
+from config_loader import cfg as _tia_cfg
 from orchestrator.core import WorkflowContext, OrchestratorEngine
 
 _logger = logging.getLogger(__name__)
@@ -23,9 +25,9 @@ def build_pipeline_steps(
     project_name: str,
     project_path: str,
     scl_prompt: str,
-    plc_ip: str = "192.168.0.110",
-    rack: int = 0,
-    slot: int = 1,
+    plc_ip: str | None = None,
+    rack: int | None = None,
+    slot: int | None = None,
 ) -> list[dict[str, Any]]:
     """返回流水线步骤配置列表。
 
@@ -33,19 +35,27 @@ def build_pipeline_steps(
         - tool: 工具全名 (server.tool_name)
         - args: 工具参数字典
     """
+    target = get_control_target()
+    require_control_ip(plc_ip or target.plc_ip)
+    plc_ip = target.plc_ip
+    configured_rack = int(_tia_cfg.simulation.advanced.rack)
+    configured_slot = int(_tia_cfg.simulation.advanced.slot)
+    if rack is not None and rack != configured_rack:
+        raise ValueError("rack 与唯一控制目标配置不一致")
+    if slot is not None and slot != configured_slot:
+        raise ValueError("slot 与唯一控制目标配置不一致")
+
     return [
         {
             "tool": "plc-mcp-bridge.plc_create_project",
-            "args": {"name": project_name, "path": project_path},
+            "args": {
+                "project_name": project_name,
+                "parent_directory": project_path,
+            },
         },
         {
             "tool": "plc-mcp-bridge.plc_create_instance",
-            "args": {
-                "project_path": project_path,
-                "plc_ip": plc_ip,
-                "rack": rack,
-                "slot": slot,
-            },
+            "args": {},
         },
         {
             "tool": "tia-mcp.generate_scl_code",
@@ -61,11 +71,11 @@ def build_pipeline_steps(
         },
         {
             "tool": "plc-mcp-bridge.plc_compile_project",
-            "args": {"project_path": project_path},
+            "args": {},
         },
         {
             "tool": "plc-mcp-bridge.plc_download_project",
-            "args": {"project_path": project_path, "plc_ip": plc_ip},
+            "args": {},
         },
     ]
 
@@ -81,9 +91,7 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
             project_name: 项目名称
             project_path: 项目路径
             scl_prompt: SCL 代码生成提示词
-            plc_ip: PLC IP 地址（默认 192.168.0.110）
-            rack: PLC 机架号（默认 0）
-            slot: PLC 槽号（默认 1）
+            plc_ip/rack/slot: 可选兼容参数，但只能与 config.yaml 的唯一目标一致
         """
         # 校验必填参数
         for key in ("project_name", "project_path", "scl_prompt"):
@@ -93,25 +101,27 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
         project_name: str = ctx.input["project_name"]
         project_path: str = ctx.input["project_path"]
         scl_prompt: str = ctx.input["scl_prompt"]
-        plc_ip: str = ctx.input.get("plc_ip", "192.168.0.110")
-        rack: int = ctx.input.get("rack", 0)
-        slot: int = ctx.input.get("slot", 1)
+        target = get_control_target()
+        require_control_ip(ctx.input.get("plc_ip", target.plc_ip))
+        plc_ip = target.plc_ip
+        rack = int(_tia_cfg.simulation.advanced.rack)
+        slot = int(_tia_cfg.simulation.advanced.slot)
+        if "rack" in ctx.input and ctx.input["rack"] != rack:
+            raise ValueError("rack 与唯一控制目标配置不一致")
+        if "slot" in ctx.input and ctx.input["slot"] != slot:
+            raise ValueError("slot 与唯一控制目标配置不一致")
 
         # 步骤 1: 创建项目
         step1 = await ctx.call_async(
             "plc-mcp-bridge.plc_create_project",
-            name=project_name,
-            path=project_path,
+            project_name=project_name,
+            parent_directory=project_path,
         )
         project_id = step1.get("project_id", "")
 
         # 步骤 2: 配置硬件
         step2 = await ctx.call_async(
             "plc-mcp-bridge.plc_create_instance",
-            project_path=project_path,
-            plc_ip=plc_ip,
-            rack=rack,
-            slot=slot,
         )
 
         # 步骤 3-5: 生成→导入→编译，编译失败时自动重试（最多 3 次）
@@ -160,7 +170,6 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
             # 步骤 5: 编译项目
             step5 = await ctx.call_async(
                 "plc-mcp-bridge.plc_compile_project",
-                project_path=project_path,
             )
 
             # 检查编译结果
@@ -210,8 +219,6 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
         # 步骤 6: 下载到 PLCSIM
         step6 = await ctx.call_async(
             "plc-mcp-bridge.plc_download_project",
-            project_path=project_path,
-            plc_ip=plc_ip,
         )
 
         return {

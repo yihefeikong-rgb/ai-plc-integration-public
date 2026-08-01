@@ -157,21 +157,17 @@ class TestWorkflowIntegration:
         """验证工作流中工具调用失败的处理"""
         @engine_with_pool.workflow("error_test")
         async def error_test(ctx):
-            # 调用不存在的工具 — MCP 返回错误响应（不抛异常）
-            result = await ctx.call_async("test-echo.nonexistent")
-            # MCP 协议返回 {'error': True, 'message': '...'}
-            # 继续调用存在的工具
-            echo = await ctx.call_async("test-echo.echo", message="after error")
-            return {"error_result": result, "echo": echo}
+            await ctx.call_async("test-echo.nonexistent")
+            return await ctx.call_async("test-echo.echo", message="after error")
 
         result = await engine_with_pool.run_async("error_test")
 
-        # 两步都执行成功（MCP 层面不抛异常）
-        assert len(result.steps) == 2
-        assert result.steps[0].ok is True  # MCP 返回了错误响应但不抛异常
-        assert result.steps[0].data.get("error") is True  # 错误标记
-        assert result.steps[1].ok is True
-        assert result.steps[1].data == {"result": "after error"}
+        assert result.ok is False
+        assert len(result.steps) == 1
+        assert result.steps[0].tool == "test-echo.nonexistent"
+        assert result.steps[0].ok is False
+        assert "Unknown tool" in result.steps[0].error
+        assert "Unknown tool" in result.error
 
     @pytest.mark.asyncio
     async def test_multi_step_data_flow(self, engine_with_pool):

@@ -249,7 +249,7 @@ namespace TiaWorker.Tests
             var input = new DownloadInput
             {
                 ProjectPath = @"D:\TIA\MyProject.ap17",
-                DeviceName = "PLC_1",
+                DeviceName = "S7-1500/ET200MP station_1",
                 InterfaceName = "PN/IE",
                 TargetIp = "192.168.0.1",
                 TimeoutSec = 120
@@ -262,7 +262,7 @@ namespace TiaWorker.Tests
         }
 
         [Fact]
-        public void ValidateDownload_MinimalInput_Succeeds()
+        public void ValidateDownload_MissingDeviceName_Fails()
         {
             var input = new DownloadInput
             {
@@ -271,7 +271,40 @@ namespace TiaWorker.Tests
 
             var (isValid, error) = CommandValidator.ValidateDownload(input);
 
-            isValid.Should().BeTrue();
+            isValid.Should().BeFalse();
+            error.Should().Contain("DeviceName");
+        }
+
+        [Fact]
+        public void ValidateDownload_WrongDeviceName_Fails()
+        {
+            var input = new DownloadInput
+            {
+                ProjectPath = "test.ap21",
+                DeviceName = "PLC_1",
+                TargetIp = "192.168.0.1"
+            };
+
+            var (isValid, error) = CommandValidator.ValidateDownload(input);
+
+            isValid.Should().BeFalse();
+            error.Should().Contain("DeviceName");
+        }
+
+        [Fact]
+        public void ValidateDownload_WrongTargetIp_Fails()
+        {
+            var input = new DownloadInput
+            {
+                ProjectPath = "test.ap21",
+                DeviceName = "S7-1500/ET200MP station_1",
+                TargetIp = "192.168.0.110"
+            };
+
+            var (isValid, error) = CommandValidator.ValidateDownload(input);
+
+            isValid.Should().BeFalse();
+            error.Should().Contain("TargetIp");
         }
 
         [Fact]
@@ -329,7 +362,7 @@ namespace TiaWorker.Tests
         [Fact]
         public void ValidateTargetIp_ValidIp_Succeeds()
         {
-            var (isValid, error) = CommandValidator.ValidateTargetIp("192.168.0.110");
+            var (isValid, error) = CommandValidator.ValidateTargetIp("192.168.0.1");
 
             isValid.Should().BeTrue();
             error.Should().BeNull();
@@ -634,7 +667,12 @@ namespace TiaWorker.Tests
             var projectPath = @"D:\TIA\MyProject.ap17";
 
             var compileInput = new ProjectInput { ProjectPath = projectPath };
-            var downloadInput = new DownloadInput { ProjectPath = projectPath };
+            var downloadInput = new DownloadInput
+            {
+                ProjectPath = projectPath,
+                DeviceName = "S7-1500/ET200MP station_1",
+                TargetIp = "192.168.0.1"
+            };
             var listDevicesInput = new ProjectInput { ProjectPath = projectPath };
 
             var compileResult = CommandValidator.ValidateCompile(compileInput);

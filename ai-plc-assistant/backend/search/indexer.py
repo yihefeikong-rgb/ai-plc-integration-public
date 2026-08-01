@@ -3,6 +3,7 @@
 import os
 import re
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -17,40 +18,49 @@ class SearchIndex:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
+        self._init_lock = threading.Lock()
 
     def initialize(self):
         """初始化数据库和 FTS5 表"""
-        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=OFF")
+        with self._init_lock:
+            if self._conn is not None:
+                return self
+            os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=OFF")
 
-        # 主表
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT NOT NULL,
-                type TEXT NOT NULL,
-                name TEXT DEFAULT '',
-                block_name TEXT DEFAULT '',
-                block_type TEXT DEFAULT '',
-                content TEXT DEFAULT '',
-                line INTEGER DEFAULT 0,
-                indexed_at REAL DEFAULT 0
-            )
-        """)
+                # 主表
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS entries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        file_path TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        name TEXT DEFAULT '',
+                        block_name TEXT DEFAULT '',
+                        block_type TEXT DEFAULT '',
+                        content TEXT DEFAULT '',
+                        line INTEGER DEFAULT 0,
+                        indexed_at REAL DEFAULT 0
+                    )
+                """)
 
-        # FTS5 全文索引
-        self._conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-                name, block_name, content,
-                content='entries',
-                content_rowid='id',
-                tokenize='unicode61 remove_diacritics 2'
-            )
-        """)
+                # FTS5 全文索引
+                conn.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+                        name, block_name, content,
+                        content='entries',
+                        content_rowid='id',
+                        tokenize='unicode61 remove_diacritics 2'
+                    )
+                """)
 
-        self._conn.commit()
+                conn.commit()
+            except Exception:
+                conn.close()
+                raise
+            self._conn = conn
         return self
 
     @property

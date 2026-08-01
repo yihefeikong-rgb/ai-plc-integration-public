@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 
 vi.mock('../api', () => ({
   listProjects: vi.fn(),
@@ -168,10 +168,12 @@ describe('Dashboard F-068 安全模式', () => {
     expect(getByText('只读')).toBeTruthy()
     // 模拟 GlobalStatusBar 切换等级写入 localStorage 并触发 storage 事件
     localStorage.setItem('ai-plc:safety-level', 'project-modify')
-    window.dispatchEvent(new StorageEvent('storage', {
-      key: 'ai-plc:safety-level',
-      newValue: 'project-modify',
-    }))
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'ai-plc:safety-level',
+        newValue: 'project-modify',
+      }))
+    })
     // 应更新为 Level 2
     await waitFor(() => expect(getByText('工程修改')).toBeTruthy())
   })

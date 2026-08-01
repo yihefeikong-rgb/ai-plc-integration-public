@@ -3,6 +3,7 @@
 """
 import pytest
 
+from mcp_common.control_target import TargetConfigurationError
 from orchestrator.core import OrchestratorEngine
 from orchestrator.workflows.tia_full_pipeline import (
     register_tia_full_pipeline_workflow,
@@ -16,10 +17,10 @@ def _make_engine() -> OrchestratorEngine:
     register_tia_full_pipeline_workflow(engine)
 
     engine.register_mocks({
-        "plc-mcp-bridge.plc_create_project": lambda name, path: {
+        "plc-mcp-bridge.plc_create_project": lambda project_name, parent_directory: {
             "project_id": "proj-001",
         },
-        "plc-mcp-bridge.plc_create_instance": lambda project_path, plc_ip, rack, slot: {
+        "plc-mcp-bridge.plc_create_instance": lambda: {
             "instance_id": "inst-001",
         },
         "tia-mcp.generate_scl_code": lambda description: {
@@ -31,13 +32,13 @@ def _make_engine() -> OrchestratorEngine:
         "tia-mcp.import_scl_file": lambda scl_code, block_name, project_path, replace=True: {
             "blocks_imported": ["MotorCtrl"],
         },
-        "plc-mcp-bridge.plc_compile_project": lambda project_path: {
+        "plc-mcp-bridge.plc_compile_project": lambda: {
             "ok": True,
             "success": True,
             "errors": 0,
             "error_list": [],
         },
-        "plc-mcp-bridge.plc_download_project": lambda project_path, plc_ip: {
+        "plc-mcp-bridge.plc_download_project": lambda: {
             "ok": True,
         },
     })
@@ -144,7 +145,7 @@ class TestPartialFailure:
             raise RuntimeError("SCL 生成失败：提示词无效")
 
         engine.register_mocks({
-            "plc-mcp-bridge.plc_create_project": lambda name, path: {"project_id": "p1"},
+            "plc-mcp-bridge.plc_create_project": lambda project_name, parent_directory: {"project_id": "p1"},
             "plc-mcp-bridge.plc_create_instance": lambda **kw: {"instance_id": "i1"},
             "tia-mcp.generate_scl_code": failing_generate,
             "tia-mcp.import_scl_file": lambda scl_code, block_name, project_path, replace=True: {"blocks_imported": []},
@@ -210,7 +211,7 @@ class TestDataPassing:
         register_tia_full_pipeline_workflow(engine)
 
         engine.register_mocks({
-            "plc-mcp-bridge.plc_create_project": lambda name, path: {"project_id": "p1"},
+            "plc-mcp-bridge.plc_create_project": lambda project_name, parent_directory: {"project_id": "p1"},
             "plc-mcp-bridge.plc_create_instance": lambda **kw: {"instance_id": "i1"},
             "tia-mcp.generate_scl_code": lambda description: {
                 "status": "ok",
@@ -223,8 +224,8 @@ class TestDataPassing:
                 "captured_block_name": block_name,
                 "blocks_imported": [],
             },
-            "plc-mcp-bridge.plc_compile_project": lambda project_path: {"ok": True, "success": True, "errors": 0, "error_list": []},
-            "plc-mcp-bridge.plc_download_project": lambda project_path, plc_ip: {"ok": True},
+            "plc-mcp-bridge.plc_compile_project": lambda: {"ok": True, "success": True, "errors": 0, "error_list": []},
+            "plc-mcp-bridge.plc_download_project": lambda: {"ok": True},
         })
 
         result = await engine.run_async(
@@ -287,20 +288,28 @@ class TestBuildPipelineSteps:
         actual_tools = [s["tool"] for s in steps]
         assert actual_tools == expected_tools
 
-    def test_custom_plc_ip_and_rack_slot(self):
-        steps = build_pipeline_steps(
-            project_name="Test",
-            project_path="C:/Test",
-            scl_prompt="生成 FB",
-            plc_ip="10.0.0.1",
-            rack=2,
-            slot=3,
-        )
-        # 步骤 2 (plc_create_instance) 的 args 应包含自定义参数
-        step2_args = steps[1]["args"]
-        assert step2_args["plc_ip"] == "10.0.0.1"
-        assert step2_args["rack"] == 2
-        assert step2_args["slot"] == 3
+    def test_custom_plc_ip_and_rack_slot_are_rejected(self):
+        with pytest.raises(TargetConfigurationError):
+            build_pipeline_steps(
+                project_name="Test",
+                project_path="C:/Test",
+                scl_prompt="生成 FB",
+                plc_ip="10.0.0.1",
+            )
+        with pytest.raises(ValueError, match="rack"):
+            build_pipeline_steps(
+                project_name="Test",
+                project_path="C:/Test",
+                scl_prompt="生成 FB",
+                rack=2,
+            )
+        with pytest.raises(ValueError, match="slot"):
+            build_pipeline_steps(
+                project_name="Test",
+                project_path="C:/Test",
+                scl_prompt="生成 FB",
+                slot=3,
+            )
 
     def test_step3_uses_description_not_prompt(self):
         steps = build_pipeline_steps(
@@ -331,20 +340,15 @@ class TestBuildPipelineSteps:
             project_path="C:/Test",
             scl_prompt="生成 FB",
         )
-        step2_args = steps[1]["args"]
-        assert step2_args["plc_ip"] == "192.168.0.110"
-        assert step2_args["rack"] == 0
-        assert step2_args["slot"] == 1
+        assert steps[1]["args"] == {}
 
-    def test_download_step_includes_plc_ip(self):
+    def test_download_step_uses_configured_plc_ip(self):
         steps = build_pipeline_steps(
             project_name="Test",
             project_path="C:/Test",
             scl_prompt="生成 FB",
-            plc_ip="10.0.0.5",
         )
-        step6_args = steps[5]["args"]
-        assert step6_args["plc_ip"] == "10.0.0.5"
+        assert steps[5]["args"] == {}
 
 
 # ============================================================================
@@ -365,7 +369,7 @@ class TestCompileFailure:
 
         attempt_counter = {"count": 0}
 
-        def compile_with_retry_count(project_path):
+        def compile_with_retry_count():
             idx = attempt_counter["count"]
             attempt_counter["count"] += 1
             if idx < len(compile_results):
@@ -374,7 +378,7 @@ class TestCompileFailure:
             return {"ok": True, "errors": 0}
 
         engine.register_mocks({
-            "plc-mcp-bridge.plc_create_project": lambda name, path: {"project_id": "proj-retry"},
+            "plc-mcp-bridge.plc_create_project": lambda project_name, parent_directory: {"project_id": "proj-retry"},
             "plc-mcp-bridge.plc_create_instance": lambda **kw: {"instance_id": "i1"},
             "tia-mcp.generate_scl_code": lambda description: {
                 "status": "ok",
@@ -386,7 +390,7 @@ class TestCompileFailure:
                 "blocks_imported": ["RetryFB"],
             },
             "plc-mcp-bridge.plc_compile_project": compile_with_retry_count,
-            "plc-mcp-bridge.plc_download_project": lambda project_path, plc_ip: {"ok": True},
+            "plc-mcp-bridge.plc_download_project": lambda: {"ok": True},
         })
         return engine
 

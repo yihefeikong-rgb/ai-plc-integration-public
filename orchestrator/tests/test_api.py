@@ -17,6 +17,12 @@ from orchestrator.registry import ServerInfo, ToolInfo, get_registry
 
 
 @pytest.fixture(autouse=True)
+def _isolate_owner_lock(monkeypatch, tmp_path):
+    """API 测试不得与正在运行的本地服务争用生产 owner lock。"""
+    monkeypatch.setenv("AI_PLC_MCP_OWNER_LOCK", str(tmp_path / "mcp-owner.lock"))
+
+
+@pytest.fixture(autouse=True)
 def _reset_singletons():
     """每个测试前后重置全局单例状态"""
     registry = get_registry()

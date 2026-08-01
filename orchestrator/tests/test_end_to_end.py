@@ -20,6 +20,8 @@ from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
 from keyring import backend
 
+from mcp_common.control_target import get_control_target
+from config_loader import cfg as _tia_cfg
 from orchestrator.core import OrchestratorEngine, WorkflowContext
 from orchestrator.workflows.s7_monitor import (
     detect_change,
@@ -35,6 +37,7 @@ from orchestrator.workflows.robot_monitor import register_robot_monitor_workflow
 
 MOCK_READ_VALUE = 100.0
 MOCK_WRITE_OK = {"ok": True, "tag": "DB1.TestTag", "value": 100.0}
+CONTROL_TARGET = get_control_target()
 
 
 def _make_s7_engine(read_value: float = MOCK_READ_VALUE) -> OrchestratorEngine:
@@ -67,7 +70,7 @@ def _make_robot_status(
     return {
         "connection": connection,
         "backend": backend,
-        "plc_ip": "192.168.0.1",
+        "plc_ip": CONTROL_TARGET.plc_ip,
         "scene": "Pick & Place (Basic)",
         "sensors": {
             "sensor_estop": estop,
@@ -509,7 +512,7 @@ class TestRobotWorkflowEndToEnd:
         assert report["emergency_stop"] is False
         assert report["arm_position"] == "extended"
         assert report["backend"] == "snap7"
-        assert report["plc_ip"] == "192.168.0.1"
+        assert report["plc_ip"] == CONTROL_TARGET.plc_ip
         assert report["scene"] == "Pick & Place (Basic)"
 
 
@@ -539,10 +542,8 @@ class TestOrchestratorApiIntegration:
     """后端 API → 编排层路由集成测试（FastAPI TestClient）"""
 
     @pytest.fixture
-    def test_app(self):
+    def test_app(self, tmp_path, monkeypatch):
         """创建配置了 mock 编排引擎的 FastAPI TestClient"""
-        # 使用后端的 conftest.py 中的 mock_orchestrator_lifespan fixture
-        # 需要导入真实 app
         BACKEND_DIR = Path(__file__).parent.parent.parent / "ai-plc-assistant" / "backend"
         import os as _os
         import sys as _sys
@@ -550,11 +551,26 @@ class TestOrchestratorApiIntegration:
 
         # 系统凭据库在 CI/无头环境不可用；换成内存实现保证测试可重复。
         # 应用代码本身保持写入侧 fail-closed，只是这里给了它一个能写的库。
+        _original_keyring = _keyring.get_keyring()
         _keyring.set_keyring(_InMemoryKeyring())
 
         _orig_cwd = _os.getcwd()
-        _previous_token = _os.environ.get("LOCAL_API_TOKEN")
-        _os.environ["LOCAL_API_TOKEN"] = "orchestrator-e2e-test-token"
+        test_data = tmp_path / "backend-data"
+        isolated_env = {
+            "AI_PLC_OFFLINE_TESTING": "1",
+            "VECTOR_DB_PATH": str(test_data / "vector_db"),
+            "CONVERSATIONS_DB": str(test_data / "conversations.db"),
+            "PROJECT_SEARCH_DB": str(test_data / "search_index.db"),
+            "APP_SETTINGS_PATH": str(test_data / "settings.json"),
+            "PROJECT_DIR": str(test_data / "projects"),
+            "PROMPTS_FILE": str(test_data / "prompts.json"),
+            "AI_PLC_LOG_DIR": str(test_data / "logs"),
+            "AI_PLC_MCP_OWNER_LOCK": str(test_data / "mcp-owner.lock"),
+            "EMBEDDING_MODEL": "offline-test",
+            "LOCAL_API_TOKEN": "orchestrator-e2e-test-token",
+        }
+        for key, value in isolated_env.items():
+            monkeypatch.setenv(key, value)
         if str(BACKEND_DIR) not in _sys.path:
             _sys.path.insert(0, str(BACKEND_DIR))
 
@@ -571,10 +587,7 @@ class TestOrchestratorApiIntegration:
                     client.headers.update({"X-Local-Api-Token": "orchestrator-e2e-test-token"})
                     yield client
         finally:
-            if _previous_token is None:
-                _os.environ.pop("LOCAL_API_TOKEN", None)
-            else:
-                _os.environ["LOCAL_API_TOKEN"] = _previous_token
+            _keyring.set_keyring(_original_keyring)
             _os.chdir(str(_orig_cwd))
 
     def test_health_endpoint(self, test_app):
@@ -767,10 +780,12 @@ class TestOrchestratorApiIntegration:
 # PLCSIM integration helpers (module-level, no class-scoped fixture warning)
 # ---------------------------------------------------------------------------
 
-_PLCSIM_IP = "192.168.0.1"
-_PLCSIM_RACK = 0
-_PLCSIM_SLOT = 1
-_PLCSIM_PORT = 102
+# S7 连接地址只能来自已验证的唯一控制目标。rack/slot/port 不是目标身份，
+# 但也统一读取同一份 config.yaml，避免测试形成第二套连接配置。
+_PLCSIM_IP = CONTROL_TARGET.plc_ip
+_PLCSIM_RACK = int(_tia_cfg.simulation.advanced.rack)
+_PLCSIM_SLOT = int(_tia_cfg.simulation.advanced.slot)
+_PLCSIM_PORT = int(_tia_cfg.simulation.advanced.port)
 
 
 def _try_connect_plcsim():
@@ -844,11 +859,13 @@ class TestRealS7EndToEnd:
 
     def test_write_then_read_MW100(self, plcsim_e2e_adapter):
         """写入 MW100=42，回读验证"""
-        plcsim_e2e_adapter.write_mw(100, 42)
-        val = plcsim_e2e_adapter.read_mw(100)
-        assert val == 42
-        # 恢复
-        plcsim_e2e_adapter.write_mw(100, 0)
+        original = plcsim_e2e_adapter.read_mw(100)
+        try:
+            plcsim_e2e_adapter.write_mw(100, 42)
+            val = plcsim_e2e_adapter.read_mw(100)
+            assert val == 42
+        finally:
+            plcsim_e2e_adapter.write_mw(100, original)
 
     def test_read_M0_0_bit(self, plcsim_e2e_adapter):
         """读取 M0.0 位"""
@@ -857,27 +874,33 @@ class TestRealS7EndToEnd:
 
     def test_write_then_read_M0_0_bit(self, plcsim_e2e_adapter):
         """写入 M0.0=True，回读验证"""
-        plcsim_e2e_adapter.write_address("M0.0", True)
-        val = plcsim_e2e_adapter.read_address("M0.0")
-        assert val is True
-        # 恢复
-        plcsim_e2e_adapter.write_address("M0.0", False)
+        original = plcsim_e2e_adapter.read_address("M0.0")
+        try:
+            plcsim_e2e_adapter.write_address("M0.0", True)
+            val = plcsim_e2e_adapter.read_address("M0.0")
+            assert val is True
+        finally:
+            plcsim_e2e_adapter.write_address("M0.0", original)
 
     def test_write_then_read_MD4_real(self, plcsim_e2e_adapter):
         """写入 MD4=3.14（浮点），回读验证"""
-        plcsim_e2e_adapter.write_address("MD4", 3.14)
-        val = plcsim_e2e_adapter.read_address("MD4")
-        assert abs(val - 3.14) < 0.1
-        # 恢复
-        plcsim_e2e_adapter.write_address("MD4", 0.0)
+        original = plcsim_e2e_adapter.read_address("MD4")
+        try:
+            plcsim_e2e_adapter.write_address("MD4", 3.14)
+            val = plcsim_e2e_adapter.read_address("MD4")
+            assert abs(val - 3.14) < 0.1
+        finally:
+            plcsim_e2e_adapter.write_address("MD4", original)
 
     def test_multiple_reads_on_same_address(self, plcsim_e2e_adapter):
         """同一地址多次读取一致性"""
-        plcsim_e2e_adapter.write_mw(200, 123)
-        vals = [plcsim_e2e_adapter.read_mw(200) for _ in range(3)]
-        assert all(v == 123 for v in vals)
-        # 恢复
-        plcsim_e2e_adapter.write_mw(200, 0)
+        original = plcsim_e2e_adapter.read_mw(200)
+        try:
+            plcsim_e2e_adapter.write_mw(200, 123)
+            vals = [plcsim_e2e_adapter.read_mw(200) for _ in range(3)]
+            assert all(v == 123 for v in vals)
+        finally:
+            plcsim_e2e_adapter.write_mw(200, original)
 
     def test_disconnect_and_read_fails(self, plcsim_e2e_adapter):
         """断开连接后读取应抛出异常"""

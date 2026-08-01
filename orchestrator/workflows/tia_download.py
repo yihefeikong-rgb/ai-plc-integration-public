@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+from mcp_common.control_target import get_control_target, require_control_ip
 from orchestrator.core import WorkflowContext, OrchestratorEngine
 
 
@@ -27,7 +28,7 @@ def register_tia_download_workflow(engine: OrchestratorEngine) -> None:
         Args:
             ctx.input["prompt"]: AI 提示词（如 "生成电机控制 FB"）
             ctx.input["project_path"]: TIA 项目路径
-            ctx.input["plc_ip"]: PLC/PLCSIM IP 地址
+            ctx.input["plc_ip"]: 可选，但只能与 config.yaml 的唯一目标一致
         """
         # 步骤 1: 生成 SCL 代码
         step1 = ctx.call(
@@ -49,11 +50,13 @@ def register_tia_download_workflow(engine: OrchestratorEngine) -> None:
             project_path=ctx.input.get("project_path", ""),
         )
 
-        # 步骤 4: 下载到 PLCSIM
+        # 步骤 4: 下载到唯一配置的 PLCSIM
+        target = get_control_target()
+        require_control_ip(ctx.input.get("plc_ip", target.plc_ip))
         step4 = ctx.call(
             "tia-mcp.download_to_plcsim",
             project_path=ctx.input.get("project_path", ""),
-            plc_ip=ctx.input.get("plc_ip", "192.168.0.110"),
+            target_ip=target.plc_ip,
         )
 
         return {

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from mcp_common.control_target import TargetConfigurationError, get_control_target
 from scripts import preflight
 
 CONFIG_PATH = ROOT / "mcp-servers" / "tia-mcp" / "config.yaml"
@@ -46,17 +47,6 @@ def _expand(value: Any, env: dict[str, str]) -> Any:
         return os.getenv(key) or env.get(key) or default
 
     return re.sub(r"\$\{([^}:]+)(?::([^}]*))?\}", replace, value)
-
-
-def _infer_tia_version(configured: str, project_path: str, install_dir: str, env: dict[str, str]) -> str:
-    if env.get("TIA_VERSION") or os.getenv("TIA_VERSION"):
-        return configured
-    haystack = f"{project_path} {install_dir}".lower()
-    if ".ap21" in haystack or "v21" in haystack:
-        return "V21"
-    if ".ap18" in haystack or "v18" in haystack:
-        return "V18"
-    return configured
 
 
 def _load_config() -> dict[str, Any]:
@@ -98,10 +88,19 @@ def build_report() -> dict[str, Any]:
     cfg = _load_config()
 
     tia = cfg.get("tia", {}) or {}
-    target = cfg.get("target", {}) or {}
     simulation = cfg.get("simulation", {}) or {}
     factory_io = cfg.get("factory_io", {}) or {}
-    advanced = simulation.get("advanced", {}) or {}
+
+    target_blocker = None
+    try:
+        control_target = get_control_target()
+    except TargetConfigurationError as exc:
+        control_target = None
+        target_blocker = {
+            "name": "唯一控制目标",
+            "detail": f"配置漂移: {exc}",
+            "suggestion": "恢复 config.yaml 的已批准 V21 / factoryio / 192.168.0.1 隔离目标",
+        }
 
     checks = [
         preflight.check_tia_portal(),
@@ -121,25 +120,30 @@ def build_report() -> dict[str, Any]:
         for item in checks
         if not item.passed
     ]
+    if target_blocker:
+        blockers.insert(0, target_blocker)
 
-    # target 段是唯一控制目标事实源；tia 段的同名字段仅为历史兼容兜底
-    project_path = _expand(tia.get("project_path") or target.get("project_path", ""), env)
     install_dir = _expand(tia.get("install_dir", ""), env)
-    configured_version = _expand(tia.get("version") or target.get("tia_version", ""), env)
+    project_path = str(control_target.project_path) if control_target else ""
+    tia_version = control_target.tia_version if control_target else ""
+    target_plc_ip = control_target.plc_ip if control_target else ""
+    instance_name = control_target.plcsim_instance if control_target else ""
+    device_name = control_target.device_name if control_target else ""
 
     return {
         "tia": {
-            "version": _infer_tia_version(configured_version, project_path, install_dir, env),
-            "configured_version": configured_version,
+            "version": tia_version,
+            "configured_version": tia_version,
             "project_path": project_path,
+            "device_name": device_name,
             "install_dir": install_dir,
         },
         "plcsim": {
             "backend": _expand(simulation.get("backend", ""), env),
             "advanced_install_dir": _expand(simulation.get("advanced_install_dir", ""), env),
-            "plc_ip": env.get("S7_PLC_IP") or _expand(advanced.get("plc_ip") or target.get("plc_ip", ""), env),
-            "config_plc_ip": _expand(advanced.get("plc_ip") or target.get("plc_ip", ""), env),
-            "instance_name": factory_io.get("plcsim_instance", "factoryio"),
+            "plc_ip": target_plc_ip,
+            "config_plc_ip": target_plc_ip,
+            "instance_name": instance_name,
         },
         "factory_io": {
             "exe_path": _expand(factory_io.get("exe_path", ""), env),

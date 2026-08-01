@@ -7,7 +7,7 @@ from orchestrator.bootstrap import bootstrap
 from orchestrator.core import OrchestratorEngine
 from orchestrator.mcp_client import ToolResult
 from orchestrator.registry import Registry
-from orchestrator.server_configs import ServerInfo
+from orchestrator.server_configs import SHADOW_SERVERS, ServerInfo
 from orchestrator.workflows.nl_to_plcsim_pipeline import (
     register_nl_to_plcsim_pipeline_workflow,
 )
@@ -79,7 +79,8 @@ async def test_bootstrap_injects_the_connected_pool_and_safety_gate_into_engine(
 
     assert engine._pool is pool
     assert engine._safety_gate is not None
-    assert result.connected == ["test-server"]
+    expected = ["test-server", *(f"{info.name}(shadow)" for info in SHADOW_SERVERS)]
+    assert result.connected == expected
 
 
 @pytest.mark.asyncio

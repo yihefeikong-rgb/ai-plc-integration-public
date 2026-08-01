@@ -7,7 +7,8 @@
 
 - 第一阶段仿真目标：PLCSIM Advanced
 - 固定实例名：`factoryio`
-- 当前 PLC IP：`192.168.0.110`
+- 当前 PLC IP：`192.168.0.1`
+- 当前 TIA 下载设备：`S7-1500/ET200MP station_1`（CPU item `PLC_2`）
 - config.yaml 中 PLCSIM Advanced 默认 IP：`192.168.0.1`
 - 当前 TIA 项目路径：`D:\PLC cheng xu\TIA PLC CHENG XU\demo_V21\demo_V21.ap21`
 - 当前 TIA 安装目录：`D:\TIA BEN TI\Portal V21`

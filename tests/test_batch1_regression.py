@@ -114,10 +114,6 @@ class TestMakeResult:
 @pytest.fixture(scope="module")
 def _server_module():
     """单次导入 server 模块（模块级），供所有测试共享"""
-    # 清理可能的旧缓存
-    for key in list(sys.modules.keys()):
-        if 'server' in key and 'test_' not in key:
-            sys.modules.pop(key, None)
     # Mock Windows 特有模块
     _mock_modules = {
         "clr": MagicMock(),
@@ -152,12 +148,26 @@ def _server_module():
     _mock_modules["config_loader"].validate_control_target.return_value = _mock_target
     _mock_modules["config_loader"].TargetConfigurationError = type("TargetConfigurationError", (Exception,), {})
 
-    for key, mock in _mock_modules.items():
-        sys.modules[key] = mock
+    _missing = object()
+    _shadowed_names = (*_mock_modules, "server")
+    _original_modules = {
+        key: sys.modules.get(key, _missing)
+        for key in _shadowed_names
+    }
+    try:
+        sys.modules.pop("server", None)
+        for key, mock in _mock_modules.items():
+            sys.modules[key] = mock
 
-    import server as sv
-    importlib.reload(sv)
-    return sv
+        import server as sv
+        importlib.reload(sv)
+        yield sv
+    finally:
+        for key, original in _original_modules.items():
+            if original is _missing:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = original
 
 
 @pytest.fixture

@@ -48,7 +48,7 @@
 
 | 范围 | 已确认的事实 | 不能据此推断的事实 |
 | --- | --- | --- |
-| 源码与离线回归 | `b27d08d` 上最近一次默认测试为 **714 passed，76 deselected**。`pytest.ini` 收集 `tests` 与 `orchestrator/tests`，并排除 `integration`、`hardware`、`desktop` 与 `network` 标记。 | 不代表 TIA、PLCSIM、Factory I/O、真实 PLC 或网络协议已动态通过。 |
+| 源码与离线回归 | 最近一次默认离线回归为 **817 passed，81 deselected**。`pytest.ini` 收集 `tests` 与 `orchestrator/tests`，并排除 `integration`、`hardware`、`desktop` 与 `network` 标记。 | 不代表 TIA、PLCSIM、Factory I/O、真实 PLC 或网络协议已动态通过。 |
 | 桌面/后端 | FastAPI、React/Vite、Electron 配置、路由与工作流代码存在；根 `start.bat` 仅启动本地后端。前端 Vitest **136 测试通过**（11 文件，关键路径覆盖率 72%）；P0-P5 批次已修复 6 个 HIGH（不伪造原则：删除 Inspector/Dashboard 硬编码假数据 + 脱敏 testResult.reply + fallback headers 补 localControlHeaders），并完成 F-019 机器人 4 模式 + L3 安全等级 + 9 字段高风险确认、F-037 useTabs 单一 state object 根治、5 工具页 ToolStatusBar 10 状态机、附件上传真实 API、CSP `script-src 'self'` 收紧 + `connect-src` 环境变量化、ErrorBoundary 脱敏、9+ 处 `catch {}` 加日志。 | 不代表 Electron 打包、所有第三方模型或所有 UI 流程已在每台机器验证。E2E、Lighthouse、响应式 4 尺寸截图回归、OrchestratorPanel/ChatArea/InspectorPanel 文件拆分（P6/P7）尚未完成。 |
 | TIA/PLCSIM 主链 | 受控 V21 目标、TIA Worker、CartGen、下载与 snap7 回读代码路径存在。 | 当前整改版本尚未完成 TIA V21 → PLCSIM Advanced V8 → snap7 → Factory I/O 的完整动态验收。有效的本地 PLCSIM Advanced 许可证、项目加载、下载成功与 CPU 可读均是独立前提。 |
 | 真实现场 | 代码对控制目标、写入参数、认证主体、一次性确认和跨进程审计链设置了防护。 | 不代表可连接真实 PLC、F-CPU、安全回路或生产环境。当前 README 不授予此类操作权限。 |
@@ -95,7 +95,7 @@ flowchart LR
 2. 后端启动时初始化知识库、搜索索引、对话/项目存储、设置存储以及编排层。
 3. 后端取得 MCP 所有者锁后，编排层才可管理标准输入输出 MCP 子进程；第二个所有者必须失败关闭，避免重复拉起工具进程。
 4. `nl_to_plcsim_pipeline` 把 Ladder 块创建、OB1 接入、编译、下载、snap7 只读回读和可选 Factory I/O 串为一条受控工作流。
-5. 控制目标由 `mcp-servers/tia-mcp/config.yaml` 的 `target` 节统一定义。当前代码要求 V21、指定项目、`factoryio` 实例名和单一隔离 IP 一致；调用者不能通过任意 IP 或 OPC UA URL 绕过该契约。
+5. 控制目标由 `mcp-servers/tia-mcp/config.yaml` 的 `target` 节统一定义。当前代码要求 V21、指定项目、`factoryio` 实例名、设备名 `S7-1500/ET200MP station_1` 和单一隔离 IP（`192.168.0.1`）一致；调用者不能通过任意 IP、设备名或 OPC UA URL 绕过该契约。
 
 ### 梯形图与 TIA 路线
 
@@ -230,7 +230,7 @@ D:\Python3\python.exe scripts\preflight.py --json
 只有在以下证据全部明确后，才可开展隔离仿真验收：
 
 1. TIA Portal V21 已由人工打开，并加载受控项目。
-2. `config.yaml` 的 V21、项目路径、PLCSIM 实例名和隔离 IP 与实际环境一致。
+2. `config.yaml` 的 V21、项目路径、PLCSIM 实例名、设备名和隔离 IP（`192.168.0.1`）与实际环境一致。
 3. PLCSIM Advanced 有效、实例已创建且 CPU 状态可确认。
 4. 下载结果在 TIA/PLCSIM 中可见，随后以 snap7 **只读**回读独立核验。
 5. Factory I/O 仅在上述步骤成功后进行连接和场景验证。

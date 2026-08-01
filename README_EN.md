@@ -48,7 +48,7 @@ As of **2026-07-22**, the repository has the following evidence boundary:
 
 | Area | Confirmed fact | What must not be inferred |
 | --- | --- | --- |
-| Source and offline regression | The most recent default run on `b27d08d` reported **714 passed, 76 deselected**. `pytest.ini` collects `tests` and `orchestrator/tests`, while excluding `integration`, `hardware`, `desktop`, and `network` markers. | This does not validate TIA, PLCSIM, Factory I/O, a real PLC, or a network protocol dynamically. |
+| Source and offline regression | The most recent default offline regression reported **817 passed, 81 deselected**. `pytest.ini` collects `tests` and `orchestrator/tests`, while excluding `integration`, `hardware`, `desktop`, and `network` markers. | This does not validate TIA, PLCSIM, Factory I/O, a real PLC, or a network protocol dynamically. |
 | Desktop and backend | FastAPI, React/Vite, Electron configuration, routes, and workflow code are present. The root `start.bat` launches the local backend only. Frontend Vitest reports **136 passing tests** (11 files, 72% critical-path coverage); P0-P5 batches fixed 6 HIGH issues (no-fabrication principle: removed hardcoded fake data in Inspector/Dashboard, redacted testResult.reply, added localControlHeaders to fallback fetch), and delivered F-019 robot 4-mode control + L3 safety level + 9-field high-risk confirmation, F-037 useTabs single-state-object root fix, ToolStatusBar 10-state machine across 5 tool pages, real attachment-upload API, CSP `script-src 'self'` tightening with env-var `connect-src`, ErrorBoundary redaction, and logging for 9+ silent `catch {}` blocks. | This does not prove Electron packaging, every external model, or every UI path on every machine. E2E, Lighthouse, responsive 4-size screenshot regression, and OrchestratorPanel/ChatArea/InspectorPanel file splits (P6/P7) remain pending. |
 | TIA/PLCSIM path | A controlled V21 target, TIA Worker, CartGen, download path, and snap7 readback path exist in source. | The corrected revision has not completed end-to-end dynamic acceptance for TIA V21 → PLCSIM Advanced V8 → snap7 → Factory I/O. A valid local PLCSIM Advanced license, loaded project, successful download, and readable CPU are separate prerequisites. |
 | Real field equipment | Code contains target, write-parameter, authenticated-actor, one-time-confirmation, and cross-process-audit guards. | It does not authorize connection to real PLCs, F-CPUs, safety circuits, or production environments. |
@@ -91,7 +91,7 @@ flowchart LR
 2. On startup, the backend initializes knowledge, search, conversation/project storage, application settings, and the orchestrator.
 3. After acquiring the MCP owner lock, the backend may manage stdio MCP child processes. A second owner must fail closed to avoid duplicate tool processes.
 4. `nl_to_plcsim_pipeline` links ladder-block creation, OB1 integration, compilation, download, snap7 read-only readback, and optional Factory I/O steps.
-5. `mcp-servers/tia-mcp/config.yaml` defines the one controlled target. Current code requires the configured V21 version, project, `factoryio` instance, and isolated IP to agree; callers cannot use arbitrary S7 IPs or OPC UA URLs to bypass the contract.
+5. `mcp-servers/tia-mcp/config.yaml` defines the one controlled target. Current code requires the configured V21 version, project, `factoryio` instance, device name `S7-1500/ET200MP station_1`, and the single isolated IP (`192.168.0.1`) to agree; callers cannot use arbitrary S7 IPs, device names, or OPC UA URLs to bypass the contract.
 
 ### Ladder and TIA route
 
@@ -226,7 +226,7 @@ D:\Python3\python.exe scripts\preflight.py --json
 Before an isolated simulation acceptance run, obtain evidence for every item below:
 
 1. An operator has opened TIA Portal V21 and loaded the controlled project.
-2. The V21 version, project path, PLCSIM instance name, and isolated IP in `config.yaml` match the actual environment.
+2. The V21 version, project path, PLCSIM instance name, device name, and isolated IP (`192.168.0.1`) in `config.yaml` match the actual environment.
 3. PLCSIM Advanced is valid, the instance exists, and CPU state can be confirmed.
 4. The download result is visible in TIA/PLCSIM and then independently verified by **read-only** snap7 readback.
 5. Factory I/O is connected and scenario-tested only after the preceding steps succeed.

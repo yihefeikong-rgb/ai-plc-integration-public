@@ -29,6 +29,8 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+from mcp_common.control_target import get_control_target, require_control_ip
+
 # ── 颜色输出 ──
 _RESET = "\033[0m"
 _GREEN = "\033[92m"
@@ -181,7 +183,7 @@ def run_demo(
     port: int = 8000,
     project_name: str | None = None,
     project_path: str | None = None,
-    plc_ip: str = "192.168.0.110",
+    plc_ip: str | None = None,
     skip_snap7: bool = False,
 ) -> bool:
     """运行一键演示。
@@ -192,6 +194,10 @@ def run_demo(
         3. snap7 验证
         4. 大字结果输出
     """
+    target = get_control_target()
+    require_control_ip(plc_ip or target.plc_ip)
+    plc_ip = target.plc_ip
+
     # ── 启动 Banner ──
     _banner("AI-PLC 一键演示")
     _log(f"固定 Prompt: {_FIXED_PROMPT}", "info")
@@ -376,7 +382,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000, help="orchestrator 端口 (default: 8000)")
     parser.add_argument("--project-name", default=None, help="TIA 项目名")
     parser.add_argument("--project-path", default=None, help="TIA 项目路径")
-    parser.add_argument("--plc-ip", default="192.168.0.110", help="PLC IP (default: 192.168.0.110)")
+    parser.add_argument("--plc-ip", default=None, help="PLC IP（仅接受 config.yaml 的唯一 target）")
     parser.add_argument("--skip-snap7", action="store_true", help="跳过 snap7 变量读取")
     args = parser.parse_args()
 

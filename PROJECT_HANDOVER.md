@@ -478,7 +478,7 @@ ai-plc-integration/
 - `PLCSIM_ADV_DIR` — PLCSIM 目录
 - `GOLDEN_*` — Golden backup 路径
 - `FACTORY_IO_DIR` — Factory I/O 目录
-- `S7_PLC_IP` — PLC IP（默认 192.168.0.110）
+- `S7_PLC_IP` — PLC IP（默认 192.168.0.1）
 
 ### 启动方式
 ```bash
@@ -497,7 +497,7 @@ npm run dist                 # electron-builder + NSIS
 ### 端口说明
 - 后端: 8005
 - 前端 Vite Dev: 5173
-- PLCSIM: 192.168.0.110:102
+- PLCSIM: 192.168.0.1:102
 - Factory I/O: 192.168.0.1
 
 ---
@@ -550,7 +550,7 @@ npm run dist                 # electron-builder + NSIS
       "command": "D:\\Python3\\python.exe",
       "args": ["-m", "mcp_common.server"],
       "env": {
-        "S7_PLC_IP": "192.168.0.110",
+        "S7_PLC_IP": "192.168.0.1",
         "S7_RACK": "0",
         "S7_SLOT": "1"
       }

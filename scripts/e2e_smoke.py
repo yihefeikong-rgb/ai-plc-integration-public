@@ -27,6 +27,8 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+from mcp_common.control_target import get_control_target, require_control_ip
+
 # ── 颜色输出 ──
 _RESET = "\033[0m"
 _GREEN = "\033[92m"
@@ -254,7 +256,7 @@ def run_smoke_test(
     port: int = 8000,
     project_name: str | None = None,
     project_path: str | None = None,
-    plc_ip: str = "192.168.0.110",
+    plc_ip: str | None = None,
     skip_snap7: bool = False,
 ) -> bool:
     """运行端到端冒烟测试。
@@ -267,6 +269,10 @@ def run_smoke_test(
     Returns:
         所有步骤通过返回 True
     """
+    target = get_control_target()
+    require_control_ip(plc_ip or target.plc_ip)
+    plc_ip = target.plc_ip
+
     print(f"\n{_BOLD}{_BLUE}" + "=" * 56 + f"{_RESET}")
     print(f"{_BOLD}{_BLUE}   AI-PLC 端到端冒烟测试{_RESET}")
     print(f"{_BOLD}{_BLUE}" + "=" * 56 + f"{_RESET}")
@@ -371,7 +377,7 @@ def _print_troubleshooting() -> None:
   {_YELLOW}3. PLCSIM 下载失败{_RESET}
      - 确认 PLCSIM Advanced 已安装并启动
      - 确认 PLCSIM 实例名 "factoryio" 已创建
-     - 确认 PLC IP ({_CYAN}192.168.0.110{_RESET}) 与 PLCSIM 一致
+     - 确认 PLC IP 与 config.yaml 的唯一 target 一致
 
   {_YELLOW}4. snap7 连接失败{_RESET}
      - 确认 Python snap7 已安装: pip install python-snap7
@@ -415,7 +421,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000, help="orchestrator 端口 (default: 8000)")
     parser.add_argument("--project-name", default=None, help="TIA 项目名 (default: SmokeTest_时间戳)")
     parser.add_argument("--project-path", default=None, help="TIA 项目路径 (default: 自动生成)")
-    parser.add_argument("--plc-ip", default="192.168.0.110", help="PLC IP (default: 192.168.0.110)")
+    parser.add_argument("--plc-ip", default=None, help="PLC IP（仅接受 config.yaml 的唯一 target）")
     parser.add_argument("--skip-snap7", action="store_true", help="跳过 snap7 变量读取")
     args = parser.parse_args()
 
