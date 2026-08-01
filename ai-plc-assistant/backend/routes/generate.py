@@ -1,5 +1,9 @@
 """代码生成 API — 自然语言 → SCL/XML/CSV 多格式输出"""
 
+import threading
+import time
+from collections import deque
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -9,6 +13,23 @@ from generator import LadderProgram, Variable, Network
 from security import require_local_session
 
 router = APIRouter()
+
+# ── 生成端点限流：同一认证主体每分钟最多 GENERATE_MAX_PER_MINUTE 次 ──
+GENERATE_MAX_PER_MINUTE = 10
+_generate_history: dict[str, deque] = {}
+_generate_lock = threading.Lock()
+
+
+def _check_generate_rate(actor: str) -> None:
+    """滑动窗口限流：防止本机进程滥用 LLM 生成端点消耗成本。"""
+    now = time.monotonic()
+    with _generate_lock:
+        history = _generate_history.setdefault(actor, deque())
+        while history and now - history[0] >= 60:
+            history.popleft()
+        if len(history) >= GENERATE_MAX_PER_MINUTE:
+            raise HTTPException(status_code=429, detail="生成请求过于频繁，请稍后重试")
+        history.append(now)
 
 
 class GenerateRequest(BaseModel):
@@ -42,8 +63,9 @@ class GenerateResponse(BaseModel):
 
 
 @router.post("/ladder", response_model=GenerateResponse)
-async def generate_ladder_code(req: GenerateRequest, _actor: str = Depends(require_local_session)):
+async def generate_ladder_code(req: GenerateRequest, actor: str = Depends(require_local_session)):
     """自然语言 → 梯形图程序（结构化输出）"""
+    _check_generate_rate(actor)
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 
@@ -62,8 +84,9 @@ async def generate_ladder_code(req: GenerateRequest, _actor: str = Depends(requi
 
 
 @router.post("/ladder/scl")
-async def generate_scl_code(req: GenerateRequest, _actor: str = Depends(require_local_session)):
+async def generate_scl_code(req: GenerateRequest, actor: str = Depends(require_local_session)):
     """自然语言 → SCL 源代码（可直接粘贴到 TIA Portal）"""
+    _check_generate_rate(actor)
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 
@@ -86,8 +109,9 @@ async def generate_scl_code(req: GenerateRequest, _actor: str = Depends(require_
 
 
 @router.post("/ladder/xml")
-async def generate_xml_code(req: GenerateRequest, _actor: str = Depends(require_local_session)):
+async def generate_xml_code(req: GenerateRequest, actor: str = Depends(require_local_session)):
     """自然语言 → PLCopen XML（可导入 TIA Portal）"""
+    _check_generate_rate(actor)
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 

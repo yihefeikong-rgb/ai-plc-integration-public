@@ -2,9 +2,10 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from security import require_local_session
 from storage.conversations import ConversationStore
 
 router = APIRouter()
@@ -34,14 +35,14 @@ class UpdateTitle(BaseModel):
 
 
 @router.get("")
-async def list_conversations(limit: int = 50):
+async def list_conversations(limit: int = 50, _actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
     return {"conversations": store.list_conversations(limit)}
 
 
 @router.post("", status_code=201)
-async def create_conversation(data: CreateConversation):
+async def create_conversation(data: CreateConversation, _actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
     conv = store.create_conversation(data.title, data.model_id)
@@ -49,7 +50,7 @@ async def create_conversation(data: CreateConversation):
 
 
 @router.get("/{conv_id}")
-async def get_conversation(conv_id: str):
+async def get_conversation(conv_id: str, _actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
     conv = store.get_conversation(conv_id)
@@ -59,7 +60,7 @@ async def get_conversation(conv_id: str):
 
 
 @router.put("/{conv_id}")
-async def update_conversation(conv_id: str, data: UpdateTitle):
+async def update_conversation(conv_id: str, data: UpdateTitle, _actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
     ok = store.update_conversation(conv_id, data.title)
@@ -69,7 +70,7 @@ async def update_conversation(conv_id: str, data: UpdateTitle):
 
 
 @router.delete("/{conv_id}")
-async def delete_conversation(conv_id: str):
+async def delete_conversation(conv_id: str, _actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
     ok = store.delete_conversation(conv_id)
@@ -79,7 +80,7 @@ async def delete_conversation(conv_id: str):
 
 
 @router.post("/{conv_id}/messages", status_code=201)
-async def add_message(conv_id: str, data: AddMessage):
+async def add_message(conv_id: str, data: AddMessage, _actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
     conv = store.get_conversation(conv_id)
@@ -90,7 +91,7 @@ async def add_message(conv_id: str, data: AddMessage):
 
 
 @router.get("/stats/overview")
-async def conversation_stats():
+async def conversation_stats(_actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
     return store.get_stats()

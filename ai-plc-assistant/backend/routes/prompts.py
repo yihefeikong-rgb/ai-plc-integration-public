@@ -6,8 +6,10 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from security import require_local_session
 
 router = APIRouter()
 
@@ -323,7 +325,7 @@ async def get_template(template_id: str):
 
 
 @router.post("", status_code=201)
-async def create_template(data: TemplateCreate):
+async def create_template(data: TemplateCreate, _actor: str = Depends(require_local_session)):
     """创建新模板"""
     templates = _load_all()
     new_id = data.name.lower().replace(" ", "-").replace("_", "-")
@@ -348,7 +350,7 @@ async def create_template(data: TemplateCreate):
 
 
 @router.put("/{template_id}")
-async def update_template(template_id: str, data: TemplateUpdate):
+async def update_template(template_id: str, data: TemplateUpdate, _actor: str = Depends(require_local_session)):
     """更新模板"""
     templates = _load_all()
     for t in templates:
@@ -370,7 +372,7 @@ async def update_template(template_id: str, data: TemplateUpdate):
 
 
 @router.delete("/{template_id}")
-async def delete_template(template_id: str):
+async def delete_template(template_id: str, _actor: str = Depends(require_local_session)):
     """删除模板"""
     templates = _load_all()
     for i, t in enumerate(templates):

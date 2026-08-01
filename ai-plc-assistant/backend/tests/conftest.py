@@ -195,6 +195,13 @@ def client():
     except Exception:
         pass
 
+    # 重置 generate 模块级限流状态，避免测试间累积触发 429
+    try:
+        from routes import generate as _gen_routes
+        _gen_routes._generate_history.clear()
+    except Exception:
+        pass
+
     with TestClient(_real_app) as c:
         # SearchIndex 是进程级单例；每个用例从同一份隔离索引开始。
         try:
