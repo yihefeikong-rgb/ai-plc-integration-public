@@ -9,7 +9,7 @@
         {"name": "I0_5", "dataType": "Bool", "address": "%I0.5", "comment": "Start button — 启动按钮"},
         {"name": "I0_6", "dataType": "Bool", "address": "%I0.6", "comment": "Reset button — 复位按钮"},
         {"name": "I0_7", "dataType": "Bool", "address": "%I0.7", "comment": "Stop button — 停止按钮"},
-        {"name": "I0_8", "dataType": "Bool", "address": "%I0.8", "comment": "Emergency stop — 急停"},
+        {"name": "I0_8", "dataType": "Bool", "address": "%I1.0", "comment": "Emergency stop — 急停（标签名 I0_8 沿用历史命名，物理地址 %I1.0）"},
         {"name": "I0_9", "dataType": "Bool", "address": "%I0.9", "comment": "Auto/Manual — 模式选择"},
         {"name": "Q0_0", "dataType": "Bool", "address": "%Q0.0", "comment": "Entry conveyor — 入口传送带"},
         {"name": "Q0_1", "dataType": "Bool", "address": "%Q0.1", "comment": "Exit conveyor — 出口传送带"},

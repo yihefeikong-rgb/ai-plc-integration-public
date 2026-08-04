@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 import pytest_asyncio
 
@@ -30,8 +32,13 @@ class TestComplexWorkflowChain:
         yield engine
         try:
             await pool.disconnect_all()
-        except Exception:
-            pass  # FastMCP 3.x 取消域已知问题
+        except asyncio.CancelledError:
+            # FastMCP 3.x 取消域已知问题：取消可能落在断开过程的 await 处。
+            # 与 mcp_pool/mcp_client 一致：先尽力完成拆除再重新抛出取消，
+            # 不静默吞掉，否则残留的 MCP 子进程不可见。
+            raise
+        # 非取消域的真实关闭错误（Exception）不再被吞掉：
+        # 让其向上传播，使本用例失败，后续用例对残留资源有感知（fail-closed）。
 
     @pytest.mark.asyncio
     async def test_simple_async_echo_workflow(self, engine_with_echo):

@@ -71,7 +71,7 @@ def test_s7_write_rejects_unmapped_address_before_read_or_write(monkeypatch):
     monkeypatch.setattr(tools_s7, "adapter", mock_adapter)
     monkeypatch.setattr(tools_s7, "_audit", MagicMock())
 
-    result = asyncio.run(tools_s7.s7_write("MW10", "100"))
+    result = asyncio.run(tools_s7.s7_write("MW10", "100", auth_token="pytest-mcp-auth-token"))
 
     assert "未映射" in result
     mock_adapter.read_address.assert_not_called()
@@ -106,7 +106,7 @@ def test_s7_write_validates_mapped_semantic_target_and_normalized_value(monkeypa
     )
     monkeypatch.setattr(tools_s7, "_audit", MagicMock())
 
-    result = asyncio.run(tools_s7.s7_write("MW14", "100"))
+    result = asyncio.run(tools_s7.s7_write("MW14", "100", auth_token="pytest-mcp-auth-token"))
 
     assert "写入成功" in result
     mock_validator.validate.assert_called_once_with(

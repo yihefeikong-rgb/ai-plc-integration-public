@@ -15,6 +15,9 @@ import re
 import requests
 from typing import Optional
 
+# 模块级 Session 复用底层连接池，避免批量调用时每次重复 TCP/TLS 握手
+_SESSION = requests.Session()
+
 
 def call_deepseek(
     prompt: str,
@@ -49,7 +52,7 @@ def call_deepseek(
     if not api_key:
         raise ValueError("未配置 DEEPSEEK_API_KEY（请在 .env 或环境变量中设置）")
 
-    resp = requests.post(
+    resp = _SESSION.post(
         api_url,
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -82,7 +85,15 @@ def parse_json_response(response: dict) -> dict:
         ValueError: 无法提取 JSON
         json.JSONDecodeError: JSON 解析失败
     """
-    content = response["choices"][0]["message"]["content"]
+    try:
+        content = response["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError(
+            "DeepSeek 响应缺少 choices[0].message.content"
+            "（API 返回错误形态、空 choices 或字段缺失）"
+        ) from exc
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("DeepSeek 响应 content 为空或不是文本")
 
     json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
     if json_match:

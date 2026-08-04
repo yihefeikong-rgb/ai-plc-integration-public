@@ -38,6 +38,7 @@ I/O 映射 (Pick & Place Basic):
 
 from __future__ import annotations
 import asyncio
+import logging
 import os
 import sys
 import json
@@ -45,6 +46,8 @@ import argparse
 from pathlib import Path
 from typing import Any
 from fastmcp import FastMCP
+
+logger = logging.getLogger("robot-mcp")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -57,6 +60,8 @@ from mcp_common.control_target import (
     require_control_ip,
     require_opcua_endpoint,
 )
+from mcp_common.audit import AuditLogger, authenticated_actor
+from safety.confirmation import ConfirmationError, ConfirmationService
 
 # ── 通信后端: 优先 OPC UA, 回退 snap7 ──────────────────────────────
 HAS_ASYNCUA = False
@@ -79,30 +84,40 @@ PLC_IP = get_control_target().plc_ip
 OPCUA_PORT = 4840
 OPCUA_ENDPOINT = approved_opcua_endpoint()
 
+# 急停重确认闩锁的持久化文件。设置 ROBOT_ESTOP_LATCH_FILE 后，闩锁跨进程
+# 重启保持：服务重启不会静默清除"急停恢复必须重新确认"要求。未设置时仅
+# 存进程内存（兼容原有行为）。模拟/离线测试不设置该变量，避免污染测试环境。
+_ESTOP_LATCH_FILE = (
+    Path(os.environ["ROBOT_ESTOP_LATCH_FILE"]) if os.environ.get("ROBOT_ESTOP_LATCH_FILE") else None
+)
+
 # Pick & Place (Basic) 场景 I/O 映射
 # 每种 I/O 支持两种寻址方式:
-#  - node: OPC UA 节点路径（ns=4; s=...）
+#  - node: OPC UA 节点路径（ns=4; s=...），必须与本模块部署的 pnp_tags.json
+#          标签名一致（下划线命名：I0_0 / I0_8 / Q0_0，而非 I0.0 / I0.8 / Q0.0）。
+#          点号命名无法解析为 PLCSIM Advanced 的 PLC 标签节点，会导致 OPC UA
+#          后端所有读返回 None、急停被误判为未知并 fail-closed 拒绝动作。
 #  - byte/bit: S7 协议字节位寻址（byte, bit）
 IO_MAP = {
     # Inputs (sensors)
-    "sensor_entry":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.0", "byte": 0, "bit": 0, "desc": "入口传感器"},
-    "sensor_exit":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.1", "byte": 0, "bit": 1, "desc": "出口传感器"},
-    "sensor_moving_x":     {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.2", "byte": 0, "bit": 2, "desc": "X轴移动中"},
-    "sensor_moving_z":     {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.3", "byte": 0, "bit": 3, "desc": "Z轴移动中"},
-    "sensor_item_detected":{"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.4", "byte": 0, "bit": 4, "desc": "抓取检测"},
-    "sensor_start":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.5", "byte": 0, "bit": 5, "desc": "启动按钮"},
-    "sensor_reset":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.6", "byte": 0, "bit": 6, "desc": "复位按钮"},
-    "sensor_stop":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.7", "byte": 0, "bit": 7, "desc": "停止按钮"},
-    "sensor_estop":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0.8", "byte": 1, "bit": 0, "desc": "急停安全回路（TRUE=健康）"},
+    "sensor_entry":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_0", "byte": 0, "bit": 0, "desc": "入口传感器"},
+    "sensor_exit":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_1", "byte": 0, "bit": 1, "desc": "出口传感器"},
+    "sensor_moving_x":     {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_2", "byte": 0, "bit": 2, "desc": "X轴移动中"},
+    "sensor_moving_z":     {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_3", "byte": 0, "bit": 3, "desc": "Z轴移动中"},
+    "sensor_item_detected":{"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_4", "byte": 0, "bit": 4, "desc": "抓取检测"},
+    "sensor_start":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_5", "byte": 0, "bit": 5, "desc": "启动按钮"},
+    "sensor_reset":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_6", "byte": 0, "bit": 6, "desc": "复位按钮"},
+    "sensor_stop":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_7", "byte": 0, "bit": 7, "desc": "停止按钮"},
+    "sensor_estop":        {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.I0_8", "byte": 1, "bit": 0, "desc": "急停安全回路（TRUE=健康）"},
     # Outputs (actuators)
-    "conveyor_entry":      {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.0", "byte": 0, "bit": 0, "desc": "入口传送带"},
-    "conveyor_exit":       {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.1", "byte": 0, "bit": 1, "desc": "出口传送带"},
-    "arm_move_x":          {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.2", "byte": 0, "bit": 2, "desc": "机械臂X轴"},
-    "arm_move_z":          {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.3", "byte": 0, "bit": 3, "desc": "机械臂Z轴"},
-    "grab":                {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.4", "byte": 0, "bit": 4, "desc": "夹爪"},
-    "start_light":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.5", "byte": 0, "bit": 5, "desc": "启动灯"},
-    "reset_light":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.6", "byte": 0, "bit": 6, "desc": "复位灯"},
-    "stop_light":          {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0.7", "byte": 0, "bit": 7, "desc": "停止灯"},
+    "conveyor_entry":      {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0_0", "byte": 0, "bit": 0, "desc": "入口传送带"},
+    "conveyor_exit":       {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0_1", "byte": 0, "bit": 1, "desc": "出口传送带"},
+    "arm_move_x":          {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0_2", "byte": 0, "bit": 2, "desc": "机械臂X轴"},
+    "arm_move_z":          {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0_3", "byte": 0, "bit": 3, "desc": "机械臂Z轴"},
+    "grab":                {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0_4", "byte": 0, "bit": 4, "desc": "夹爪"},
+    "start_light":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0_5", "byte": 0, "bit": 5, "desc": "启动灯"},
+    "reset_light":         {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0_6", "byte": 0, "bit": 6, "desc": "复位灯"},
+    "stop_light":          {"node": "ns=4;s=|var|PLC.PROGRAM.PLC_PROGRAM.Q0_7", "byte": 0, "bit": 7, "desc": "停止灯"},
 }
 
 
@@ -134,6 +149,7 @@ class RobotBackend:
             "stop_light": False,
         }
         self._estop_reset_required = False
+        self._latch_loaded = False
 
     @property
     def backend_type(self) -> str | None:
@@ -147,7 +163,13 @@ class RobotBackend:
             await self._opc_client.connect()
             self._backend_type = "opcua"
             return True
-        except Exception:
+        except Exception as exc:
+            logger.error("OPC UA 连接失败（%s）: %s", OPCUA_ENDPOINT, exc)
+            try:
+                if self._opc_client is not None:
+                    await self._opc_client.disconnect()
+            except Exception:
+                pass
             self._opc_client = None
             return False
 
@@ -160,8 +182,8 @@ class RobotBackend:
             if self._snap_client.get_connected():
                 self._backend_type = "snap7"
                 return True
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.error("snap7 连接失败（%s）: %s", PLC_IP, exc)
         self._snap_client = None
         return False
 
@@ -198,7 +220,8 @@ class RobotBackend:
         if BACKEND == "snap7":
             if self._snap_client is not None:
                 return True
-            return self.connect_snap7()
+            # snap7 connect 是同步阻塞调用，放到线程池执行，避免卡死事件循环
+            return await asyncio.to_thread(self.connect_snap7)
         # auto
         if self._opc_client is not None:
             return True
@@ -206,7 +229,7 @@ class RobotBackend:
             return True
         if self._snap_client is not None:
             return True
-        return self.connect_snap7()
+        return await asyncio.to_thread(self.connect_snap7)
 
     async def get_client(self):
         if not await self.ensure_connected():
@@ -218,6 +241,45 @@ class RobotBackend:
                 f"  4. 防火墙是否阻止"
             )
 
+    async def _drop_opcua(self) -> None:
+        """丢弃失效的 OPC UA 客户端，使下一次 ensure_connected 重连或回退 snap7。"""
+        client, self._opc_client = self._opc_client, None
+        self._backend_type = None
+        if client is not None:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+
+    def _load_estop_latch(self) -> bool:
+        """从持久化文件加载急停重确认闩锁（fail-closed：读取失败视为急停激活）。"""
+        if not _ESTOP_LATCH_FILE:
+            return False
+        try:
+            if _ESTOP_LATCH_FILE.exists():
+                data = json.loads(_ESTOP_LATCH_FILE.read_text(encoding="utf-8"))
+                return bool(data.get("estop_reset_required", False))
+        except Exception as exc:
+            # fail-closed：无法确认闩锁状态时按急停激活处理，绝不静默放行
+            logger.error("急停闩锁读取失败，按急停激活处理: %s", exc)
+            return True
+        return False
+
+    def _save_estop_latch(self) -> None:
+        """持久化急停重确认闩锁；模拟模式不落盘（避免污染离线测试）。"""
+        if not _ESTOP_LATCH_FILE:
+            return
+        if self._backend_type == "simulated":
+            return
+        try:
+            _ESTOP_LATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _ESTOP_LATCH_FILE.write_text(
+                json.dumps({"estop_reset_required": bool(self._estop_reset_required)}),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            logger.error("急停闩锁持久化失败: %s", exc)
+
     async def read_io(self, name: str) -> bool | None:
         if name not in IO_MAP:
             return None
@@ -228,22 +290,32 @@ class RobotBackend:
             if self._backend_type == "simulated":
                 return bool(self._sim_state.get(name, False))
             elif self._backend_type == "opcua" and self._opc_client:
-                node = self._opc_client.get_node(info["node"])
-                val = await node.read_value()
-                return bool(val)
+                try:
+                    node = self._opc_client.get_node(info["node"])
+                    val = await node.read_value()
+                    return bool(val)
+                except Exception:
+                    # OPC UA 读失败：丢弃失效客户端，下次调用自动重连/回退 snap7
+                    await self._drop_opcua()
+                    return None
             elif self._backend_type == "snap7" and self._snap_client:
                 area = 0x81 if name.startswith("sensor_") else 0x82
                 data = self._snap_client.read_area(area, 0, info["byte"], 1)
                 return bool(data[0] & (1 << info["bit"]))
             return None
-        except Exception:
+        except Exception as exc:
+            logger.debug("读取 %s 失败: %s", name, exc)
             return None
 
     async def motion_permission_error(self) -> str | None:
         """返回动作使能前的安全阻断原因；安全停止命令不受此门禁影响。"""
+        if self._backend_type != "simulated" and not self._latch_loaded:
+            self._estop_reset_required = self._load_estop_latch()
+            self._latch_loaded = True
         estop = await self.read_io("sensor_estop")
         if estop is not True:
             self._estop_reset_required = True
+            self._save_estop_latch()
             return "急停安全回路未健康或状态未知，禁止使能输出"
         if self._estop_reset_required:
             return "急停恢复后必须重新确认，禁止使能输出"
@@ -256,39 +328,88 @@ class RobotBackend:
         if value and (name.startswith("conveyor_") or name.startswith("arm_") or name == "grab"):
             reason = await self.motion_permission_error()
             if reason:
+                _audit("robot.write_io_blocked", io=name, value=bool(value), reason=reason)
                 return {"status": "error", "error": reason}
         info = IO_MAP[name]
         try:
             if not await self.ensure_connected():
                 return {"status": "error", "error": "未连接到 PLC"}
             if self._backend_type == "simulated":
+                # 模拟模式下急停闩锁置位后禁止直接把急停置健康，防止自愈绕过
+                if name == "sensor_estop" and value and self._estop_reset_required:
+                    _audit("robot.write_io_blocked", io=name, value=bool(value),
+                           reason="模拟模式禁止直接解除急停")
+                    return {"status": "error", "error": "急停恢复后必须重新确认，禁止直接置健康"}
                 self._sim_state[name] = value
                 self._update_sim_dependencies(name, value)
-                return {"status": "ok", "io": name, "value": value, "backend": "simulated"}
+                result = {"status": "ok", "io": name, "value": value, "backend": "simulated"}
             elif self._backend_type == "opcua" and self._opc_client:
-                node = self._opc_client.get_node(info["node"])
-                from asyncua import ua
-                await node.write_value(ua.DataValue(ua.Variant(value, ua.VariantType.Boolean)))
-                return {"status": "ok", "io": name, "value": value, "backend": "opcua"}
+                try:
+                    node = self._opc_client.get_node(info["node"])
+                    from asyncua import ua
+                    await node.write_value(ua.DataValue(ua.Variant(value, ua.VariantType.Boolean)))
+                except Exception:
+                    await self._drop_opcua()
+                    _audit("robot.write_io", io=name, value=bool(value), result="error",
+                           error="OPC UA 写入失败，连接已重置")
+                    return {"status": "error", "error": "OPC UA 写入失败，连接已重置"}
+                result = {"status": "ok", "io": name, "value": value, "backend": "opcua"}
             elif self._backend_type == "snap7" and self._snap_client:
-                data = bytearray(self._snap_client.read_area(0x82, 0, info["byte"], 1))
+                # 输出字节每次写前必须从 PLC 读回（读-改-写）：PLC 每周期驱动输出
+                # （急停/未复位时强制清零 Q0.0-Q0.4，正常时驱动指示灯 Q0.5/Q0.7），
+                # 复用陈旧缓存会把急停期间 PLC 已清零的执行器位重新置位。读回失败时
+                # fail-closed 拒绝写入，不用猜测字节覆盖 PLC 输出。
+                try:
+                    data = bytearray(
+                        self._snap_client.read_area(0x82, 0, info["byte"], 1)
+                    )
+                except Exception as exc:
+                    logger.warning("snap7 读回输出字节失败: %s", exc)
+                    _audit("robot.write_io", io=name, value=bool(value), result="error",
+                           error="snap7 读回输出失败，写入已中止")
+                    return {"status": "error", "error": "snap7 读回输出失败，写入已中止"}
                 if value:
                     data[0] |= (1 << info["bit"])
                 else:
                     data[0] &= ~(1 << info["bit"])
                 self._snap_client.write_area(0x82, 0, info["byte"], bytes(data))
-                return {"status": "ok", "io": name, "value": value, "backend": "snap7"}
-            return {"status": "error", "error": "无可用后端"}
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+                result = {"status": "ok", "io": name, "value": value, "backend": "snap7"}
+            else:
+                return {"status": "error", "error": "无可用后端"}
+            _audit("robot.write_io", io=name, value=bool(value),
+                   backend=self._backend_type, result=result["status"])
+            return result
+        except Exception as exc:
+            logger.error("写入 %s=%s 失败: %s", name, value, exc)
+            return {"status": "error", "error": "写入失败，请检查连接"}
 
     async def confirm_estop_recovery(self) -> dict:
-        """在人工确认急停已恢复后解除动作闭锁。"""
+        """在人工确认急停已恢复后解除动作闭锁。
+
+        真实后端（OPC UA/snap7）还要求 PLC 复位按钮（I0.6）已按下，作为
+        人工现场确认的物理证据——急停恢复必须由人工执行，不允许 AI 自行确认。
+        模拟后端没有物理证据：确认动作本身即视为人工恢复，并复位模拟急停输入；
+        否则 write_io 的防自愈门禁（_estop_reset_required 置位后禁止直接写健康）
+        与"确认前置要求急停已健康"互相排斥，急停后无法通过公开 API 恢复。
+        """
+        if self._backend_type != "simulated" and not self._latch_loaded:
+            self._estop_reset_required = self._load_estop_latch()
+            self._latch_loaded = True
+        if self._backend_type == "simulated":
+            # 模拟模式：人工确认即恢复，把模拟急停输入复位为健康
+            self._sim_state["sensor_estop"] = True
         estop = await self.read_io("sensor_estop")
         if estop is not True:
             self._estop_reset_required = True
+            self._save_estop_latch()
             return {"status": "error", "error": "急停安全回路未健康或状态未知，不能确认恢复"}
+        if self._backend_type != "simulated":
+            reset = await self.read_io("sensor_reset")
+            if reset is not True:
+                return {"status": "error", "error": "未检测到复位按钮（I0.6）信号，急停恢复必须由人工现场按复位确认"}
         self._estop_reset_required = False
+        self._save_estop_latch()
+        _audit("robot.estop_recovery", backend=self._backend_type, result="ok")
         return {"status": "ok", "message": "急停安全回路已确认恢复"}
 
     async def read_all_inputs(self) -> dict:
@@ -305,22 +426,45 @@ class RobotBackend:
                     if name.startswith("sensor_"):
                         inputs[name] = bool(data[info["byte"]] & (1 << info["bit"]))
                 return inputs
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("snap7 批量读取输入失败，降级逐点读取: %s", exc)
+        if self._backend_type == "opcua" and self._opc_client:
+            # OPC UA 一次 read_values 批量读取全部传感器节点，避免 N+1 次串行往返
+            sensor_items = [(name, info) for name, info in IO_MAP.items() if name.startswith("sensor_")]
+            try:
+                nodes = [self._opc_client.get_node(info["node"]) for _, info in sensor_items]
+                values = await self._opc_client.read_values(nodes)
+                for (name, _), val in zip(sensor_items, values):
+                    inputs[name] = bool(val)
+                return inputs
+            except Exception as exc:
+                logger.warning("OPC UA 批量读取输入失败，降级逐点读取: %s", exc)
+                await self._drop_opcua()
         for name in IO_MAP:
             if name.startswith("sensor_"):
                 inputs[name] = await self.read_io(name)
         return inputs
 
     async def wait_for(self, io_name: str, target: bool, timeout: float = 5.0, interval: float = 0.1) -> bool:
-        try:
-            for _ in range(int(timeout / interval)):
+        """轮询等待 I/O 到位；OPC UA 路径复用节点对象并减少每轮往返开销。
+
+        返回 False 表示超时或通信失败（fail-closed，调用方必须把机械臂视为未到位）。
+        """
+        node = None
+        if self._backend_type == "opcua" and self._opc_client is not None and io_name in IO_MAP:
+            node = self._opc_client.get_node(IO_MAP[io_name]["node"])
+        for _ in range(int(timeout / interval)):
+            if node is not None and self._backend_type == "opcua" and self._opc_client is not None:
+                try:
+                    val = bool(await node.read_value())
+                except Exception:
+                    await self._drop_opcua()
+                    return False
+            else:
                 val = await self.read_io(io_name)
-                if val == target:
-                    return True
-                await asyncio.sleep(interval)
-        except Exception:
-            pass
+            if val == target:
+                return True
+            await asyncio.sleep(interval)
         return False
 
     async def ensure_disconnected(self):
@@ -339,6 +483,7 @@ class RobotBackend:
             "plc_ip": PLC_IP,
             "opcua_endpoint": OPCUA_ENDPOINT,
             "estop_reconfirmation_required": self._estop_reset_required,
+            "estop_latch_persist_file": str(_ESTOP_LATCH_FILE) if _ESTOP_LATCH_FILE else "",
         }
 
 
@@ -364,17 +509,66 @@ def _default_auth_token() -> str:
     return os.environ.get("MCP_AUTH_TOKEN", "")
 
 
-def _check_auth(token: str = "") -> bool:
-    """验证 auth token；未配置令牌时控制服务不可用。"""
-    return bool(_AUTH_TOKEN) and token == _AUTH_TOKEN
-
-
 def _require_auth(token: str = "") -> None:
-    """如果认证未通过则抛出异常"""
+    """验证服务已配置认证令牌；未配置令牌时控制服务不可用（fail-closed）。
+
+    令牌由 MCP 进程环境（MCP_AUTH_TOKEN / --auth-token）在启动时注入，工具不再
+    把它作为参数在对话中传递（避免令牌进入工具 schema 与聊天日志）。stdio 传输的
+    信任边界是本地进程本身；若调用方仍显式传入令牌，则仍按原值校验（兼容旧调用方）。
+    """
     if not _AUTH_TOKEN:
         raise PermissionError("MCP_AUTH_TOKEN 未配置，服务不可用")
-    if not _check_auth(token):
+    if token and token != _AUTH_TOKEN:
         raise PermissionError("认证失败：无效的 auth token")
+
+
+# ── 审计链 ───────────────────────────────────────────────
+_robot_audit: AuditLogger | None = None
+
+
+def _audit(operation: str, **kwargs) -> None:
+    """记录 HMAC 链式防篡改审计日志（mcp_common.audit）。
+
+    审计失败仅记录错误日志、不阻断控制（避免审计存储异常造成控制死锁）；
+    生产环境应配置 AUDIT_HMAC_KEY 使审计链持久可验证。
+    """
+    global _robot_audit
+    try:
+        if _robot_audit is None:
+            _robot_audit = AuditLogger(str(PROJECT_ROOT / "logs" / "robot_audit.log"))
+        _robot_audit.log_operation(
+            operation, actor=authenticated_actor(_AUTH_TOKEN, "robot"), **kwargs
+        )
+    except Exception as exc:
+        logger.error("审计日志写入失败: %s", exc)
+
+
+# ── 人工确认（真实后端动作的一次性令牌） ───────────────
+confirmation_service = ConfirmationService()
+
+
+def _check_confirmation(operation: str, value: Any, confirmation_token: str) -> str | None:
+    """真实后端动作要求一次性人工确认令牌；模拟模式放行。
+
+    返回错误原因字符串，或 None 表示放行。令牌由已鉴权的人工会话经后端
+    /confirmations 接口签发（机器人设备前缀支持属跨模块依赖，见 notes）。
+    """
+    mode = backend.backend_type or BACKEND
+    if mode == "simulated":
+        return None
+    if not confirmation_token:
+        return f"操作 {operation} 需要一次性人工确认令牌，拒绝执行"
+    try:
+        confirmation_service.consume(
+            confirmation_token,
+            operator=authenticated_actor(_AUTH_TOKEN, "robot"),
+            target=operation,
+            value=value,
+            device_id=f"robot:{mode}",
+        )
+        return None
+    except ConfirmationError as exc:
+        return f"确认令牌无效或已使用: {exc}"
 
 
 async def _safe_go_home() -> dict:
@@ -391,8 +585,9 @@ async def _safe_go_home() -> dict:
         await backend.write_io("conveyor_entry", False)
         await backend.write_io("conveyor_exit", False)
         return {"status": "ok", "position": "home"}
-    except Exception as e:
-        return {"status": "error", "error": f"安全回位失败: {e}"}
+    except Exception as exc:
+        logger.error("安全回位失败: %s", exc)
+        return {"status": "error", "error": "安全回位失败"}
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -401,18 +596,15 @@ async def _safe_go_home() -> dict:
 
 
 @mcp.tool()
-async def get_status(auth_token: str = "") -> dict:
-    """获取机器人当前状态：传感器值、急停、连接状态
-
-    Args:
-        auth_token: 认证令牌
-    """
-    _require_auth(auth_token)
+async def get_status() -> dict:
+    """获取机器人当前状态：传感器值、急停、连接状态"""
+    _require_auth()
     try:
         await backend.ensure_connected()
         conn = f"connected ({backend.backend_type})"
-    except Exception as e:
-        conn = f"error: {e}"
+    except Exception as exc:
+        logger.error("get_status 连接失败: %s", exc)
+        conn = "error: 连接失败"
 
     sensors = await backend.read_all_inputs()
     position = "unknown"
@@ -435,52 +627,72 @@ async def get_status(auth_token: str = "") -> dict:
 
 
 @mcp.tool()
-async def confirm_estop_recovery(auth_token: str = "") -> dict:
-    """人工确认急停安全回路恢复后，解除机器人动作闭锁。"""
-    _require_auth(auth_token)
+async def confirm_estop_recovery() -> dict:
+    """人工确认急停安全回路恢复后，解除机器人动作闭锁。
+
+    真实后端（OPC UA/snap7）还必须检测到 PLC 复位按钮（I0.6）已被人工按下，
+    才允许解除闭锁——急停恢复必须由人工现场确认，不允许 AI 自行确认。
+    """
+    _require_auth()
     return await backend.confirm_estop_recovery()
 
 
 @mcp.tool()
-async def go_home(auth_token: str = "") -> dict:
-    """将机器人恢复到安全起始位置：X收回、Z升起、夹爪松开、传送带停止
-
-    Args:
-        auth_token: 认证令牌
-    """
-    _require_auth(auth_token)
+async def go_home() -> dict:
+    """将机器人恢复到安全起始位置：X收回、Z升起、夹爪松开、传送带停止"""
+    _require_auth()
     try:
         # 1. 松开夹爪
-        await backend.write_io("grab", False)
+        result = await backend.write_io("grab", False)
+        if result.get("status") != "ok":
+            return result
         await asyncio.sleep(0.3)
 
         # 2. Z轴升起（假设上升是 False）
-        await backend.write_io("arm_move_z", False)
+        result = await backend.write_io("arm_move_z", False)
+        if result.get("status") != "ok":
+            return result
         await asyncio.sleep(0.5)
 
         # 3. X轴收回（假设收回是 False）
-        await backend.write_io("arm_move_x", False)
+        result = await backend.write_io("arm_move_x", False)
+        if result.get("status") != "ok":
+            return result
         await asyncio.sleep(0.5)
 
         # 4. 停止所有传送带
-        await backend.write_io("conveyor_entry", False)
-        await backend.write_io("conveyor_exit", False)
+        result = await backend.write_io("conveyor_entry", False)
+        if result.get("status") != "ok":
+            return result
+        result = await backend.write_io("conveyor_exit", False)
+        if result.get("status") != "ok":
+            return result
 
+        _audit("robot.go_home", result="ok")
         return {"status": "ok", "position": "home", "message": "机器人已回到起始位置"}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    except Exception as exc:
+        logger.error("go_home 执行异常: %s", exc)
+        return {"status": "error", "error": "回位失败，请检查连接"}
 
 
 @mcp.tool()
-async def pick_item(auth_token: str = "") -> dict:
+async def pick_item(confirmation_token: str = "") -> dict:
     """
     从入口传送带拾取物品。
     流程: 等待物料到位 → X伸出 → Z下降 → 夹爪闭合 → Z上升 → X收回
 
     Args:
-        auth_token: 认证令牌
+        confirmation_token: 真实后端必须提供的一次性人工确认令牌（模拟模式免）
     """
-    _require_auth(auth_token)
+    _require_auth()
+    reason = _check_confirmation("pick_item", "pick", confirmation_token)
+    if reason:
+        return {"status": "error", "error": reason}
+    return await _pick_item()
+
+
+async def _pick_item() -> dict:
+    """pick_item 的实现（不含认证/确认，供 run_pick_cycle 跨循环复用）"""
     try:
         # 检查急停
         reason = await backend.motion_permission_error()
@@ -530,30 +742,46 @@ async def pick_item(auth_token: str = "") -> dict:
 
         # 4. Z轴上升
         await backend.write_io("arm_move_z", False)
-        await backend.wait_for("sensor_moving_z", False, timeout=3.0)
+        z_up_ok = await backend.wait_for("sensor_moving_z", False, timeout=3.0)
+        if not z_up_ok:
+            await _safe_go_home()
+            return {"status": "error", "error": "Z轴上升超时，已回位"}
         await asyncio.sleep(0.3)
 
         # 5. X轴收回
         await backend.write_io("arm_move_x", False)
-        await backend.wait_for("sensor_moving_x", False, timeout=3.0)
+        x_ret_ok = await backend.wait_for("sensor_moving_x", False, timeout=3.0)
+        if not x_ret_ok:
+            await _safe_go_home()
+            return {"status": "error", "error": "X轴收回超时，已回位"}
         await asyncio.sleep(0.3)
 
+        _audit("robot.pick_item", result="ok")
         return {"status": "ok", "action": "pick", "message": "物料已抓取，机械臂已收回"}
-    except Exception as e:
+    except Exception as exc:
+        logger.error("pick_item 执行异常: %s", exc)
         await _safe_go_home()
-        return {"status": "error", "error": f"抓取异常: {e}，已复位"}
+        return {"status": "error", "error": "抓取失败，已复位"}
 
 
 @mcp.tool()
-async def place_item(auth_token: str = "") -> dict:
+async def place_item(confirmation_token: str = "") -> dict:
     """
     将抓取的物料放置到出口传送带。
     流程: X伸出 → Z下降 → 夹爪松开 → Z上升 → X收回 → 启动出口传送带
 
     Args:
-        auth_token: 认证令牌
+        confirmation_token: 真实后端必须提供的一次性人工确认令牌（模拟模式免）
     """
-    _require_auth(auth_token)
+    _require_auth()
+    reason = _check_confirmation("place_item", "place", confirmation_token)
+    if reason:
+        return {"status": "error", "error": reason}
+    return await _place_item()
+
+
+async def _place_item() -> dict:
+    """place_item 的实现（不含认证/确认，供 run_pick_cycle 跨循环复用）"""
     try:
         reason = await backend.motion_permission_error()
         if reason:
@@ -565,12 +793,18 @@ async def place_item(auth_token: str = "") -> dict:
 
         # 1. X轴伸出（到出口位置）
         await backend.write_io("arm_move_x", True)
-        await backend.wait_for("sensor_moving_x", True, timeout=3.0)
+        x_ok = await backend.wait_for("sensor_moving_x", True, timeout=3.0)
+        if not x_ok:
+            await _safe_go_home()
+            return {"status": "error", "error": "X轴伸出超时，已回位"}
         await asyncio.sleep(0.3)
 
         # 2. Z轴下降
         await backend.write_io("arm_move_z", True)
-        await backend.wait_for("sensor_moving_z", True, timeout=3.0)
+        z_ok = await backend.wait_for("sensor_moving_z", True, timeout=3.0)
+        if not z_ok:
+            await _safe_go_home()
+            return {"status": "error", "error": "Z轴下降超时，已回位"}
         await asyncio.sleep(0.3)
 
         # 3. 夹爪松开
@@ -579,12 +813,18 @@ async def place_item(auth_token: str = "") -> dict:
 
         # 4. Z轴上升
         await backend.write_io("arm_move_z", False)
-        await backend.wait_for("sensor_moving_z", False, timeout=3.0)
+        z_up_ok = await backend.wait_for("sensor_moving_z", False, timeout=3.0)
+        if not z_up_ok:
+            await _safe_go_home()
+            return {"status": "error", "error": "Z轴上升超时，已回位"}
         await asyncio.sleep(0.3)
 
         # 5. X轴收回
         await backend.write_io("arm_move_x", False)
-        await backend.wait_for("sensor_moving_x", False, timeout=3.0)
+        x_ret_ok = await backend.wait_for("sensor_moving_x", False, timeout=3.0)
+        if not x_ret_ok:
+            await _safe_go_home()
+            return {"status": "error", "error": "X轴收回超时，已回位"}
         await asyncio.sleep(0.3)
 
         # 6. 启动出口传送带运走物品
@@ -592,14 +832,16 @@ async def place_item(auth_token: str = "") -> dict:
         await asyncio.sleep(2.0)
         await backend.write_io("conveyor_exit", False)
 
+        _audit("robot.place_item", result="ok")
         return {"status": "ok", "action": "place", "message": "物料已放置到出口，已运走"}
-    except Exception as e:
+    except Exception as exc:
+        logger.error("place_item 执行异常: %s", exc)
         await _safe_go_home()
-        return {"status": "error", "error": f"放置异常: {e}，已复位"}
+        return {"status": "error", "error": "放置失败，已复位"}
 
 
 @mcp.tool()
-async def move_arm_to(position: str, auth_token: str = "") -> dict:
+async def move_arm_to(position: str, confirmation_token: str = "") -> dict:
     """
     将机械臂移动到指定位置。
 
@@ -611,12 +853,16 @@ async def move_arm_to(position: str, auth_token: str = "") -> dict:
         - "retract" → 仅X收回（回入口位置）
         - "lower"   → 仅Z下降
         - "raise"   → 仅Z上升
-      auth_token: 认证令牌
+      confirmation_token: 真实后端必须提供的一次性人工确认令牌（模拟模式免）
     """
-    _require_auth(auth_token)
+    _require_auth()
     valid = ["home", "pick", "extend", "retract", "lower", "raise"]
     if position not in valid:
         return {"status": "error", "error": f"无效位置: {position}。可选: {', '.join(valid)}"}
+
+    reason = _check_confirmation("move_arm_to", position, confirmation_token)
+    if reason:
+        return {"status": "error", "error": reason}
 
     try:
         if position in {"pick", "extend", "lower"}:
@@ -624,77 +870,116 @@ async def move_arm_to(position: str, auth_token: str = "") -> dict:
             if reason:
                 return {"status": "error", "error": reason}
         if position == "home":
-            await backend.write_io("grab", False)
+            result = await backend.write_io("grab", False)
+            if result.get("status") != "ok":
+                return result
             await asyncio.sleep(0.2)
-            await backend.write_io("arm_move_z", False)
+            result = await backend.write_io("arm_move_z", False)
+            if result.get("status") != "ok":
+                return result
             await asyncio.sleep(0.3)
-            await backend.write_io("arm_move_x", False)
+            result = await backend.write_io("arm_move_x", False)
+            if result.get("status") != "ok":
+                return result
             await asyncio.sleep(0.3)
 
         elif position == "pick":
             await backend.write_io("arm_move_x", True)
-            await backend.wait_for("sensor_moving_x", True, timeout=3.0)
+            x_ok = await backend.wait_for("sensor_moving_x", True, timeout=3.0)
+            if not x_ok:
+                await _safe_go_home()
+                return {"status": "error", "error": "X轴伸出超时，已回位"}
             await asyncio.sleep(0.2)
             await backend.write_io("arm_move_z", True)
-            await backend.wait_for("sensor_moving_z", True, timeout=3.0)
+            z_ok = await backend.wait_for("sensor_moving_z", True, timeout=3.0)
+            if not z_ok:
+                await _safe_go_home()
+                return {"status": "error", "error": "Z轴下降超时，已回位"}
             await asyncio.sleep(0.2)
             await backend.write_io("grab", False)
 
         elif position == "extend":
             await backend.write_io("arm_move_x", True)
-            await backend.wait_for("sensor_moving_x", True, timeout=3.0)
+            x_ok = await backend.wait_for("sensor_moving_x", True, timeout=3.0)
+            if not x_ok:
+                await _safe_go_home()
+                return {"status": "error", "error": "X轴伸出超时，已回位"}
 
         elif position == "retract":
             await backend.write_io("arm_move_x", False)
-            await backend.wait_for("sensor_moving_x", False, timeout=3.0)
+            x_ok = await backend.wait_for("sensor_moving_x", False, timeout=3.0)
+            if not x_ok:
+                await _safe_go_home()
+                return {"status": "error", "error": "X轴收回超时，已回位"}
 
         elif position == "lower":
             await backend.write_io("arm_move_z", True)
-            await backend.wait_for("sensor_moving_z", True, timeout=3.0)
+            z_ok = await backend.wait_for("sensor_moving_z", True, timeout=3.0)
+            if not z_ok:
+                await _safe_go_home()
+                return {"status": "error", "error": "Z轴下降超时，已回位"}
 
         elif position == "raise":
             await backend.write_io("arm_move_z", False)
-            await backend.wait_for("sensor_moving_z", False, timeout=3.0)
+            z_ok = await backend.wait_for("sensor_moving_z", False, timeout=3.0)
+            if not z_ok:
+                await _safe_go_home()
+                return {"status": "error", "error": "Z轴上升超时，已回位"}
 
+        _audit("robot.move_arm_to", position=position, result="ok")
         return {"status": "ok", "action": "move_to", "position": position,
                 "message": f"机械臂已移动到 {position}"}
-    except Exception as e:
+    except Exception as exc:
+        logger.error("move_arm_to 执行异常: %s", exc)
         await _safe_go_home()
-        return {"status": "error", "error": f"移动异常: {e}，已复位"}
+        return {"status": "error", "error": "移动失败，已复位"}
 
 
 @mcp.tool()
-async def run_pick_cycle(count: int = 1, auth_token: str = "") -> dict:
+async def run_pick_cycle(count: int = 1, confirmation_token: str = "") -> dict:
     """
     执行完整的 pick-and-place 循环（自动重复）。
 
     参数:
       count: 循环次数（1-10，默认1次）
-      auth_token: 认证令牌
+      confirmation_token: 一次性人工确认令牌（真实后端强制，模拟模式免）。
+        一个令牌即可授权整个循环序列；循环内每个动作仍受急停门禁独立保护。
     """
-    _require_auth(auth_token)
+    _require_auth()
     count = max(1, min(count, 10))
+    # 多循环自动运行前先做一次急停检查，避免在急停态下无谓启动
+    reason = await backend.motion_permission_error()
+    if reason:
+        return {"status": "error", "error": reason}
+    reason = _check_confirmation("run_pick_cycle", count, confirmation_token)
+    if reason:
+        return {"status": "error", "error": reason}
     results = []
+    cycles_completed = 0
     try:
         for i in range(count):
-            pick_result = await pick_item(auth_token=auth_token)
+            pick_result = await _pick_item()
             results.append({"cycle": i + 1, "step": "pick", "result": pick_result})
             if pick_result.get("status") != "ok":
                 break
-            place_result = await place_item(auth_token=auth_token)
+            place_result = await _place_item()
             results.append({"cycle": i + 1, "step": "place", "result": place_result})
             if place_result.get("status") != "ok":
                 break
+            # 每完成一轮完整的 pick+place 才计 1 次循环
+            cycles_completed += 1
 
-        return {"status": "ok", "cycles_completed": len([r for r in results if r["result"].get("status") == "ok"]),
+        _audit("robot.run_pick_cycle", total_requested=count, cycles_completed=cycles_completed)
+        return {"status": "ok", "cycles_completed": cycles_completed,
                 "total_requested": count, "details": results}
-    except Exception as e:
+    except Exception as exc:
+        logger.error("run_pick_cycle 执行异常: %s", exc)
         await _safe_go_home()
-        return {"status": "error", "error": f"循环异常: {e}", "partial_results": results}
+        return {"status": "error", "error": "循环执行失败，已回位", "partial_results": results}
 
 
 @mcp.tool()
-async def control_conveyor(direction: str = "stop", auth_token: str = "") -> dict:
+async def control_conveyor(direction: str = "stop", confirmation_token: str = "") -> dict:
     """
     控制传送带。
 
@@ -702,26 +987,44 @@ async def control_conveyor(direction: str = "stop", auth_token: str = "") -> dic
       direction: "entry" → 入口传送带启动
                  "exit"  → 出口传送带启动
                  "stop"  → 全部停止
-      auth_token: 认证令牌
+      confirmation_token: 启动传送带需要一次性人工确认令牌（模拟模式免）；
+        停止是安全恢复动作，不需要确认。
     """
-    _require_auth(auth_token)
+    _require_auth()
     try:
         if direction in {"entry", "exit"}:
             reason = await backend.motion_permission_error()
             if reason:
                 return {"status": "error", "error": reason}
+            reason = _check_confirmation("control_conveyor", direction, confirmation_token)
+            if reason:
+                return {"status": "error", "error": reason}
         if direction == "entry":
-            await backend.write_io("conveyor_entry", True)
-            await backend.write_io("conveyor_exit", False)
+            result = await backend.write_io("conveyor_entry", True)
+            if result.get("status") != "ok":
+                return result
+            result = await backend.write_io("conveyor_exit", False)
+            if result.get("status") != "ok":
+                return result
         elif direction == "exit":
-            await backend.write_io("conveyor_entry", False)
-            await backend.write_io("conveyor_exit", True)
+            result = await backend.write_io("conveyor_entry", False)
+            if result.get("status") != "ok":
+                return result
+            result = await backend.write_io("conveyor_exit", True)
+            if result.get("status") != "ok":
+                return result
         else:
-            await backend.write_io("conveyor_entry", False)
-            await backend.write_io("conveyor_exit", False)
+            result = await backend.write_io("conveyor_entry", False)
+            if result.get("status") != "ok":
+                return result
+            result = await backend.write_io("conveyor_exit", False)
+            if result.get("status") != "ok":
+                return result
+        _audit("robot.control_conveyor", direction=direction, result="ok")
         return {"status": "ok", "direction": direction}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    except Exception as exc:
+        logger.error("control_conveyor 执行异常: %s", exc)
+        return {"status": "error", "error": "操作失败，请检查连接"}
 
 
 # ═════════════════════════════════════════════════════════════════════

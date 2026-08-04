@@ -7,8 +7,25 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 from mcp_common.control_target import get_control_target
+_TIA_MCP_DIR = _PROJECT_ROOT / 'mcp-servers' / 'tia-mcp'
+if str(_TIA_MCP_DIR) not in sys.path:
+    sys.path.insert(0, str(_TIA_MCP_DIR))
+from config_loader import cfg
 
 bat_path = os.path.join(os.path.dirname(__file__), '..', 'run_p3_complete.bat')
+
+# 唯一控制目标与 golden 路径：只从 config 读取（与 p3_flow / archive_golden 同源），
+# 拒绝历史硬编码的 demo 目录漂移
+target = get_control_target()
+golden_zip = cfg.simulation.golden_backup.zip_path
+storage_path = cfg.simulation.golden_backup.storage_path
+
+# golden 路径必须与唯一控制目标工程同目录，漂移则 fail-closed
+_project_dir = os.path.normcase(os.path.normpath(os.path.dirname(str(target.project_path))))
+for _label, _path in (('zip', golden_zip), ('storage', storage_path)):
+    if os.path.normcase(os.path.normpath(os.path.dirname(_path))) != _project_dir:
+        print(f'[ERR] golden_backup.{_label} 路径不在唯一控制目标工程目录: {_path}')
+        sys.exit(1)
 
 lines = []
 def L(s):
@@ -21,9 +38,9 @@ L('cd /d "%~dp0"')
 L('')
 L('set PYTHON=D:\\Python3\\python.exe')
 L('set SCRIPTS=mcp-servers\\tia-mcp')
-L('set GOLDEN="D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\factory_io1_golden.zip"')
-L('set STORAGE="D:\\PLC cheng xu\\TIA PLC CHENG XU\\demo\\plcsim_storage"')
-L(f'set PLC_IP={get_control_target().plc_ip}')
+L(f'set GOLDEN="{golden_zip}"')
+L(f'set STORAGE="{storage_path}"')
+L(f'set PLC_IP={target.plc_ip}')
 L('')
 L('echo.')
 L('echo ============================================')
@@ -46,6 +63,12 @@ L('echo.')
 L('')
 L('REM ---- Step 2: Restore PLCSIM instance from golden backup ----')
 L('echo [2/6] Restoring PLCSIM instance...')
+L('choice /c YN /m "Restore from golden backup (OVERWRITES current PLCSIM instance)? [Y/N]"')
+L('if errorlevel 2 (')
+L('    echo [CANCEL] Restore cancelled by user')
+L('    pause')
+L('    exit /b 1')
+L(')')
 L('%PYTHON% %SCRIPTS%\\plcsim_api.py restore factoryio %GOLDEN% %STORAGE% %PLC_IP%')
 L('if errorlevel 1 (')
 L('    echo [FAIL] PLCSIM restore failed')
@@ -68,6 +91,12 @@ L('echo.')
 L('')
 L('REM ---- Step 4: Compile + Download ----')
 L('echo [4/6] Compile + Download to PLCSIM...')
+L('choice /c YN /m "Compile and download to PLCSIM (writes project to simulator)? [Y/N]"')
+L('if errorlevel 2 (')
+L('    echo [CANCEL] Download cancelled by user')
+L('    pause')
+L('    exit /b 1')
+L(')')
 L('%PYTHON% %SCRIPTS%\\download_to_plcsim.py --compile-first')
 L('if errorlevel 1 (')
 L('    echo.')
@@ -83,9 +112,14 @@ L('echo.')
 L('')
 L('REM ---- Step 5: Update Golden Backup ----')
 L('echo [5/6] Updating golden backup...')
-L('%PYTHON% scripts\\archive_golden.py')
-L('if errorlevel 1 (')
-L('    echo [WARN] Golden backup update failed (non-fatal)')
+L('choice /c YN /m "Update golden backup (OVERWRITES stored golden zip)? [Y/N]"')
+L('if errorlevel 2 (')
+L('    echo [SKIP] Golden backup update cancelled by user')
+L(') else (')
+L('    %PYTHON% scripts\\archive_golden.py')
+L('    if errorlevel 1 (')
+L('        echo [WARN] Golden backup update failed (non-fatal)')
+L('    )')
 L(')')
 L('echo.')
 L('')

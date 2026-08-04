@@ -129,6 +129,9 @@ export default function Dashboard({
 }) {
   const [projects, setProjects] = useState([])
   const [recentConversations, setRecentConversations] = useState([])
+  // F-071 修复：列表加载失败不再静默吞掉——记录警告并区分"加载失败"与"空数据"
+  const [projectsFailed, setProjectsFailed] = useState(false)
+  const [conversationsFailed, setConversationsFailed] = useState(false)
   const [health, setHealth] = useState(null)
   const [orchHealth, setOrchHealth] = useState(null)
   // F-067/F-068 修复：真实 PLC/TIA/PLCSIM 状态 + localStorage 安全等级
@@ -136,9 +139,21 @@ export default function Dashboard({
   const [safetyLevel, setSafetyLevel] = useState(loadSafetyLevel)
 
   useEffect(() => {
-    listProjects(5).then((d) => setProjects(d.projects || [])).catch(() => {})
+    listProjects(5)
+      .then((d) => { setProjects(d.projects || []); setProjectsFailed(false) })
+      .catch((e) => {
+        // F-071 修复：失败时记录警告并标记失败，避免把后端故障伪装成"暂无项目"
+        console.warn('[Dashboard] listProjects 失败:', e?.message)
+        setProjectsFailed(true)
+      })
     if (!conversations || conversations.length === 0) {
-      listConversations(5).then((d) => setRecentConversations(d.conversations || [])).catch(() => {})
+      listConversations(5)
+        .then((d) => { setRecentConversations(d.conversations || []); setConversationsFailed(false) })
+        .catch((e) => {
+          // F-071 修复：失败时记录警告并标记失败，避免把后端故障伪装成"暂无对话"
+          console.warn('[Dashboard] listConversations 失败:', e?.message)
+          setConversationsFailed(true)
+        })
     }
     healthCheck().then(setHealth).catch(() => setHealth(null))
     orchestratorHealth().then(setOrchHealth).catch(() => setOrchHealth(null))
@@ -269,6 +284,8 @@ export default function Dashboard({
                       <span className="text-2xs text-text-dim shrink-0">{timeAgo(c.updated_at)}</span>
                     </button>
                   ))
+                ) : conversationsFailed ? (
+                  <div className="text-2xs text-status-danger py-2">最近对话加载失败</div>
                 ) : (
                   <div className="text-2xs text-text-dim py-2">暂无对话</div>
                 )}
@@ -305,6 +322,8 @@ export default function Dashboard({
                   </button>
                 ))}
               </div>
+            ) : projectsFailed ? (
+              <div className="text-2xs text-status-danger py-2 mb-3">最近项目加载失败</div>
             ) : (
               <div className="text-2xs text-text-dim py-2 mb-3">暂无项目</div>
             )}
@@ -325,6 +344,8 @@ export default function Dashboard({
                   </button>
                 ))}
               </div>
+            ) : conversationsFailed ? (
+              <div className="text-2xs text-status-danger py-2">最近对话加载失败</div>
             ) : (
               <div className="text-2xs text-text-dim py-2">暂无对话</div>
             )}

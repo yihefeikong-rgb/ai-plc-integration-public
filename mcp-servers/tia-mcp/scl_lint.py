@@ -153,6 +153,8 @@ def lint_scl(scl_code: str) -> List[Dict[str, object]]:
 
     # ── 预处理：消除假阳性来源 ──
     cleaned = _strip_strings_and_comments(scl_code)
+    # 跨行函数调用合并只做一次，供 TSEND_EN_ENO / OUTPUT_WITH_COLON_EQ 两条规则复用
+    flat = _flatten_function_calls(cleaned)
 
     errors: List[Dict[str, object]] = []
 
@@ -161,13 +163,13 @@ def lint_scl(scl_code: str) -> List[Dict[str, object]]:
     # ── 辅助：IEC 实例调用无 # 前缀 ──
     errors.extend(_check_iec_instance_without_hash(cleaned))
     # ── 辅助：TSEND_C / TRCV_C 出现 EN/ENO ──
-    errors.extend(_check_tsend_en_eno(cleaned))
+    errors.extend(_check_tsend_en_eno(flat))
     # ── 辅助：MB_CLIENT 出现在外部源 ──
     errors.extend(_check_mb_client_in_scl(cleaned))
     # ── 辅助：IF/CASE/FOR/WHILE/REPEAT 不成对 ──
     errors.extend(_check_unpaired_block(cleaned))
     # ── 辅助：Output 形参误用 := ──
-    errors.extend(_check_output_with_colon_eq(cleaned))
+    errors.extend(_check_output_with_colon_eq(flat))
 
     # 按行号排序
     errors.sort(key=lambda e: e["line"])  # type: ignore[return-value]
@@ -330,16 +332,14 @@ _TSEND_TRCV_RE = re.compile(
 )
 
 
-def _check_tsend_en_eno(scl_code: str) -> List[Dict[str, object]]:
+def _check_tsend_en_eno(flat_scl: str) -> List[Dict[str, object]]:
     """检查 TSEND_C/TRCV_C 中是否出现 EN := 或 ENO =>
 
-    策略：先用 _flatten_function_calls 把跨行调用合并为单行，
-    然后在合并后的代码中按行检测。合并只在当前规则内做，不影响原始行号。
+    入参为 lint_scl 已用 _flatten_function_calls 合并过跨行调用的代码
+    （行号与原始代码一致），此处直接按行检测，避免重复全量合并。
     """
     errors = []
-    # 合并跨行调用，保留原始行号
-    flat = _flatten_function_calls(scl_code)
-    lines = flat.split("\n")
+    lines = flat_scl.split("\n")
 
     for i, line in enumerate(lines, 1):
         if not line.strip():
@@ -475,16 +475,16 @@ _OUTPUT_WITH_COLON_EQ_RE = re.compile(
 )
 
 
-def _check_output_with_colon_eq(scl_code: str) -> List[Dict[str, object]]:
+def _check_output_with_colon_eq(flat_scl: str) -> List[Dict[str, object]]:
     """检查块调用中 Output 形参是否误用 :=（应使用 =>）
 
+    入参为 lint_scl 已用 _flatten_function_calls 合并过跨行调用的代码
+    （行号与原始代码一致），此处直接按行检测，避免重复全量合并。
     这是启发式规则：当函数调用的参数列表中，参数名是已知 Output 形参名
     且用了 := 而非 =>，判定为错误。
     """
     errors = []
-    # 合并跨行调用，保留原始行号
-    flat = _flatten_function_calls(scl_code)
-    lines = flat.split("\n")
+    lines = flat_scl.split("\n")
 
     # 匹配函数调用：标识符( ... )
     for i, line in enumerate(lines, 1):

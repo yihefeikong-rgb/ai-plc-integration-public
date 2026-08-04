@@ -51,11 +51,11 @@ class TestChangeDetection:
         prev_values["register.0"] = 25.0
         assert not has_significant_change("register.0", 25.0, prev_values, tag_config)
 
-    def test_small_change_within_delta_still_detected(self, tag_config, prev_values):
-        """值变化在 delta 范围内仍检测为变化（delta 控制的是 AI 触发，不是检测）"""
+    def test_small_change_within_delta_not_significant(self, tag_config, prev_values):
+        """配置了 delta 时，delta 范围内的变化视为不显著（delta 是显著阈值）"""
         prev_values["register.0"] = 25.0
-        # delta=5, 25→27 = +2 < 5，但 value != prev 仍返回 True
-        assert has_significant_change("register.0", 27.0, prev_values, tag_config)
+        # delta=5, 25→27 = +2 < 5，不触发 AI
+        assert not has_significant_change("register.0", 27.0, prev_values, tag_config)
 
     def test_change_exceeds_delta(self, tag_config, prev_values):
         """值变化超过 delta 应视为显著变化"""
@@ -99,11 +99,11 @@ class TestChangeDetection:
         prev_values["register.0"] = None
         assert has_significant_change("register.0", 25.0, prev_values, tag_config)
 
-    def test_delta_does_not_block_change_detection(self, tag_config, prev_values):
-        """delta 不阻止变化检测（只控制 AI 触发），任何值变化都返回 True"""
+    def test_delta_blocks_small_change(self, tag_config, prev_values):
+        """配置 delta 的标签，变化小于 delta 时视为不显著（不触发 AI）"""
         prev_values["register.2"] = 8.0
-        # 即使变化 < delta，value != prev 仍返回 True
-        assert has_significant_change("register.2", 8.5, prev_values, tag_config)
+        # delta=1, 8→8.5 = +0.5 < 1，不视为显著变化
+        assert not has_significant_change("register.2", 8.5, prev_values, tag_config)
 
     def test_unknown_tag_in_config(self, tag_config, prev_values):
         """不在 tag_config 的标签视为无 delta，检测任何变化"""

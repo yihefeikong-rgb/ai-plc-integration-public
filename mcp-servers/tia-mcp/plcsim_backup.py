@@ -146,7 +146,8 @@ def restore_instance(
                 instance.SetIPSuite(0, SIPSuite4(ip, subnet, "0.0.0.0"), False)
                 print(f"[plcsim] TCPIP {ip}/{subnet}")
             except Exception as e:
-                print(f"[plcsim] ⚠ SetIPSuite: {e}")
+                decoded = _decode_error(e)
+                raise RuntimeError(f"SetIPSuite 失败: {decoded}")
         else:
             print(f"[plcsim] Softbus（来自 golden 备份）")
 
@@ -154,7 +155,10 @@ def restore_instance(
             instance.Run()
             _wait_for_state(instance, EOperatingState.Run, timeout=30)
             time.sleep(2)
-            print(f"[plcsim] OK 恢复完成: '{name}' RUN (IP={ip})")
+            if interface_lower == "tcpip":
+                print(f"[plcsim] OK 恢复完成: '{name}' RUN (IP={ip})")
+            else:
+                print(f"[plcsim] OK 恢复完成: '{name}' RUN (Softbus)")
         else:
             print(f"[plcsim] OK 恢复完成: '{name}' STOP (待下载状态，黄色)")
         return instance

@@ -78,9 +78,9 @@ def generate_alarm_list(program: LadderProgram) -> str:
                        "报警", "故障", "错误", "过载", "急停"]
 
     for v in program.variables:
-        is_alarm = any(kw in v.name.lower() or kw in v.comment for kw in alarm_keywords)
+        is_alarm = any(kw in v.name.lower() or kw in v.comment.lower() for kw in alarm_keywords)
         if is_alarm and v.data_type == "Bool":
-            alarm_class = "Emergency" if any(k in v.comment for k in ("急停", "emergency")) else "Fault"
+            alarm_class = "Emergency" if any(k in v.comment.lower() for k in ("急停", "emergency")) else "Fault"
             priority = 1 if alarm_class == "Emergency" else 5
             writer.writerow([
                 alarm_id,

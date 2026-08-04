@@ -35,6 +35,10 @@ STYLE = {
     "highlight_line": "#eef2f7",
     "font_family": "monospace, 'Courier New'",
     "rung_height": 52,
+    # 并联分支行之间的行中心间距（与 _rung_height 自适应高度共用）
+    "branch_gap": 14,
+    # 符号相对行中心的垂直最大范围（触点/线圈名称/地址 ±18，定时器块半高 ±22）
+    "symbol_extent": 22,
     "rail_margin": 20,
     "left_rail_x": 60,
     "right_rail_margin": 40,
@@ -275,7 +279,16 @@ class LadderRenderer:
         return self.builder.build()
 
     def _rung_height(self, network: dict) -> int:
-        return STYLE["rung_height"]
+        """梯级高度按 rung 行数自适应。
+
+        并联分支行以 rung_cy + idx*branch_gap 逐行向下绘制（见 _render_rungs），
+        因此行中心下方每增加一个分支行就需多预留 branch_gap 高度，并为最上方
+        符号名与最下方地址文本各预留 symbol_extent 空间；否则多 rung 梯级的
+        元素会越出固定 52px 梯级高度，与下一 network 重叠或被画布底部裁剪。
+        """
+        n_rungs = max(1, len(network.get("rungs", []) or []))
+        half = STYLE["symbol_extent"] + (n_rungs - 1) * STYLE["branch_gap"]
+        return max(STYLE["rung_height"], 2 * half)
 
     def _elements_start_x(self, rungs: list) -> int:
         if not rungs or not rungs[0]:
@@ -304,7 +317,7 @@ class LadderRenderer:
 
         # 如果有并联分支（多行）
         if len(rungs) > 1:
-            branch_gap = 14
+            branch_gap = STYLE["branch_gap"]
             base_cy = cy
             for branch_idx, branch_row in enumerate(rungs[1:], 1):
                 by = base_cy + branch_idx * branch_gap
@@ -330,9 +343,11 @@ class LadderRenderer:
             self.builder.coil(x, y, name, addr, is_set=True)
         elif t == "coil_reset":
             self.builder.coil(x, y, name, addr, is_reset=True)
-        elif t in ("timer_on", "timer_off", "timer_pulse"):
-            preset = elem.get("preset", "T#0S")
-            self.builder.timer_block(x, y, name, preset, block_type=elem.get("type", "TON"))
+        elif t in ("timer_on_delay", "timer_off_delay", "timer_on", "timer_off", "timer_pulse"):
+            preset = elem.get("preset_time", elem.get("preset", "T#0S"))
+            timer_name = elem.get("timer_instance") or name
+            block_type = {"timer_on_delay": "TON", "timer_off_delay": "TOF"}.get(t, elem.get("type", "TON"))
+            self.builder.timer_block(x, y, timer_name, preset, block_type=block_type)
         elif t in ("counter_up", "counter_down"):
             preset = elem.get("preset", "0")
             self.builder.math_block(x, y, elem.get("type", "CTU"), name, f"PV={preset}")
@@ -601,15 +616,6 @@ def from_cartgen_spec(spec: dict) -> dict:
                   for v in interface.get("local", [])],
     }
 
-    # 构建 operand → name 映射
-    name_map = {}
-    for v in interface.get("inputs", []):
-        name_map[v["name"]] = v["name"]
-    for v in interface.get("outputs", []):
-        name_map[v["name"]] = v["name"]
-    for v in interface.get("local", []):
-        name_map[v["name"]] = v["name"]
-
     networks = []
     for i, net in enumerate(spec.get("networks", [])):
         rung = []
@@ -618,8 +624,11 @@ def from_cartgen_spec(spec: dict) -> dict:
             rung.append({
                 "type": elem.get("type", "normally_open"),
                 "operand": op,
-                "symbol": name_map.get(op, op),
+                "symbol": op,
                 "address": addr_map.get(op, ""),  # 物理地址（可选）
+                # 定时器字段透传：CartGen 新格式 timer_instance/preset_time，旧格式 preset
+                "timer_instance": elem.get("timer_instance", ""),
+                "preset_time": elem.get("preset_time", elem.get("preset", "")),
             })
         networks.append({
             "networkNumber": i + 1,
@@ -713,7 +722,17 @@ def render_v2_from_ast(block):
         SVG 字符串
     """
     from layout_engine import LayoutEngine
-    from svg_renderer_v2 import SVGRendererV2
+
+    try:
+        from svg_renderer_v2 import SVGRendererV2
+    except ImportError as exc:
+        # svg_renderer_v2 尚未在 mcp-servers/tia-mcp 目录实现（见 docs/svg_renderer_v2_design.md）。
+        # fail-closed：明确报出缺失依赖，不做静默降级或假装渲染成功。
+        raise RuntimeError(
+            "V2 渲染不可用：缺少 svg_renderer_v2 模块（svg_renderer_v2.py 未实现）。"
+            "请实现 SVGRendererV2（参考 docs/svg_renderer_v2_design.md）"
+            "或改用 V1 render_svg_preview/from_cartgen_spec。"
+        ) from exc
 
     engine = LayoutEngine()
     render_block = engine.layout(block)

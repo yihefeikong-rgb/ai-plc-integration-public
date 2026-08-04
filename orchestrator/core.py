@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -17,6 +19,37 @@ from orchestrator.mcp_client import ToolResult
 from orchestrator.registry import Registry, get_registry
 
 _logger = logging.getLogger(__name__)
+
+# 同步路径共享事件循环。stdio 传输与创建它的事件循环绑定，且每次 asyncio.run()
+# 都会新建并销毁一个事件循环；同步 MCP 调用复用同一进程级事件循环（由后台
+# 守护线程运行），避免每次工具调用都重建事件循环的开销。
+_sync_loop: asyncio.AbstractEventLoop | None = None
+_sync_loop_thread: threading.Thread | None = None
+_sync_loop_lock = threading.Lock()
+
+# 同步桥接的单次 MCP 工具调用超时（秒）。MCP 服务器挂起不响应时，无超时的
+# future.result() 会永久阻塞调用线程并占死进程级共享 sync-loop，后续所有同步
+# 工具调用排队挂死且无恢复路径。超时后取消底层协程，使调用链失败关闭。
+# 可通过环境变量 ORCHESTRATOR_MCP_SYNC_TIMEOUT 调整。
+MCP_SYNC_CALL_TIMEOUT: float = float(
+    os.environ.get("ORCHESTRATOR_MCP_SYNC_TIMEOUT", "30")
+)
+
+
+def _get_sync_event_loop() -> asyncio.AbstractEventLoop:
+    """返回进程级共享事件循环（供同步路径运行协程）。"""
+    global _sync_loop, _sync_loop_thread
+    with _sync_loop_lock:
+        if _sync_loop is None or _sync_loop.is_closed():
+            _sync_loop = asyncio.new_event_loop()
+            _sync_loop_thread = threading.Thread(
+                target=_sync_loop.run_forever,
+                name="orchestrator-sync-loop",
+                daemon=True,
+            )
+            _sync_loop_thread.start()
+        return _sync_loop
+
 
 # 只有最终变量写入工具会走运行态 SafetyGate。TIA 工程变更、下载等操作
 # 由各自的目标身份、审计和幂等性控制处理，不能用原始地址联锁代替。
@@ -33,7 +66,18 @@ FINAL_WRITE_TOOLS = frozenset({
 CONTROL_OPERATION_MARKERS = (
     "write", "download", "import", "delete", "create", "compile",
     "save", "archive", "plc_apply", "go_online", "go_offline", "reset",
+    "launch", "start", "stop", "connect",
 )
+
+# 动作类控制工具（无变量 tag 语义，不经过运行态变量安全门，但必须触发
+# 控制意图审计）。go_home/pick_item/place_item/control_conveyor 等动作名
+# 无法用子串标记可靠识别，故显式登记。
+CONTROL_ACTION_TOOLS = frozenset({
+    "robot-mcp.go_home",
+    "robot-mcp.pick_item",
+    "robot-mcp.place_item",
+    "robot-mcp.control_conveyor",
+})
 
 # 各写入工具的被写目标/值参数名映射。安全门必须拿到真实的地址与值，
 # 不能靠统一的参数名猜测——三菱用 addr，OPC UA 用 node_id，Modbus 用
@@ -119,8 +163,10 @@ class WorkflowContext:
     def _is_control_tool(tool_full_name: str) -> bool:
         """识别会改变 PLC、TIA 工程或连接状态的工具。"""
         normalized = tool_full_name.lower()
-        return normalized in FINAL_WRITE_TOOLS or any(
-            marker in normalized for marker in CONTROL_OPERATION_MARKERS
+        return (
+            normalized in FINAL_WRITE_TOOLS
+            or normalized in CONTROL_ACTION_TOOLS
+            or any(marker in normalized for marker in CONTROL_OPERATION_MARKERS)
         )
 
     def _authenticated_actor(self) -> str:
@@ -224,10 +270,15 @@ class WorkflowContext:
 
             result = None
 
-            # 优先级 1: mock 工具（跳过安全门，用于测试）
+            # 优先级 1: mock 工具（跳过运行态安全门，用于测试；控制类 mock
+            # 仍须走控制意图审计，否则审计链可被 mock 静默绕过）
             fn = self._mock_tools.get(tool_full_name)
             if fn is not None:
-                result = fn(**kwargs)
+                if self._is_control_tool(tool_full_name):
+                    self._audit_control_intent(tool_full_name, kwargs)
+                result = self._unwrap_tool_result(fn(**kwargs))
+                if self._is_control_tool(tool_full_name):
+                    self._audit_tool_call(tool_full_name, kwargs, result)
 
             # 优先级 2: MCP 连接池
             elif self._pool is not None:
@@ -260,8 +311,6 @@ class WorkflowContext:
                     f"工具 {tool_full_name} 没有 mock 实现，也没有 MCP 连接池。"
                     f"请在运行引擎时注册 mock 工具，或提供 MCP 连接池。"
                 )
-
-            result = self._unwrap_tool_result(result)
 
             elapsed = (time.time() - start) * 1000
 
@@ -318,7 +367,11 @@ class WorkflowContext:
         raw_target = arguments[target_param]
         tag_name = transform(raw_target) if transform else str(raw_target)
         value = arguments.get(value_param, "")
-        result = gate.check_write(tag_name, value, operator="ai")
+        # 审计主体必须使用 API 鉴权层注入的操作者，与 _audit_control_intent
+        # 一致；硬编码 "ai" 会使同一次写入在审计链中归属两个不同操作者。
+        result = gate.check_write(
+            tag_name, value, operator=self._authenticated_actor()
+        )
 
         if not result.allowed:
             raise RuntimeError(f"安全检查拒绝 [{tool_full_name}]: {result.reason}")
@@ -354,23 +407,41 @@ class WorkflowContext:
         except Exception:
             if is_control:
                 raise
-            _logger.debug("审计日志记录失败", exc_info=True)
+            # 非控制工具审计失败不阻断读取，但绝不能静默消失：默认根日志
+            # 级别为 INFO，DEBUG 级记录在运行时不可见，审计链缺口将无法发现。
+            _logger.error(
+                f"非控制工具审计记录失败（审计链缺口）: tool={tool_full_name}",
+                exc_info=True,
+            )
 
     def _call_mcp_sync(
         self, server_name: str, tool_name: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:
         """同步桥接异步 MCP 调用。
 
-        使用 asyncio.run() 在同步上下文中执行异步 MCP 调用。
+        复用进程级共享事件循环在同步上下文中执行异步 MCP 调用（不重建循环）。
         如果已有运行中的事件循环（如 FastAPI），则抛出明确错误提示使用 run_async()。
         """
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # 没有运行中的事件循环，直接创建新的
-            return asyncio.run(
-                self._pool.call_tool(server_name, tool_name, arguments)
+            # 没有运行中的事件循环，复用进程级共享事件循环执行（不重建循环）
+            sync_loop = _get_sync_event_loop()
+            future = asyncio.run_coroutine_threadsafe(
+                self._pool.call_tool(server_name, tool_name, arguments),
+                sync_loop,
             )
+            try:
+                return future.result(timeout=MCP_SYNC_CALL_TIMEOUT)
+            except concurrent.futures.TimeoutError:
+                # MCP 服务器挂起不响应时，无超时的 future.result() 会永久阻塞调用
+                # 线程并占死进程级共享 sync-loop，后续所有同步调用排队挂死。取消
+                # 底层协程使调用链以 CancelledError 收尾，被记录为失败步骤（fail-closed）。
+                future.cancel()
+                raise RuntimeError(
+                    f"MCP 工具调用超时（>{MCP_SYNC_CALL_TIMEOUT:g} 秒）: "
+                    f"{server_name}.{tool_name}"
+                ) from None
 
         # 已有运行中的事件循环（如在 FastAPI 中）
         # 不能在新线程中创建新事件循环，因为 stdio_client 的 stream
@@ -384,12 +455,24 @@ class WorkflowContext:
         """将真实的旧 TIA 块列表调用接入 Gateway 影子路由。"""
         from orchestrator.gateway_router import route_tia_read
 
-        return asyncio.run(route_tia_read(
-            self._pool,
-            "tia.block.list",
-            arguments,
-            mode=os.environ.get("PLC_GATEWAY_MODE", "shadow"),
-        ))
+        sync_loop = _get_sync_event_loop()
+        future = asyncio.run_coroutine_threadsafe(
+            route_tia_read(
+                self._pool,
+                "tia.block.list",
+                arguments,
+                mode=os.environ.get("PLC_GATEWAY_MODE", "shadow"),
+            ),
+            sync_loop,
+        )
+        try:
+            return future.result(timeout=MCP_SYNC_CALL_TIMEOUT)
+        except concurrent.futures.TimeoutError:
+            # 与 _call_mcp_sync 同理：超时后取消底层协程，避免占死共享 sync-loop。
+            future.cancel()
+            raise RuntimeError(
+                f"TIA 只读调用超时（>{MCP_SYNC_CALL_TIMEOUT:g} 秒）: tia-mcp.list_blocks"
+            ) from None
 
     async def call_async(self, tool_full_name: str, **kwargs) -> dict[str, Any]:
         """异步调用 MCP 工具（用于 async def 工作流）。
@@ -419,10 +502,14 @@ class WorkflowContext:
 
             result = None
 
-            # 优先级 1: mock 工具
+            # 优先级 1: mock 工具（跳过运行态安全门；控制类 mock 仍须审计）
             fn = self._mock_tools.get(tool_full_name)
             if fn is not None:
-                result = fn(**kwargs)
+                if self._is_control_tool(tool_full_name):
+                    self._audit_control_intent(tool_full_name, kwargs)
+                result = self._unwrap_tool_result(fn(**kwargs))
+                if self._is_control_tool(tool_full_name):
+                    self._audit_tool_call(tool_full_name, kwargs, result)
 
             # 优先级 2: MCP 连接池
             elif self._pool is not None:
@@ -461,8 +548,6 @@ class WorkflowContext:
                 raise RuntimeError(
                     f"工具 {tool_full_name} 没有 mock 实现，也没有 MCP 连接池。"
                 )
-
-            result = self._unwrap_tool_result(result)
 
             elapsed = (time.time() - start) * 1000
 
@@ -628,6 +713,17 @@ class OrchestratorEngine:
         import time
 
         context = self._build_context(input)
+
+        if not steps:
+            # 空步骤序列没有任何可确认的执行证据：拒绝空工作流（fail-closed），
+            # 不得把"什么都没执行"报告为成功。
+            return WorkflowResult(
+                workflow_name="adhoc",
+                ok=False,
+                error="工作流步骤列表为空，拒绝执行空工作流",
+                steps=[],
+            )
+
         start = time.time()
 
         for step in steps:
@@ -643,7 +739,7 @@ class OrchestratorEngine:
                     break  # 错误已记录在 context._steps 中
 
         elapsed = (time.time() - start) * 1000
-        all_ok = all(s.ok for s in context._steps) if context._steps else True
+        all_ok = all(s.ok for s in context._steps)
 
         return WorkflowResult(
             workflow_name="adhoc",
@@ -699,6 +795,14 @@ class OrchestratorEngine:
                 # 同步执行动态工作流各步骤
                 if context is None:
                     context = self._build_context(input)
+                if not dyn_steps:
+                    # 空步骤列表没有任何可确认的执行证据：拒绝空动态工作流（fail-closed）。
+                    return WorkflowResult(
+                        workflow_name=workflow_name,
+                        ok=False,
+                        error=f"动态工作流 {workflow_name} 步骤列表为空，拒绝执行",
+                        steps=[],
+                    )
                 start = time.time()
                 for step in dyn_steps:
                     server = step.get("server", "")
@@ -711,7 +815,7 @@ class OrchestratorEngine:
                         if stop_on_error:
                             break
                 elapsed = (time.time() - start) * 1000
-                all_ok = all(s.ok for s in context._steps) if context._steps else True
+                all_ok = all(s.ok for s in context._steps)
                 return WorkflowResult(
                     workflow_name=workflow_name,
                     ok=all_ok,
@@ -731,6 +835,10 @@ class OrchestratorEngine:
 
         try:
             output = wf_fn(context)
+            # async def 工作流在同步入口下返回协程：若不执行，工作流从未运行
+            # 却按空步骤上报成功。与 run_async() 的 iscoroutine 处理保持一致。
+            if asyncio.iscoroutine(output):
+                output = asyncio.run(output)
             # 工作流可能在未抛异常时显式返回失败载荷；此类结果不能被误记为成功。
             WorkflowContext._unwrap_tool_result(output)
             elapsed = (time.time() - start) * 1000
@@ -840,6 +948,16 @@ class OrchestratorEngine:
         import time
 
         context = self._build_context(input)
+
+        if not steps:
+            # 与 run_adhoc / run() 动态分支一致：空步骤列表拒绝执行（fail-closed）。
+            return WorkflowResult(
+                workflow_name=workflow_name,
+                ok=False,
+                error=f"工作流 {workflow_name} 步骤列表为空，拒绝执行",
+                steps=[],
+            )
+
         start = time.time()
 
         for step in steps:
@@ -855,7 +973,7 @@ class OrchestratorEngine:
                     break
 
         elapsed = (time.time() - start) * 1000
-        all_ok = all(s.ok for s in context._steps) if context._steps else True
+        all_ok = all(s.ok for s in context._steps)
 
         return WorkflowResult(
             workflow_name=workflow_name,

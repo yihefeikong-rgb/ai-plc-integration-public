@@ -1,5 +1,6 @@
 """设置 API — 前端读写 + 模型测试"""
 
+import os
 import time
 from urllib.parse import urlparse
 
@@ -50,16 +51,37 @@ TRUSTED_BASE_URLS = {
     if config["base_url"]
 }
 
+# custom 供应商的 base_url 只接受 LLM_CUSTOM_BASE_URLS 显式批准的主机，
+# 与 llm/service.py 的运行时校验一致（密钥绝不发送到未批准端点）。
+CUSTOM_BASE_URLS = {
+    value.strip().rstrip("/")
+    for value in os.environ.get("LLM_CUSTOM_BASE_URLS", "").split(",")
+    if value.strip()
+}
+
 
 def _validate_base_urls(updates: dict[str, str], store) -> None:
     for key, value in updates.items():
         if not key.endswith("_base_url") or not value:
             continue
         parsed = urlparse(value)
-        if parsed.scheme != "https" or value not in TRUSTED_BASE_URLS:
+        if key == "custom_base_url":
+            if parsed.scheme != "https" or value.rstrip("/") not in CUSTOM_BASE_URLS:
+                raise HTTPException(
+                    status_code=422,
+                    detail="自定义模型服务地址未获显式批准，请在 LLM_CUSTOM_BASE_URLS 中配置",
+                )
+        elif parsed.scheme != "https" or value not in TRUSTED_BASE_URLS:
             raise HTTPException(status_code=422, detail="模型服务地址不在 HTTPS 白名单中")
         api_key_name = key.replace("_base_url", "_api_key")
-        if value != store.get(key) and store.get(api_key_name) and not updates.get(api_key_name):
+        new_api_key = updates.get(api_key_name)
+        # 遮盖值（含 *）不算重新提供 API Key：客户端回传 get_all(mask_keys=True)
+        # 的遮盖密钥不得绕过"改地址必须重给密钥"校验（store.update 同样跳过含 * 的密钥）。
+        if (
+            value != store.get(key)
+            and store.get(api_key_name)
+            and (not new_api_key or "*" in str(new_api_key))
+        ):
             raise HTTPException(status_code=422, detail="修改模型服务地址时必须重新提供 API Key")
 
 
@@ -85,7 +107,7 @@ class SettingsUpdate(BaseModel):
 
 
 @router.get("")
-async def get_settings():
+async def get_settings(_: None = Depends(require_local_session)):
     store = get_settings_store()
     if store is None:
         raise HTTPException(status_code=503, detail="设置存储未初始化")
@@ -104,7 +126,7 @@ async def update_settings(data: SettingsUpdate, _: None = Depends(require_local_
 
 
 @router.get("/providers")
-async def get_providers():
+async def get_providers(_: None = Depends(require_local_session)):
     return {"providers": PROVIDER_MODELS}
 
 
@@ -156,4 +178,8 @@ async def test_provider(provider: str, _: None = Depends(require_local_session))
             "latency_ms": elapsed,
         }
     except Exception as e:
-        return {"status": "error", "message": str(e)[:200]}
+        # 认证失败消息可能回显提交的完整 API Key，先脱敏再返回客户端。
+        msg = str(e)
+        if api_key:
+            msg = msg.replace(api_key, "***")
+        return {"status": "error", "message": msg[:200]}

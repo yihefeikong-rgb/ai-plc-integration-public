@@ -43,6 +43,8 @@ VAR
     // 人感延时
     tonOccupancy : TON;                  // 有人确认延时
     tofVacancy : TOF;                    // 无人延迟关闭
+    tDelayOff : Time := T#5M;            // 无人延迟关闭时间（预计算缓存）
+    iDelayOffPrev : Int;                 // 上次使用的延迟值（秒）
 
     // 照度PID
     rDimKp : Real;                       // 调光比例系数
@@ -77,6 +79,11 @@ BEGIN
     IF rDimKp = 0.0 THEN rDimKp := 0.2; END_IF;
     IF rDimKi = 0.0 THEN rDimKi := 0.01; END_IF;
     IF rFadeRate = 0.0 THEN rFadeRate := 5.0; END_IF;
+    // 预计算无人延迟关灯时间：仅当参数变化时重算，避免每个扫描周期重复乘法与类型转换
+    IF iDelayOff <> iDelayOffPrev THEN
+        tDelayOff := INT_TO_TIME(iDelayOff * 1000);
+        iDelayOffPrev := iDelayOff;
+    END_IF;
     // 场景预设
     IF rScene1Dim = 0.0 THEN rScene1Dim := 100.0; END_IF;
     IF rScene2Dim = 0.0 THEN rScene2Dim := 70.0; END_IF;
@@ -125,7 +132,7 @@ BEGIN
     tonOccupancy(IN := bMotionDetect1 OR bMotionDetect2 OR bMotionDetect3 OR bDoorContact,
                  PT := T#2s);
     tofVacancy(IN := bMotionDetect1 OR bMotionDetect2 OR bMotionDetect3,
-               PT := INT_TO_TIME(iDelayOff * 1000));
+               PT := tDelayOff);
 
     bOccupied := tofVacancy.Q;
 

@@ -8,7 +8,8 @@ export function downloadFile(content, filename, mime = 'text/plain') {
   a.href = url
   a.download = filename
   a.click()
-  URL.revokeObjectURL(url)
+  // 延后撤销：等待浏览器启动下载后再回收 blob URL，避免部分浏览器在下载开始前撤销导致下载失败
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 // 容错解析 content：对象直接用，字符串尝试 JSON.parse，失败退化到 {text}

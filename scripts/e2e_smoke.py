@@ -119,19 +119,22 @@ def check_prerequisites(host: str, port: int) -> bool:
     _log_info("检查 DeepSeek API Key ...")
     deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
     if not deepseek_key:
-        # 尝试从 backend config 读
-        try:
-            from ai_plc_assistant.backend.config import settings
-            deepseek_key = settings.deepseek_api_key
-        except Exception:
-            pass
+        # 尝试从项目根 .env 文件读取（与 backend config 的 env_file 机制一致）
+        _log_info("环境变量未设置，尝试从项目根 .env 读取 ...")
+        env_path = Path(_PROJECT_ROOT) / ".env"
+        if env_path.is_file():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("DEEPSEEK_API_KEY="):
+                    deepseek_key = line.split("=", 1)[1].strip().strip("\"'")
+                    break
 
     if deepseek_key:
         masked = deepseek_key[:6] + "****" + deepseek_key[-4:] if len(deepseek_key) > 10 else "****"
         _log_ok(f"DeepSeek API Key 已配置: {masked}")
     else:
-        _log_warn("DeepSeek API Key 未配置（从环境变量 DEEPSEEK_API_KEY 读取）")
-        _log_info("  排查建议: 设置环境变量 DEEPSEEK_API_KEY 或在 .env 文件中配置")
+        _log_warn("DeepSeek API Key 未配置（从环境变量或项目根 .env 读取）")
+        _log_info("  排查建议: 设置环境变量 DEEPSEEK_API_KEY 或在项目根 .env 文件中配置")
         all_pass = False
 
     return all_pass
@@ -176,7 +179,7 @@ def call_orchestrator_workflow(
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body_text = e.read().decode("utf-8", errors="replace")
-        return {"ok": False, "error": f"HTTP {e.code}: {body_text}"}
+        return {"ok": False, "error": f"HTTP {e.code}: {body_text[:120]}"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -214,6 +217,7 @@ def read_plc_variables(ip: str, rack: int = 0, slot: int = 1) -> dict[str, Any]:
             return {"success": False, "error": str(e), "duration_ms": elapsed}
 
         variables = {}
+        read_ok = True
         try:
             m0_data = client.read_area(snap7.types.Areas.MK, 0, 0, 1)
             m0_0 = get_bool(m0_data, 0, 0)
@@ -221,6 +225,7 @@ def read_plc_variables(ip: str, rack: int = 0, slot: int = 1) -> dict[str, Any]:
         except Exception as e:
             _log_warn(f"读取 M0.0 失败: {e}")
             variables["M0.0"] = {"value": None, "error": str(e)}
+            read_ok = False
 
         elapsed = (time.time() - t_start) * 1000
 
@@ -233,9 +238,12 @@ def read_plc_variables(ip: str, rack: int = 0, slot: int = 1) -> dict[str, Any]:
                 _log_warn(f"  {var_name}: 读取失败 ({desc})")
 
         client.disconnect()
-        _log_ok(f"snap7 读取完成 ({elapsed:.0f}ms)")
+        if read_ok:
+            _log_ok(f"snap7 读取完成 ({elapsed:.0f}ms)")
+        else:
+            _log_fail("snap7 读取失败，关键变量未读全")
 
-        return {"success": True, "variables": variables, "duration_ms": elapsed}
+        return {"success": read_ok, "variables": variables, "duration_ms": elapsed}
 
     except ImportError:
         _log_warn("snap7 库未安装，跳过 PLC 变量读取")
@@ -332,7 +340,7 @@ def run_smoke_test(
     else:
         _log_fail(f"tia_full_pipeline 执行失败 ({t1_elapsed:.0f}ms)")
         error_msg = result.get("error", "未知错误")
-        _log_fail(f"错误: {error_msg}")
+        _log_fail(f"错误: {error_msg[:120]}")
         steps = result.get("steps", [])
         if steps:
             _log_info("已执行步骤:")
@@ -344,17 +352,18 @@ def run_smoke_test(
         return False
 
     # ── Step 2: snap7 读变量 ──
-    snap7_ok = True
+    snap7_ok = False
     if not skip_snap7:
         snap7_result = read_plc_variables(plc_ip)
         snap7_ok = snap7_result.get("success", False)
     else:
         _log_step(5, 6, "snap7 跳过（--skip-snap7）")
+        _log_warn("snap7 验证已跳过：本次运行未验证 PLC 可读，不能视为全链路通过")
 
     # ── 最终结果 ──
-    _print_timing_report(overall_start, snap7_ok)
+    _print_timing_report(overall_start, snap7_ok, skipped=skip_snap7)
 
-    return True
+    return snap7_ok
 
 
 # ═══════════════════════════════════════════════════════
@@ -390,16 +399,22 @@ def _print_troubleshooting() -> None:
 """)
 
 
-def _print_timing_report(overall_start: float, snap7_ok: bool) -> None:
-    """输出总耗时和结果大字。"""
+def _print_timing_report(overall_start: float, snap7_ok: bool, skipped: bool = False) -> None:
+    """输出总耗时和结果大字。
+
+    skipped=True 表示 snap7 验证被跳过、PLC 可读性未经验证。
+    """
     total_elapsed = time.time() - overall_start
     _hr("冒烟测试完成")
     print(f"\n  总耗时: {total_elapsed:.1f}s ({total_elapsed * 1000:.0f}ms)")
 
     if snap7_ok:
         print(f"\n  {_GREEN}{_BOLD}  >>> 冒烟测试通过 <<<{_RESET}\n")
+    elif skipped:
+        print(f"\n  {_YELLOW}{_BOLD}  >>> 冒烟测试完成（未验证）<<<{_RESET}")
+        print(f"  {_YELLOW}  snap7 验证已跳过，PLC 可读性未经验证{_RESET}\n")
     else:
-        print(f"\n  {_YELLOW}{_BOLD}  >>> 冒烟测试部分通过（snap7 验证失败或未执行） <<<{_RESET}\n")
+        print(f"\n  {_RED}{_BOLD}  >>> 冒烟测试未通过 <<<{_RESET}\n")
 
 
 # ═══════════════════════════════════════════════════════
@@ -422,7 +437,7 @@ def main() -> None:
     parser.add_argument("--project-name", default=None, help="TIA 项目名 (default: SmokeTest_时间戳)")
     parser.add_argument("--project-path", default=None, help="TIA 项目路径 (default: 自动生成)")
     parser.add_argument("--plc-ip", default=None, help="PLC IP（仅接受 config.yaml 的唯一 target）")
-    parser.add_argument("--skip-snap7", action="store_true", help="跳过 snap7 变量读取")
+    parser.add_argument("--skip-snap7", action="store_true", help="跳过 snap7 变量读取（结果视为未验证，不按成功退出）")
     args = parser.parse_args()
 
     success = run_smoke_test(

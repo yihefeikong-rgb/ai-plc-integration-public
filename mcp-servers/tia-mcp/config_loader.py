@@ -247,6 +247,10 @@ def _basic_validate(spec: dict) -> list:
     supported_types = {"Bool", "Int", "Real", "Word"}
     timer_types = {"timer_on_delay", "timer_off_delay"}
     time_pattern = re.compile(r"^(?:T#|TIME#)(?:\d+(?:MS|US|NS|D|H|M|S))+$")
+    # 与 ladder_spec.schema.json 的 blockName pattern 保持一致：
+    # blockName 会直接进入文件路径（_run_cartgen 的 {blockName}.xml、
+    # IO_Map_{blockName}.scl），jsonschema 缺失时也必须拦截路径穿越。
+    block_name_pattern = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
 
     if not isinstance(spec, dict):
         return ["根: 不是 JSON 对象"]
@@ -255,6 +259,12 @@ def _basic_validate(spec: dict) -> list:
     for field in ["blockName", "blockNumber", "interface", "networks"]:
         if field not in spec:
             errors.append(f"根: 缺少必填字段 '{field}'")
+
+    # blockName 格式硬校验（即使 jsonschema 未安装也不得放行非法块名）
+    if "blockName" in spec:
+        block_name = spec["blockName"]
+        if not isinstance(block_name, str) or not block_name_pattern.fullmatch(block_name):
+            errors.append("blockName: 必须匹配 ^[A-Za-z][A-Za-z0-9]*$（首字符为字母，其余仅字母/数字）")
 
     if not isinstance(spec.get("networks"), list) or len(spec.get("networks", [])) == 0:
         errors.append("networks: 必须是非空数组")

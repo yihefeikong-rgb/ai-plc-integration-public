@@ -23,7 +23,7 @@ tia:
 # ── CartGen LAD 生成器 ──
 cartgen:
   # CartGen.dll 相对路径（从项目根目录算）
-  dll_path: "mcp-servers/tia-mcp/CartGen/bin/Release/net8.0/CartGen.dll"
+  dll_path: "mcp-servers/tia-mcp/CartGen/bin/Debug/net8.0/CartGen.dll"
 
 # ── DeepSeek AI ──
 deepseek:

@@ -1,11 +1,18 @@
+from functools import lru_cache
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+@lru_cache(maxsize=None)
+def _read_text(path: Path) -> str:
+    """缓存读取工作区文件，每个文件每个测试会话只读盘一次。"""
+    return path.read_text(encoding="utf-8")
+
+
 def test_p3_flow_resolves_tia_mcp_from_the_project_root():
-    content = (PROJECT_ROOT / "scripts" / "p3_flow.py").read_text(encoding="utf-8")
+    content = _read_text(PROJECT_ROOT / "scripts" / "p3_flow.py")
 
     assert 'PROJECT_ROOT = SCRIPT_DIR.parent' in content
     assert 'TIA_MCP_DIR = PROJECT_ROOT / "mcp-servers" / "tia-mcp"' in content
@@ -13,7 +20,7 @@ def test_p3_flow_resolves_tia_mcp_from_the_project_root():
 
 
 def test_start_bat_stays_at_the_repository_root_and_has_one_mcp_owner():
-    content = (PROJECT_ROOT / "start.bat").read_text(encoding="utf-8")
+    content = _read_text(PROJECT_ROOT / "start.bat")
 
     assert 'cd /d "%~dp0"' in content
     assert 'cd /d "%~dp0.."' not in content
@@ -26,10 +33,10 @@ def test_start_bat_stays_at_the_repository_root_and_has_one_mcp_owner():
 
 
 def test_desktop_backend_port_has_one_contract_at_8005():
-    backend_config = (PROJECT_ROOT / "ai-plc-assistant" / "backend" / "config.py").read_text(encoding="utf-8")
-    root_start = (PROJECT_ROOT / "start.bat").read_text(encoding="utf-8")
-    vite_config = (PROJECT_ROOT / "ai-plc-assistant" / "frontend" / "vite.config.js").read_text(encoding="utf-8")
-    frontend_api = (PROJECT_ROOT / "ai-plc-assistant" / "frontend" / "src" / "api.js").read_text(encoding="utf-8")
+    backend_config = _read_text(PROJECT_ROOT / "ai-plc-assistant" / "backend" / "config.py")
+    root_start = _read_text(PROJECT_ROOT / "start.bat")
+    vite_config = _read_text(PROJECT_ROOT / "ai-plc-assistant" / "frontend" / "vite.config.js")
+    frontend_api = _read_text(PROJECT_ROOT / "ai-plc-assistant" / "frontend" / "src" / "api.js")
 
     assert 'port: int = 8005' in backend_config
     assert 'set BACKEND_PORT=8005' in root_start
@@ -39,7 +46,7 @@ def test_desktop_backend_port_has_one_contract_at_8005():
 
 def test_desktop_starters_refuse_busy_ports_without_killing_processes():
     for filename in ("start.bat", "start_backend.bat"):
-        content = (PROJECT_ROOT / "ai-plc-assistant" / filename).read_text(encoding="utf-8")
+        content = _read_text(PROJECT_ROOT / "ai-plc-assistant" / filename)
 
         assert "Stop-Process" not in content
         assert "taskkill" not in content.lower()

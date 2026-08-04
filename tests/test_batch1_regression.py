@@ -203,35 +203,38 @@ class TestResolvePath:
     """测试 _resolve_path 拒绝非配置项目路径"""
 
     def test_accepts_empty_path(self, sv):
+        # 空路径表示使用唯一配置路径（默认项目路径）
         path = sv._resolve_path("")
-        assert path is not None
+        assert path == "D:/test/TEST_PROJECT.ap21"
 
     def test_rejects_non_configured_path(self, sv):
         with pytest.raises(ValueError, match="拒绝非唯一配置中的 TIA 项目路径"):
             sv._resolve_path("D:/some/other/project.ap21")
 
     def test_accepts_configured_path(self, sv):
-        path = sv._resolve_path("")
-        assert path is not None
+        # 显式传入配置中的项目路径也必须被接受（与空路径测试区分）
+        path = sv._resolve_path("D:/test/TEST_PROJECT.ap21")
+        assert path == "D:/test/TEST_PROJECT.ap21"
 
 
 # ── B1.1: create_ladder_block 路径绕过修复 ──
 
 
 class TestCreateLadderBlockPathGuard:
-    """测试 create_ladder_block 不绕过路径校验"""
+    """测试 create_ladder_block 的路径校验与梯形图语义安全链"""
 
     @patch("server._import_xml_into_tia")
     @patch("server._run_cartgen")
-    @patch("server._require_ladder_semantic_safety")
     @patch("server._gen_lad_spec")
     def test_non_configured_path_rejected(
-        self, mock_gen, mock_safety, mock_cartgen, mock_import, sv
+        self, mock_gen, mock_cartgen, mock_import, sv
     ):
         mock_gen.return_value = {"blockName": "TestBlock", "networks": []}
         mock_cartgen.return_value = "/tmp/test.xml"
 
         # 调用 create_ladder_block 时传入非配置路径
+        # （不 patch _require_ladder_semantic_safety：路径校验先于语义安全链，
+        #   非配置路径必须在 _gen_lad_spec 之前被拒绝）
         result = sv.create_ladder_block(
             description="test block",
             block_name="TestBlock",
@@ -239,6 +242,65 @@ class TestCreateLadderBlockPathGuard:
             auth_token="pytest-mcp-auth-token",
         )
 
-        # 验证：路径被拒绝，_import_xml_into_tia 没有被调用
-        assert result.get("ok") is False or result.get("error") is not None
+        # 验证：路径被拒绝，且拒绝必须来自路径校验本身（严格断言具体错误，
+        #   避免把认证失败/语义安全链拒绝等无关环节误判为路径校验生效）
+        assert result.get("ok") is False
+        assert "拒绝非唯一配置中的 TIA 项目路径" in result.get("error", "")
+        # 路径校验必须先于 LAD 生成/语义安全链/工程态写入拦截（fail-closed）
+        mock_gen.assert_not_called()
+        mock_cartgen.assert_not_called()
+        mock_import.assert_not_called()
+
+    @patch("server._import_xml_into_tia")
+    @patch("server._run_cartgen")
+    @patch("server._gen_lad_spec")
+    def test_semantic_safety_failure_blocks_import(
+        self, mock_gen, mock_cartgen, mock_import, sv
+    ):
+        """LadderSpec 语义安全校验失败必须在 CartGen/TIA 导入前阻断（fail-closed）"""
+        mock_gen.return_value = {"blockName": "UnsafeMotor", "networks": []}
+        mock_cartgen.return_value = "/tmp/test.xml"
+
+        # 语义安全链返回不安全 → _require_ladder_semantic_safety 必须抛错阻断
+        with patch.object(sv, "safety_validate_ladder", return_value={
+            "safe": False,
+            "warnings": ["电机类输出块缺少急停互锁引用（变量名须含 stop/emergency）"],
+        }):
+            result = sv.create_ladder_block(
+                description="电机正反转，带急停和过载",
+                block_name="UnsafeMotor",
+                project_path="",  # 空路径 → 唯一配置路径，路径校验通过
+                auth_token="pytest-mcp-auth-token",
+            )
+
+        # 验证：语义安全校验失败 → 阻断，CartGen 与 TIA 导入均未被调用
+        assert result.get("ok") is False
+        assert "语义安全校验失败" in result.get("error", "")
+        mock_cartgen.assert_not_called()
+        mock_import.assert_not_called()
+
+    @patch("server._import_xml_into_tia")
+    @patch("server._run_cartgen")
+    @patch("server._gen_lad_spec")
+    def test_safety_gate_fail_closed_when_validator_denies(
+        self, mock_gen, mock_cartgen, mock_import, sv
+    ):
+        """validator 拒绝时必须 fail-closed 阻断，不允许进入工程态操作"""
+        mock_gen.return_value = {"blockName": "TestBlock", "networks": []}
+        mock_cartgen.return_value = "/tmp/test.xml"
+
+        # validator 熔断 → _safety_gate 必须返回阻断结果
+        with patch.object(
+            sv.safety_validator, "validate",
+            return_value=MagicMock(allowed=False, reason="断路器已熔断"),
+        ):
+            result = sv.create_ladder_block(
+                description="test block",
+                block_name="TestBlock",
+                project_path="D:/test/TEST_PROJECT.ap21",
+                auth_token="pytest-mcp-auth-token",
+            )
+
+        assert result.get("ok") is False
+        assert "安全链拒绝" in result.get("error", "")
         mock_import.assert_not_called()

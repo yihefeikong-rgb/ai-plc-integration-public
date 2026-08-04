@@ -182,33 +182,27 @@ def mock_llm():
 @pytest.fixture
 def client():
     """创建 FastAPI TestClient (复用全局 app 实例)"""
-    # 每次测试前清空测试相关表，保证测试隔离
-    try:
-        import main as _main_module
-        if _main_module.project_store and _main_module.project_store._conn:
-            _main_module.project_store._conn.execute("DELETE FROM projects")
-            _main_module.project_store._conn.commit()
-        if _main_module.conv_store and _main_module.conv_store._conn:
-            _main_module.conv_store._conn.execute("DELETE FROM conversations")
-            _main_module.conv_store._conn.execute("DELETE FROM messages")
-            _main_module.conv_store._conn.commit()
-    except Exception:
-        pass
+    # 每次测试前清空测试相关表，保证测试隔离。
+    # 清表失败必须立即让用例失败（fail-closed），否则残留数据造成无依据的通过/失败与顺序依赖。
+    import main as _main_module
+    if _main_module.project_store and _main_module.project_store._conn:
+        _main_module.project_store._conn.execute("DELETE FROM projects")
+        _main_module.project_store._conn.commit()
+    if _main_module.conv_store and _main_module.conv_store._conn:
+        _main_module.conv_store._conn.execute("DELETE FROM conversations")
+        _main_module.conv_store._conn.execute("DELETE FROM messages")
+        _main_module.conv_store._conn.commit()
 
-    # 重置 generate 模块级限流状态，避免测试间累积触发 429
-    try:
-        from routes import generate as _gen_routes
-        _gen_routes._generate_history.clear()
-    except Exception:
-        pass
+    # 重置 generate 模块级限流状态，避免测试间累积触发 429。
+    # 重置失败必须立即暴露，否则限流状态残留会掩盖或伪造 429 行为。
+    from routes import generate as _gen_routes
+    _gen_routes._generate_history.clear()
 
     with TestClient(_real_app) as c:
         # SearchIndex 是进程级单例；每个用例从同一份隔离索引开始。
-        try:
-            import main as _main_module
-            _main_module.search_engine.clear()
-        except Exception:
-            pass
+        # 清理失败必须立即暴露，否则索引残留会造成跨用例搜索串扰。
+        import main as _main_module
+        _main_module.search_engine.clear()
         c.headers.update({"X-Local-Api-Token": os.environ["LOCAL_API_TOKEN"]})
         yield c
 

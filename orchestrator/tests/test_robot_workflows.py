@@ -141,18 +141,22 @@ class TestRobotPickPlace:
         assert "robot-mcp.place_item" not in tools_called
 
     def test_step_order(self):
-        """步骤执行顺序：get_status → go_home → conveyor(entry) → pick → conveyor(exit) → place"""
+        """步骤执行顺序：每个物理动作前复检急停（fail-closed）"""
         engine = _make_engine(estop=False)
         result = asyncio.run(
             engine.run_async("robot_pick_place", input={})
         )
         tools_called = [s.tool for s in result.steps]
         expected = [
-            "robot-mcp.get_status",
+            "robot-mcp.get_status",      # 首次急停检查
             "robot-mcp.go_home",
+            "robot-mcp.get_status",      # 动作前复检
             "robot-mcp.control_conveyor",
+            "robot-mcp.get_status",
             "robot-mcp.pick_item",
+            "robot-mcp.get_status",
             "robot-mcp.control_conveyor",
+            "robot-mcp.get_status",
             "robot-mcp.place_item",
         ]
         assert tools_called == expected
@@ -173,12 +177,12 @@ class TestRobotPickPlace:
         assert conveyor_calls == ["entry", "exit"]
 
     def test_total_step_count(self):
-        """正常模式下共 6 个步骤"""
+        """正常模式下共 10 个步骤（6 个物理动作 + 5 次急停检查，含首次）"""
         engine = _make_engine(estop=False)
         result = asyncio.run(
             engine.run_async("robot_pick_place", input={})
         )
-        assert len(result.steps) == 6
+        assert len(result.steps) == 10
 
     def test_estop_step_count(self):
         """急停模式下仅 1 个步骤（get_status）"""

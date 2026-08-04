@@ -15,6 +15,7 @@ Token 绑定内容：
 
 审计事件（持久化 HMAC 链）：
   preview_created, preview_expired, preview_rejected,
+  token_consumed,
   apply_started, apply_succeeded, apply_failed,
   rollback_started, rollback_succeeded, reconcile_required
 """
@@ -24,6 +25,7 @@ import hashlib
 import hmac
 import json
 import os
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -37,6 +39,7 @@ class AuditEvent(Enum):
     PREVIEW_CREATED = "preview_created"
     PREVIEW_EXPIRED = "preview_expired"
     PREVIEW_REJECTED = "preview_rejected"
+    TOKEN_CONSUMED = "token_consumed"
     APPLY_STARTED = "apply_started"
     APPLY_SUCCEEDED = "apply_succeeded"
     APPLY_FAILED = "apply_failed"
@@ -156,51 +159,79 @@ class PreviewToken:
 class AuditLog:
     """审计日志 — 持久化 HMAC 链（JSON Lines + 链式哈希）"""
 
+    # 内存只保留最近 N 条；全量历史始终落盘，重启后从磁盘接续链尾
+    MAX_IN_MEMORY_ENTRIES = 1000
+
     def __init__(self, log_dir: str | Path | None = None, hmac_key: str = ""):
         self._entries: list[dict] = []
-        self._log_dir = Path(log_dir) if log_dir else None
-        self._hmac_key = hmac_key
+        self._log_dir = Path(log_dir) if log_dir else self._default_log_dir()
+        # 未配置 HMAC 密钥时使用进程内临时密钥，绝不降级为可伪造的裸 SHA-256
+        self._hmac_key = hmac_key or os.urandom(32).hex()
         self._last_hash = ""
+        self._load_existing()
+
+    @staticmethod
+    def _default_log_dir() -> Path:
+        """默认审计目录：PLC_GATEWAY_AUDIT_DIR 覆盖，否则项目 logs/plc-gateway"""
+        env_dir = os.environ.get("PLC_GATEWAY_AUDIT_DIR")
+        if env_dir:
+            return Path(env_dir)
+        return Path(__file__).resolve().parents[3] / "logs" / "plc-gateway"
 
     def set_log_dir(self, log_dir: str | Path) -> None:
-        self._log_dir = Path(log_dir)
+        """切换审计目录并接续该目录已有链尾（HMAC 链跨重启连续）"""
+        new_dir = Path(log_dir)
+        if new_dir == self._log_dir:
+            return
+        self._log_dir = new_dir
+        self._load_existing()
 
     def set_hmac_key(self, key: str) -> None:
-        self._hmac_key = key
+        if key:
+            self._hmac_key = key
 
-    def _load_existing(self) -> None:
-        """从日志文件加载现有条目"""
-        if not self._log_dir:
-            return
+    def _read_all_from_disk(self) -> list[dict]:
+        """读取磁盘上的完整审计链条目（JSON Lines）"""
         log_file = self._log_dir / "audit.jsonl"
         if not log_file.exists():
-            return
-        self._entries = []
-        for line in log_file.read_text(encoding="utf-8").strip().split("\n"):
-            if line.strip():
-                entry = json.loads(line)
-                self._entries.append(entry)
-                self._last_hash = entry.get("chain_hash", "")
+            return []
+        entries = []
+        with open(log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entries.append(json.loads(line))
+        return entries
+
+    def _load_existing(self) -> None:
+        """从日志文件加载现有条目并接续链尾 hash（内存只保留最近窗口）"""
+        try:
+            entries = self._read_all_from_disk()
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"审计日志损坏，拒绝静默续链: {self._log_dir / 'audit.jsonl'}: {exc}"
+            ) from exc
+        self._entries = entries[-self.MAX_IN_MEMORY_ENTRIES:]
+        self._last_hash = entries[-1].get("chain_hash", "") if entries else ""
 
     def _compute_chain_hash(self, entry: dict) -> str:
-        """计算链式哈希（当前条目 + 上一个哈希）"""
+        """计算链式哈希（当前条目 + 上一个哈希，HMAC-SHA256）"""
         payload = json.dumps(entry, sort_keys=True, ensure_ascii=False) + self._last_hash
-        if self._hmac_key:
-            return hmac.new(
-                self._hmac_key.encode("utf-8"),
-                payload.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return hmac.new(
+            self._hmac_key.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
 
     def _persist(self, entry: dict) -> None:
-        """持久化审计条目到 JSON Lines 文件"""
-        if not self._log_dir:
-            return
+        """持久化审计条目到 JSON Lines 文件（写入失败即阻断，fail-closed）"""
         self._log_dir.mkdir(parents=True, exist_ok=True)
         log_file = self._log_dir / "audit.jsonl"
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            raise RuntimeError(f"审计日志写入失败: {log_file}: {exc}") from exc
 
     def record(self, event: AuditEvent, token: PreviewToken,
                detail: str = "", success: bool = True) -> None:
@@ -221,6 +252,9 @@ class AuditLog:
         self._last_hash = entry["chain_hash"]
 
         self._entries.append(entry)
+        # 内存只保留最近窗口，防止长期运行无限增长（全量历史已在磁盘）
+        if len(self._entries) > self.MAX_IN_MEMORY_ENTRIES:
+            self._entries = self._entries[-self.MAX_IN_MEMORY_ENTRIES:]
         self._persist(entry)
 
     def get_entries(self, tool_name: str | None = None,
@@ -234,24 +268,26 @@ class AuditLog:
         return result[-limit:]
 
     def verify_chain(self) -> list[dict]:
-        """验证审计链完整性，返回损坏的条目列表"""
-        if not self._entries:
+        """验证审计链完整性，返回损坏的条目列表
+
+        以磁盘上的完整链为准（内存只保留最近窗口），
+        避免裁剪内存条目导致链验证误报或漏报。
+        """
+        entries = self._read_all_from_disk()
+        if not entries:
             return []
         prev_hash = ""
         broken = []
-        for i, entry in enumerate(self._entries):
+        for i, entry in enumerate(entries):
             chain_hash = entry.get("chain_hash", "")
             # 重建 hash
             entry_no_hash = {k: v for k, v in entry.items() if k != "chain_hash"}
             payload = json.dumps(entry_no_hash, sort_keys=True, ensure_ascii=False) + prev_hash
-            if self._hmac_key:
-                expected = hmac.new(
-                    self._hmac_key.encode("utf-8"),
-                    payload.encode("utf-8"),
-                    hashlib.sha256,
-                ).hexdigest()
-            else:
-                expected = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            expected = hmac.new(
+                self._hmac_key.encode("utf-8"),
+                payload.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
             if chain_hash != expected:
                 broken.append({"index": i, "entry": entry, "expected": expected})
             prev_hash = chain_hash
@@ -267,6 +303,9 @@ class PreviewManager:
 
     def __init__(self, ttl: int = 300, secret_key: str = ""):
         self._tokens: dict[str, PreviewToken] = {}
+        # 可重入锁：token.used 的读-改-写必须原子，防止并发消费同一确认令牌
+        # 同时重放（TOCTOU），保证一次性消费/防重放语义 fail-closed。
+        self._lock = threading.RLock()
         self._audit = AuditLog()
         self._ttl = ttl
         self._secret_key = secret_key
@@ -288,25 +327,26 @@ class PreviewManager:
                      operator: str = "", confirmer: str = "",
                      device_id: str = "") -> PreviewToken:
         """创建预览令牌（自动签名）"""
-        token = PreviewToken(
-            token_id=uuid.uuid4().hex[:16],
-            tool_name=tool_name,
-            normalized_params=params,
-            project_path=project_path,
-            tia_version=tia_version,
-            target_block=target_block,
-            target_hash=target_hash,
-            operator=operator,
-            confirmer=confirmer,
-            device_id=device_id,
-            issued_at=time.time(),
-            expires_at=time.time() + self._ttl,
-        )
-        if self._secret_key:
-            token.sign(self._secret_key)
-        self._tokens[token.token_id] = token
-        self._audit.record(AuditEvent.PREVIEW_CREATED, token)
-        return token
+        with self._lock:
+            token = PreviewToken(
+                token_id=uuid.uuid4().hex[:16],
+                tool_name=tool_name,
+                normalized_params=params,
+                project_path=project_path,
+                tia_version=tia_version,
+                target_block=target_block,
+                target_hash=target_hash,
+                operator=operator,
+                confirmer=confirmer,
+                device_id=device_id,
+                issued_at=time.time(),
+                expires_at=time.time() + self._ttl,
+            )
+            if self._secret_key:
+                token.sign(self._secret_key)
+            self._tokens[token.token_id] = token
+            self._audit.record(AuditEvent.PREVIEW_CREATED, token)
+            return token
 
     def validate_token(self, token_id: str, current_project_path: str = "",
                        current_target_hash: str = "",
@@ -322,54 +362,59 @@ class PreviewManager:
         - 目标 Hash 一致（如果提供）
         - 设备 ID 一致（如果提供）
         """
-        token = self._tokens.get(token_id)
-        if token is None:
-            return None
-
-        if token.expired:
-            self._audit.record(AuditEvent.PREVIEW_EXPIRED, token, "令牌已过期")
-            self._tokens.pop(token_id, None)
-            return None
-
-        if token.used:
-            self._audit.record(AuditEvent.PREVIEW_REJECTED, token, "令牌已使用")
-            return None
-
-        # HMAC 签名验证
-        if self._secret_key and token.signature:
-            if not token.verify_signature(self._secret_key):
-                self._audit.record(AuditEvent.PREVIEW_REJECTED, token, "HMAC 签名无效")
+        with self._lock:
+            token = self._tokens.get(token_id)
+            if token is None:
                 return None
 
-        if current_project_path and current_project_path != token.project_path:
-            self._audit.record(AuditEvent.PREVIEW_REJECTED, token,
-                               f"项目路径不匹配: {current_project_path}")
-            return None
+            if token.expired:
+                self._audit.record(AuditEvent.PREVIEW_EXPIRED, token, "令牌已过期")
+                self._tokens.pop(token_id, None)
+                return None
 
-        if current_target_hash and current_target_hash != token.target_hash:
-            self._audit.record(AuditEvent.PREVIEW_REJECTED, token,
-                               f"目标 Hash 不匹配: 当前 {current_target_hash[:16]}...")
-            return None
+            if token.used:
+                self._audit.record(AuditEvent.PREVIEW_REJECTED, token, "令牌已使用")
+                return None
 
-        if current_device_id and current_device_id != token.device_id:
-            self._audit.record(AuditEvent.PREVIEW_REJECTED, token,
-                               f"设备 ID 不匹配: {current_device_id}")
-            return None
+            # HMAC 签名验证
+            if self._secret_key and token.signature:
+                if not token.verify_signature(self._secret_key):
+                    self._audit.record(AuditEvent.PREVIEW_REJECTED, token, "HMAC 签名无效")
+                    return None
 
-        return token
+            if current_project_path and current_project_path != token.project_path:
+                self._audit.record(AuditEvent.PREVIEW_REJECTED, token,
+                                   f"项目路径不匹配: {current_project_path}")
+                return None
+
+            if current_target_hash and current_target_hash != token.target_hash:
+                self._audit.record(AuditEvent.PREVIEW_REJECTED, token,
+                                   f"目标 Hash 不匹配: 当前 {current_target_hash[:16]}...")
+                return None
+
+            if current_device_id and current_device_id != token.device_id:
+                self._audit.record(AuditEvent.PREVIEW_REJECTED, token,
+                                   f"设备 ID 不匹配: {current_device_id}")
+                return None
+
+            return token
 
     def consume_token(self, token_id: str, current_project_path: str = "",
                       current_target_hash: str = "",
                       current_device_id: str = "") -> PreviewToken | None:
-        """消费令牌（验证 + 标记已使用）"""
-        token = self.validate_token(
-            token_id, current_project_path,
-            current_target_hash, current_device_id,
-        )
-        if token is None:
-            return None
-        token.used = True
-        return token
+        """消费令牌（验证 + 标记已使用 + 审计一次性消费）"""
+        # 整个“验证 + used 置位 + 审计”在同一把锁下执行，
+        # 并发调用同一令牌时后到者必然读到 used=True 而被拒绝（防重放）。
+        with self._lock:
+            token = self.validate_token(
+                token_id, current_project_path,
+                current_target_hash, current_device_id,
+            )
+            if token is None:
+                return None
+            token.used = True
+            self._audit.record(AuditEvent.TOKEN_CONSUMED, token, "令牌已一次性消费")
+            return token
 
     def apply_started(self, token: PreviewToken) -> None:
         self._audit.record(AuditEvent.APPLY_STARTED, token)
@@ -392,14 +437,15 @@ class PreviewManager:
         self._audit.record(AuditEvent.RECONCILE_REQUIRED, token, detail)
 
     def cleanup_expired(self) -> int:
-        now = time.time()
-        expired = [tid for tid, t in self._tokens.items()
-                   if now > t.expires_at]
-        for tid in expired:
-            self._audit.record(AuditEvent.PREVIEW_EXPIRED,
-                               self._tokens[tid], "自动清理过期令牌")
-            del self._tokens[tid]
-        return len(expired)
+        with self._lock:
+            now = time.time()
+            expired = [tid for tid, t in self._tokens.items()
+                       if now > t.expires_at]
+            for tid in expired:
+                self._audit.record(AuditEvent.PREVIEW_EXPIRED,
+                                   self._tokens[tid], "自动清理过期令牌")
+                del self._tokens[tid]
+            return len(expired)
 
 
 # ── 全局实例 ──

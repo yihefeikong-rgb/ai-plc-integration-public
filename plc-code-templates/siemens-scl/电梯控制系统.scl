@@ -74,6 +74,7 @@ VAR
     // 超时保护
     tonMoveTimeout : TON;                // 运行超时保护
     tiMoveTimeout : Time;                // 运行超时时间
+    i : Int;                             // FOR 循环变量
 END_VAR
 
 BEGIN
@@ -98,15 +99,34 @@ BEGIN
     // ============================================
     // 消防归底模式
     // ============================================
-    IF bFireReturn THEN
+    IF bFireReturn AND eState <> 4 THEN
         bFireMode := TRUE;
         bDoorOpenCmd := FALSE;
-        // 非1层则向下运行
+        // 消防归底期间同样执行楼层同步：下行过程中必须持续更新 iCurrentFloor，
+        // 否则永远检测不到 1 层到位，只能等运行超时 15s 进入 FAULT，消防归底实际失效
+        IF bFloorSensor1 THEN iCurrentFloor := 1; END_IF;
+        IF bFloorSensor2 THEN iCurrentFloor := 2; END_IF;
+        IF bFloorSensor3 THEN iCurrentFloor := 3; END_IF;
+        IF bFloorSensor4 THEN iCurrentFloor := 4; END_IF;
+        IF bFloorSensor5 THEN iCurrentFloor := 5; END_IF;
+        IF bFloorSensor6 THEN iCurrentFloor := 6; END_IF;
+        bFloorDisplay := INT_TO_BYTE(iCurrentFloor);
+        // 非1层则向下运行（含运行超时保护：卡梯/传感器失效时故障报警）
         IF iCurrentFloor > 1 THEN
+            // 运行超时保护：消防下行同样防止电机无限运行
+            tonMoveTimeout(IN := TRUE, PT := tiMoveTimeout);
+            IF tonMoveTimeout.Q THEN
+                bMotorDown := FALSE;
+                bMotorUp := FALSE;
+                bAlarm := TRUE;
+                eState := 4;  // FAULT
+                RETURN;
+            END_IF;
             bMotorDown := TRUE;
             bMotorUp := FALSE;
             eState := 1;  // MOVING
         ELSE
+            tonMoveTimeout(IN := FALSE);  // 已到1层开门，复位运行超时定时器
             bMotorDown := FALSE;
             bMotorUp := FALSE;
             bDoorOpenCmd := TRUE;
@@ -124,6 +144,7 @@ BEGIN
         bDoorOpenCmd := TRUE;
         bMotorUp := FALSE;
         bMotorDown := FALSE;
+        tonMoveTimeout(IN := FALSE);  // 超载停机期间复位运行超时定时器
         RETURN;
     END_IF;
 
@@ -161,6 +182,13 @@ BEGIN
     IF bHallDn4 THEN bDnRequests[4] := TRUE; END_IF;
     IF bHallDn5 THEN bDnRequests[5] := TRUE; END_IF;
     IF bHallDn6 THEN bDnRequests[6] := TRUE; END_IF;
+
+    // ============================================
+    // 运行超时保护：非运行（MOVING）状态复位定时器
+    // ============================================
+    IF eState <> 1 THEN
+        tonMoveTimeout(IN := FALSE);
+    END_IF;
 
     // ============================================
     // 主状态机
@@ -224,10 +252,10 @@ BEGIN
                 END_FOR;
             END_IF;
 
-            // 有目标则切换运行
-            IF iTargetFloor > 0 AND iTargetFloor <> iCurrentFloor THEN
+            // 有目标则切换运行（门锁未闭合→禁止运行）
+            IF iTargetFloor > 0 AND iTargetFloor <> iCurrentFloor AND bDoorClosed THEN
                 eState := 1;  // MOVING
-            ELSIF iTargetFloor = iCurrentFloor THEN
+            ELSIF iTargetFloor = iCurrentFloor AND iCurrentFloor > 0 THEN
                 // 已在目标层，开门
                 bUpRequests[iCurrentFloor] := FALSE;
                 bDnRequests[iCurrentFloor] := FALSE;
@@ -237,6 +265,15 @@ BEGIN
         // ----- 运行状态 -----
         1:  // MOVING
             sState := 'MOVING';
+            // 运行超时保护：启动定时器，超时进入故障（防卡梯/楼层传感器失效导致电机无限运行）
+            tonMoveTimeout(IN := TRUE, PT := tiMoveTimeout);
+            IF tonMoveTimeout.Q THEN
+                bMotorUp := FALSE;
+                bMotorDown := FALSE;
+                bAlarm := TRUE;
+                eState := 4;  // FAULT
+                RETURN;
+            END_IF;
 
             IF iTargetFloor > iCurrentFloor THEN
                 bMotorUp := TRUE;
@@ -283,6 +320,7 @@ BEGIN
             bMotorUp := FALSE;
             bMotorDown := FALSE;
             sState := 'DOOR_OPEN';
+            tonDoorClose(IN := FALSE);  // 复位关门定时器，确保每次关门循环重新计时
 
             // 开门
             bDoorOpenCmd := TRUE;
@@ -318,9 +356,15 @@ BEGIN
                 bDoorOpenCmd := FALSE;
                 bDoorCloseCmd := TRUE;
                 tonDoorClose(IN := TRUE, PT := tiDoorCloseDelay);
-                IF tonDoorClose.Q OR bDoorClosed THEN
+                // 门关到位确认后才允许回到IDLE（门锁未闭合→禁止运行）
+                IF bDoorClosed THEN
                     bDoorCloseCmd := FALSE;
                     eState := 0;  // 回到IDLE
+                ELSIF tonDoorClose.Q THEN
+                    // 关门超时仍无门关到位反馈 → 故障报警（fail-closed）
+                    bDoorCloseCmd := FALSE;
+                    bAlarm := TRUE;
+                    eState := 4;  // FAULT
                 END_IF;
             END_IF;
 

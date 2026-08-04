@@ -87,6 +87,8 @@ BEGIN
         bFault := FALSE;
         bFlowTrip := FALSE; bPressureTrip := FALSE;
         bTempTrip := FALSE; bFreezeTrip := FALSE;
+        bFlowAlarm := FALSE; bPressureAlarm := FALSE;
+        bAntiFreezeAlarm := FALSE;
     END_IF;
 
     IF bFault THEN RETURN; END_IF;
@@ -114,6 +116,7 @@ BEGIN
         END_IF;
     ELSE
         tFlowDelay(IN := FALSE);
+        bFlowAlarm := FALSE;
     END_IF;
 
     // 压力保护
@@ -125,6 +128,7 @@ BEGIN
         END_IF;
     ELSE
         tPressureDelay(IN := FALSE);
+        bPressureAlarm := FALSE;
     END_IF;
 
     // 防冻保护
@@ -136,11 +140,13 @@ BEGIN
         END_IF;
     ELSE
         tAntiFreezeDelay(IN := FALSE);
+        bAntiFreezeAlarm := FALSE;
     END_IF;
 
     // 流量/压力/防冻跳闸时故障停机
     IF bFlowTrip OR bPressureTrip OR bFreezeTrip THEN
         bFault := TRUE;
+        bPumpRun := FALSE;
         bFanRun1 := FALSE; bFanRun2 := FALSE;
         bFanRun3 := FALSE; bFanRun4 := FALSE;
         rVFDSpeed := 0.0;
@@ -150,7 +156,7 @@ BEGIN
     // ── 循环泵控制 ──
     // 冷机联锁：冷机运行时必须开泵
     bChillerInterlock := bChillerRun;
-    IF bEnable OR bChillerInterlock THEN
+    IF (bEnable OR bChillerInterlock) AND NOT bStop THEN
         bPumpRun := TRUE;
     ELSE
         bPumpRun := FALSE;

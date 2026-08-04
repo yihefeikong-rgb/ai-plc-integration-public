@@ -122,7 +122,10 @@ def _split_large_paragraph(text: str, chunk_size: int, overlap: int) -> List[dic
 
     if len(sentences) <= 1:
         # 没有可用的句子边界，按字符切割
-        return [{"text": text[i:i + chunk_size]} for i in range(0, len(text), chunk_size - overlap)]
+        # 防御 overlap >= chunk_size：步长须至少为 1，否则零步长抛 ValueError，
+        # 负步长会静默返回空块列表（丢失文档内容，fail-closed 优先）。
+        step = max(chunk_size - overlap, 1)
+        return [{"text": text[i:i + chunk_size]} for i in range(0, len(text), step)]
 
     chunks = []
     current = []

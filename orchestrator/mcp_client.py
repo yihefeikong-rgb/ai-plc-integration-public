@@ -49,8 +49,10 @@ _ERROR_STATUSES = {
     "forbidden", "cancelled", "canceled",
 }
 # 错误标记只在文本开头生效：诊断类文本中间可能出现"错误码: 0"等字样，
-# 不能据此把成功结果误判为失败。失败信号必须是工具显式给出的前缀。
-_TEXT_ERROR_PREFIXES = ("!", "❌", "🚫", "失败", "错误", "被拒绝", "未连接", "不存在", "未配置", "无效")
+# 不能据此把成功结果误判为失败。失败信号必须是工具显式给出的前缀——
+# 只有符号标记才算显式前缀；"错误"/"失败" 等字样同样可能出现在正常诊断
+# 的开头（如"错误码: 0，无错误"），按 startswith 判定会误伤。
+_TEXT_ERROR_PREFIXES = ("!", "❌", "🚫")
 _TEXT_SUCCESS_MARKERS = ("✅", "成功", "已连接", "已断开", "📍")
 
 
@@ -181,47 +183,57 @@ class McpClientAdapter:
         Returns:
             统一的 ToolResult。业务错误、超时、取消和无法判定的文本均为 ok=False。
         """
-        self._ensure_connected()
-
         call_arguments = dict(arguments) if arguments is not None else {}
 
-        _logger.debug("调用工具 %s.%s", self._server.name, tool_name)
+        # 与 connect/disconnect 共用生命周期锁：串行化同一适配器的并发调用，
+        # 并防止调用进行中并发 disconnect/disconnect_all 把 _session 置 None、
+        # 关闭流的竞态导致误导性的 transport 失败。
+        async with self._lifecycle_guard():
+            self._ensure_connected()
 
-        if self._credential_envs():
-            credential_argument = self._credential_argument()
-            if credential_argument in call_arguments:
-                return ToolResult.failure(
-                    "credential_override",
-                    f"调用方不得提供服务器凭据参数: {credential_argument}",
-                )
+            _logger.debug("调用工具 %s.%s", self._server.name, tool_name)
 
-            credential = self._credential
-            if credential is None:
-                return ToolResult.failure(
-                    "credential_missing",
-                    f"MCP 服务器 {self._server.name} 缺少调用凭据",
-                )
-
-            call_arguments[credential_argument] = credential
-
-        try:
-            result: CallToolResult = await self._session.call_tool(
-                name=tool_name,
-                arguments=call_arguments,
-            )
-        except asyncio.CancelledError:
-            return ToolResult.failure("cancelled", "MCP 工具调用已取消")
-        except asyncio.TimeoutError:
-            return ToolResult.failure("timeout", "MCP 工具调用超时")
-        except Exception as exc:
             if self._credential_envs():
+                credential_argument = self._credential_argument()
+                if credential_argument in call_arguments:
+                    return ToolResult.failure(
+                        "credential_override",
+                        f"调用方不得提供服务器凭据参数: {credential_argument}",
+                    )
+
+                credential = self._credential
+                if credential is None:
+                    return ToolResult.failure(
+                        "credential_missing",
+                        f"MCP 服务器 {self._server.name} 缺少调用凭据",
+                    )
+
+                call_arguments[credential_argument] = credential
+
+            try:
+                result: CallToolResult = await self._session.call_tool(
+                    name=tool_name,
+                    arguments=call_arguments,
+                )
+            except asyncio.CancelledError:
+                return ToolResult.failure("cancelled", "MCP 工具调用已取消")
+            except asyncio.TimeoutError:
+                return ToolResult.failure("timeout", "MCP 工具调用超时")
+            except Exception as exc:
+                # 会话异常文本可能内嵌工具请求载荷（标签地址/写入值/块名），
+                # 一律脱敏只返回类型名，完整细节不得进入结果文本与日志。
+                _logger.debug(
+                    "MCP 工具调用异常 %s.%s: %s",
+                    self._server.name,
+                    tool_name,
+                    type(exc).__name__,
+                )
                 return ToolResult.failure(
                     "transport_error",
-                    f"MCP 工具调用异常: session {type(exc).__name__}",
+                    f"MCP 工具调用异常: {type(exc).__name__}",
                 )
-            return ToolResult.failure("transport_error", f"MCP 工具调用异常: {type(exc).__name__}: {exc}")
 
-        return self._extract_result(result)
+            return self._extract_result(result)
 
     def _credential_envs(self) -> tuple[str, ...]:
         return getattr(self._server, "credential_envs", ())
@@ -312,6 +324,14 @@ class McpClientAdapter:
                 f"MCP 服务器 {self._server.name} 未连接，请先调用 connect()"
             )
 
+    def _lifecycle_guard(self) -> asyncio.Lock:
+        """返回生命周期锁；经 __new__ 直接构造的适配器（单元测试）惰性补建。"""
+        lock = getattr(self, "_lifecycle_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._lifecycle_lock = lock
+        return lock
+
     async def disconnect(self) -> None:
         """断开连接并终止子进程。"""
         async with self._lifecycle_lock:
@@ -367,15 +387,27 @@ class McpClientAdapter:
             _logger.info(f"MCP 服务器 {self._server.name} 已断开")
 
     async def _cleanup_on_error(self) -> None:
-        """连接失败时清理资源"""
+        """连接失败时清理资源。
+
+        清理本身不得静默吞掉异常：普通清理错误要留下日志；CancelledError
+        不能被吞——bootstrap 以 asyncio.wait_for 超时取消连接时，若取消落在
+        清理阶段的 await 处，吞掉会使 stdio/session 拆除中途停止、遗留的
+        MCP 子进程完全不可见。与 _disconnect_impl 一致：先尽力完成拆除，
+        再重新抛出取消。
+        """
         self._credential = None
+
+        cancellation = None
 
         # 尝试关闭 session
         if self._session_context:
             try:
                 await self._session_context.__aexit__(None, None, None)
-            except BaseException:
-                pass
+            except asyncio.CancelledError as exc:
+                cancellation = exc
+            except Exception as e:
+                detail = type(e).__name__ if self._credential_envs() else str(e)
+                _logger.warning(f"清理 {self._server.name} session 时出错: {detail}")
             finally:
                 self._session_context = None
 
@@ -383,8 +415,12 @@ class McpClientAdapter:
         if self._stdio_context:
             try:
                 await self._stdio_context.__aexit__(None, None, None)
-            except BaseException:
-                pass
+            except asyncio.CancelledError as exc:
+                if cancellation is None:
+                    cancellation = exc
+            except Exception as e:
+                detail = type(e).__name__ if self._credential_envs() else str(e)
+                _logger.warning(f"清理 {self._server.name} stdio 时出错: {detail}")
             finally:
                 self._stdio_context = None
 
@@ -392,3 +428,6 @@ class McpClientAdapter:
         self._read_stream = None
         self._write_stream = None
         self._connected = False
+
+        if cancellation is not None:
+            raise cancellation

@@ -80,6 +80,13 @@ BEGIN
     // ── 故障复位 ──
     IF bFault AND bReset AND bEmergencyStop THEN
         bFault := FALSE;
+        // 干转报警仅在干转条件已消除后允许复位，避免复位后报警永久误锁存
+        IF NOT ((bRunFeedback1 AND rCurrentPump1 < rDryRunCurrent) OR
+                (bRunFeedback2 AND rCurrentPump2 < rDryRunCurrent) OR
+                (bRunFeedback3 AND rCurrentPump3 < rDryRunCurrent) OR
+                (bRunFeedback4 AND rCurrentPump4 < rDryRunCurrent)) THEN
+            bDryRunAlarm := FALSE;
+        END_IF;
     END_IF;
 
     IF bFault THEN RETURN; END_IF;
@@ -157,9 +164,18 @@ BEGIN
         IF iActiveCount >= 1 THEN
             tStagger(IN := TRUE, PT := T#2S);
             IF tStagger.Q THEN
-                bRunCmd1 := iPumpIndex = 1 OR (iActiveCount >= 2 AND iPumpIndex <= 2)
-                            OR (iActiveCount >= 3 AND iPumpIndex <= 3)
-                            OR (iActiveCount >= 4);
+                // 错时结束：从主导泵开始按编号循环启动 iActiveCount 台泵
+                // 泵在轮换序列中的位置 = 泵号 - iLeadPump（<0 时加 iNumPumps 取环）
+                bRunCmd1 := (iLeadPump = 1) OR
+                            (iNumPumps - iLeadPump + 1 < iActiveCount);
+                bRunCmd2 := (iNumPumps >= 2) AND
+                            ((iLeadPump <= 2 AND 2 - iLeadPump < iActiveCount) OR
+                             (iNumPumps - iLeadPump + 2 < iActiveCount));
+                bRunCmd3 := (iNumPumps >= 3) AND
+                            ((iLeadPump <= 3 AND 3 - iLeadPump < iActiveCount) OR
+                             (iNumPumps - iLeadPump + 3 < iActiveCount));
+                bRunCmd4 := (iNumPumps >= 4) AND
+                            (4 - iLeadPump < iActiveCount);
             ELSE
                 // 启动主导泵（无延时）
                 CASE iLeadPump OF

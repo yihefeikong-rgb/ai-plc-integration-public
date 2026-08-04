@@ -6,7 +6,8 @@ server.py MCP 工具单元测试 — mock TiaWorker.exe 子进程
   download_to_plcsim, generate_scl_code, generate_and_import,
   create_ladder_block, full_pipeline
 
-注意：使用 autouse fixture 保存/恢复 sys.modules 以避免污染其他测试。
+注意：server fixture 为模块级（server.py 仅导入一次），
+并用 autouse fixture 在每个测试前恢复被改动的 mock 状态，避免测试间污染。
 """
 import json
 import os
@@ -49,9 +50,9 @@ def _patch_worker(server_module, response: dict, returncode: int = 0):
 # ── Fixtures ────────────────────────────────────────────────
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def server():
-    """返回 mock 好的 server 模块"""
+    """返回 mock 好的 server 模块（模块级：server.py 只导入一次）"""
     # 保存将被修改的模块
     _saved = {}
     _keys_to_mock = [
@@ -144,6 +145,8 @@ def server():
     # 绝大多数工具测试只覆盖工具契约；认证门由 TestAuth 单独恢复真实实现验证。
     tia_server._real_require_auth_for_test = tia_server._require_auth
     tia_server._require_auth = MagicMock()
+    # 记录基线认证令牌，供函数级 reset fixture 在测试间恢复
+    tia_server._auth_baseline_for_tests = tia_server._AUTH_TOKEN
 
     yield tia_server
 
@@ -157,6 +160,39 @@ def server():
     for mod_name in list(sys.modules.keys()):
         if mod_name == "server" or mod_name.startswith("server."):
             del sys.modules[mod_name]
+
+
+@pytest.fixture(autouse=True)
+def _reset_mock_state(server):
+    """每个测试前恢复被上个测试改动的 mock 状态。
+
+    模块级 server fixture 只导入一次 server.py；测试间对 _AUTH_TOKEN、
+    _require_auth 以及各 mock 返回值/调用历史的改动必须逐测试复位，
+    否则状态会跨测试泄漏（原函数级 fixture 依赖重导入获得同等隔离）。
+    """
+    server._AUTH_TOKEN = server._auth_baseline_for_tests
+    server._require_auth = MagicMock()
+
+    _cpt = sys.modules["create_plc_tags"]
+    _cpt.create_tags.reset_mock()
+    _cpt.create_tags.return_value = {
+        "status": "ok", "created": 2, "skipped": 0, "errors": [],
+    }
+
+    _dl = sys.modules["download_to_plcsim"]
+    for _name in ("_try_download_via_python", "_try_download_via_tiaworker",
+                  "_try_download_via_tiaworker_gui", "download_via_ui"):
+        getattr(_dl, _name).reset_mock()
+    _dl._try_download_via_python.return_value = 0
+    _dl._try_download_via_tiaworker.return_value = 0
+    _dl._try_download_via_tiaworker_gui.return_value = -1
+    _dl.download_via_ui.return_value = 0
+
+    _validator = sys.modules["safety.validator"].validator
+    _validator.validate.reset_mock()
+    _validator.validate.return_value = MagicMock(allowed=True, reason="")
+
+    yield
 
 
 # ═══════════════════════════════════════════════════════════════

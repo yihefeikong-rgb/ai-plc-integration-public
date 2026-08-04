@@ -12,6 +12,7 @@ class ProjectStore:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
+        self._lock = threading.Lock()
         self._init_lock = threading.Lock()
 
     def initialize(self):
@@ -53,11 +54,12 @@ class ProjectStore:
                tia_version: str = "V18", language: str = "SCL", description: str = "") -> dict:
         now = time.time()
         pid = str(uuid.uuid4())
-        self.conn.execute(
-            "INSERT INTO projects (id,name,path,plc_type,tia_version,language,description,created_at,updated_at,last_opened_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (pid, name, path, plc_type, tia_version, language, description, now, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO projects (id,name,path,plc_type,tia_version,language,description,created_at,updated_at,last_opened_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (pid, name, path, plc_type, tia_version, language, description, now, now, now),
+            )
+            self.conn.commit()
         return self.get(pid)
 
     def list_all(self, limit: int = 50) -> list[dict]:
@@ -82,19 +84,22 @@ class ProjectStore:
         updates["updated_at"] = time.time()
         sets = ", ".join(f"{k}=?" for k in updates)
         vals = list(updates.values()) + [pid]
-        self.conn.execute(f"UPDATE projects SET {sets} WHERE id=?", vals)
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(f"UPDATE projects SET {sets} WHERE id=?", vals)
+            self.conn.commit()
         return self.get(pid)
 
     def touch(self, pid: str) -> bool:
         """更新 last_opened_at"""
-        cur = self.conn.execute("UPDATE projects SET last_opened_at=? WHERE id=?", (time.time(), pid))
-        self.conn.commit()
+        with self._lock:
+            cur = self.conn.execute("UPDATE projects SET last_opened_at=? WHERE id=?", (time.time(), pid))
+            self.conn.commit()
         return cur.rowcount > 0
 
     def delete(self, pid: str) -> bool:
-        cur = self.conn.execute("DELETE FROM projects WHERE id=?", (pid,))
-        self.conn.commit()
+        with self._lock:
+            cur = self.conn.execute("DELETE FROM projects WHERE id=?", (pid,))
+            self.conn.commit()
         return cur.rowcount > 0
 
     def _row_to_dict(self, row) -> dict:

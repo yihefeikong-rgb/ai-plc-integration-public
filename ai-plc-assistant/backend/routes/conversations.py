@@ -1,5 +1,6 @@
 """对话历史 API 路由"""
 
+import sqlite3
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -83,10 +84,15 @@ async def delete_conversation(conv_id: str, _actor: str = Depends(require_local_
 async def add_message(conv_id: str, data: AddMessage, _actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
-    conv = store.get_conversation(conv_id)
-    if not conv:
+    try:
+        msg = store.add_message(conv_id, data.role, data.content, data.msg_type, data.metadata)
+    except sqlite3.IntegrityError:
+        # 对话不存在，或并发 DELETE 与 INSERT 竞争导致外键约束失败：
+        # 一律按 404 处理（fail-closed），并在 store 锁内回滚失败语句遗留的
+        # 中止事务，避免污染同一连接上的后续写入。
+        with store._lock:
+            store.conn.rollback()
         raise HTTPException(status_code=404, detail="对话不存在")
-    msg = store.add_message(conv_id, data.role, data.content, data.msg_type, data.metadata)
     return {"message": msg}
 
 

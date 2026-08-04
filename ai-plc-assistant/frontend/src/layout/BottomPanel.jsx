@@ -45,21 +45,24 @@ const EMPTY_TEXT = {
 export default function BottomPanel({ logs, collapsed, setCollapsed, activeTab, setActiveTab }) {
   const endRef = useRef(null)
 
-  // 按 activeTab 过滤日志
-  const filteredLogs = useMemo(() => {
-    const filter = TAB_FILTERS[activeTab] || (() => false)
-    return logs.filter(filter)
-  }, [logs, activeTab])
-
-  // 各 Tab 计数（用于标签后 badge）
-  const tabCounts = useMemo(() => {
-    const counts = {}
+  // 各 Tab 计数与 activeTab 过滤结果：单次遍历日志数组一次完成，
+  // 避免为每个 Tab 反复生成中间过滤数组、避免对整份日志重复过滤（O(n) 而非 O(7n)）
+  const { filteredLogs, tabCounts } = useMemo(() => {
+    const counts = { log: logs.length }
     TABS.forEach((tab) => {
-      const filter = TAB_FILTERS[tab.id]
-      counts[tab.id] = tab.id === 'log' ? logs.length : logs.filter(filter).length
+      if (tab.id !== 'log') counts[tab.id] = 0
     })
-    return counts
-  }, [logs])
+    const filtered = []
+    logs.forEach((log) => {
+      TABS.forEach((tab) => {
+        if (tab.id !== 'log' && TAB_FILTERS[tab.id](log)) {
+          counts[tab.id] += 1
+          if (tab.id === activeTab) filtered.push(log)
+        }
+      })
+    })
+    return { filteredLogs: activeTab === 'log' ? logs : filtered, tabCounts: counts }
+  }, [logs, activeTab])
 
   useEffect(() => {
     if (!collapsed) {

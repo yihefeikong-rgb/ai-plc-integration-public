@@ -65,6 +65,33 @@ def _port_open(port: int) -> bool:
         sock.close()
 
 
+def _probe_ports(ports: list[int]) -> dict[int, bool]:
+    """对给定端口各做一次连接探测，返回端口到是否打开的映射。"""
+    return {port: _port_open(port) for port in ports}
+
+
+def _ports_check(port_status: dict[int, bool]) -> preflight.CheckResult:
+    """基于单次端口探测结果构造端口检查，语义与 preflight.check_ports() 一致。
+
+    只评估 8000-8005；5173 仅用于报告 ports 节呈现，不参与端口占用检查。
+    """
+    r = preflight.CheckResult("端口 8000-8005")
+    occupied = [str(port) for port in range(8000, 8006) if port_status.get(port)]
+    if not occupied:
+        r.passed = True
+        r.detail = "全部空闲"
+        return r
+    r.detail = f"占用: {', '.join(occupied)} (共 {len(occupied)})"
+    if any(p in occupied for p in ("8000", "8001")):
+        r.suggestion = (
+            "端口 8000/8001 已被占用。停止占用进程: "
+            f"netstat -ano | findstr :{','.join(occupied)}"
+        )
+    else:
+        r.passed = True
+    return r
+
+
 def _check_dependencies() -> dict[str, bool]:
     imports = {
         "fastapi": "fastapi",
@@ -102,13 +129,16 @@ def build_report() -> dict[str, Any]:
             "suggestion": "恢复 config.yaml 的已批准 V21 / factoryio / 192.168.0.1 隔离目标",
         }
 
+    # 单次端口探测，同一份结果同时供端口占用检查与报告 ports 节使用，避免重复建 socket。
+    port_status = _probe_ports([8000, 8001, 8002, 8003, 8004, 8005, 5173])
+
     checks = [
         preflight.check_tia_portal(),
         preflight.check_plcsim_api(),
         preflight.check_deepseek_api_key(),
         preflight.check_python_dependencies(),
         preflight.check_factory_io(),
-        preflight.check_ports(),
+        _ports_check(port_status),
     ]
 
     blockers = [
@@ -150,9 +180,9 @@ def build_report() -> dict[str, Any]:
             "scene_path": _expand(factory_io.get("scene_path", ""), env),
         },
         "ports": {
-            "orchestrator_8000": _port_open(8000),
-            "backend_8005": _port_open(8005),
-            "frontend_5173": _port_open(5173),
+            "orchestrator_8000": port_status[8000],
+            "backend_8005": port_status[8005],
+            "frontend_5173": port_status[5173],
         },
         "dependencies": _check_dependencies(),
         "blockers": blockers,

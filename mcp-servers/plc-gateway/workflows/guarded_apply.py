@@ -27,12 +27,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from plc_gateway.providers.base import ProviderResult, TiaProvider, ErrorInfo
+
+_logger = logging.getLogger(__name__)
 
 # 受保护的测试块名称
 _PROTECTED_BLOCKS = frozenset(["OB1", "OB100", "OB121", "OB122"])
@@ -71,12 +74,14 @@ class BlockSnapshot:
             "snapshot_id": self.snapshot_id,
             "block_name": self.block_name,
             "block_hash": self.block_hash[:16] + "...",
+            "block_hash_full": self.block_hash,
             "networks_count": len(self.networks),
             "networks": [
                 {
                     "index": n.index,
                     "title": n.title,
                     "content_hash": n.content_hash[:16] + "...",
+                    "content_hash_full": n.content_hash,
                 }
                 for n in self.networks
             ],
@@ -144,8 +149,8 @@ def _extract_networks(xml_str: str) -> list[dict]:
                 "xml": net_xml,
                 "hash": _hash_content(net_xml),
             })
-    except ET.ParseError:
-        pass
+    except ET.ParseError as e:
+        _logger.error("解析块 XML 失败（返回空网络列表）: %s", e)
     return networks
 
 
@@ -153,14 +158,19 @@ def validate_guarded_apply(patch: dict, provider_name: str) -> list[str]:
     """验证受控 Apply 的前置条件
 
     检查：
+    - Patch 必须是 JSON 对象
     - 操作类型是否在允许列表中
+    - network_index 是否存在且为非负整数（bool 视为非法）
     - 目标块是否受保护（禁止修改 OB1 等）
     - Provider 是否为 TiaCommander（禁止 fallback）
     """
     errors = []
 
+    if not isinstance(patch, dict):
+        return ["Patch 必须是 JSON 对象"]
+
     block = patch.get("block", "")
-    if not block:
+    if not isinstance(block, str) or not block:
         errors.append("缺少必填字段: block")
         return errors
 
@@ -174,14 +184,28 @@ def validate_guarded_apply(patch: dict, provider_name: str) -> list[str]:
 
     # 检查操作
     operations = patch.get("operations", [])
+    if not isinstance(operations, list):
+        errors.append("operations 必须是数组")
+        return errors
     if not operations:
         errors.append("没有指定任何操作")
 
     for i, op in enumerate(operations):
+        if not isinstance(op, dict):
+            errors.append(f"operations[{i}]: 必须是 JSON 对象")
+            continue
+
         op_type = op.get("operation", "")
         if op_type not in _ALLOWED_OPERATIONS:
             errors.append(f"operations[{i}]: 不允许的操作 '{op_type}'，"
                          f"仅允许: {', '.join(sorted(_ALLOWED_OPERATIONS))}")
+
+        # network_index 必须存在且为非负整数（bool 是 int 的子类，视为非法）
+        net_idx = op.get("network_index")
+        if net_idx is None:
+            errors.append(f"operations[{i}]: 缺少必填字段 network_index")
+        elif isinstance(net_idx, bool) or not isinstance(net_idx, int) or net_idx < 0:
+            errors.append(f"operations[{i}]: network_index 必须是非负整数")
 
     return errors
 
@@ -247,7 +271,7 @@ async def guarded_apply_preview(
     )
 
     # 步骤 4: 生成 Preview
-    from workflows.network_patch import _generate_ascii_diff, BlockPatch
+    from plc_gateway.workflows.network_patch import _generate_ascii_diff, BlockPatch
 
     bp = BlockPatch.from_dict(patch)
     diff = _generate_ascii_diff(bp, [
@@ -285,6 +309,7 @@ async def guarded_apply_execute(
     patch: dict,
     confirmed: bool = False,
     compile_after: bool = True,
+    snapshot: BlockSnapshot | None = None,
 ) -> dict:
     """执行受控 Apply（步骤 5-11）
 
@@ -294,6 +319,7 @@ async def guarded_apply_execute(
         patch: 结构化 Patch
         confirmed: 是否已确认
         compile_after: 是否在修改后编译
+        snapshot: guarded_apply_preview 生成的块快照（必填，用于 TOCTOU 防护）
 
     Returns:
         执行结果
@@ -306,7 +332,23 @@ async def guarded_apply_execute(
             errors=["需要人工确认后才能执行"],
         ).to_dict()
 
+    # 前置验证：执行阶段必须重新校验受保护块与允许操作白名单
+    validation_errors = validate_guarded_apply(patch, provider.name)
+    if validation_errors:
+        return GuardedApplyResult(
+            success=False, operation="guarded_apply.execute",
+            block_name=block_name,
+            errors=[f"前置验证失败: {'; '.join(validation_errors)}"],
+        ).to_dict()
+
     # 步骤 6: 获取修改前 XML（快照已由 preview 生成）
+    if snapshot is None:
+        return GuardedApplyResult(
+            success=False, operation="guarded_apply.execute",
+            block_name=block_name,
+            errors=["缺少 preview 生成的快照，受控 Apply 必须先预览再执行"],
+        ).to_dict()
+
     xml_result = provider.get_block_xml(block_name)
     if not xml_result.ok:
         return xml_result.to_dict()
@@ -321,8 +363,47 @@ async def guarded_apply_execute(
             errors=["无法获取修改前 XML"],
         ).to_dict()
 
-    pre_modification_xml = xml_str
-    networks_before = _extract_networks(pre_modification_xml)
+    # TOCTOU 防护：当前块哈希必须与 preview 快照一致，否则拒绝执行
+    current_block_hash = _hash_content(xml_str)
+    if snapshot.block_hash != current_block_hash:
+        return GuardedApplyResult(
+            success=False, operation="guarded_apply.execute",
+            block_name=block_name,
+            errors=[
+                f"块内容已在预览后改变（快照哈希 {snapshot.block_hash[:16]}...，"
+                f"当前 {current_block_hash[:16]}...），拒绝执行",
+            ],
+            reconcile_required=True,
+        ).to_dict()
+
+    # 复用 preview 快照的解析结果，避免重复全树解析与逐网络哈希
+    networks_before = [
+        {
+            "index": n.index,
+            "title": n.title,
+            "comment": n.comment,
+            "hash": n.content_hash,
+        }
+        for n in snapshot.networks
+    ]
+
+    # 校验每个操作的 expected_network_hash（如提供）与当前网络实际哈希一致
+    for i, op in enumerate(patch.get("operations", [])):
+        net_idx = op.get("network_index", 0)
+        expected = op.get("expected_network_hash", "")
+        if not expected:
+            continue
+        before = networks_before[net_idx] if net_idx < len(networks_before) else {}
+        if before.get("hash", "") != expected:
+            return GuardedApplyResult(
+                success=False, operation="guarded_apply.execute",
+                block_name=block_name,
+                errors=[
+                    f"operations[{i}] network_index {net_idx} 的 expected_network_hash "
+                    f"与实际内容哈希不一致，拒绝执行",
+                ],
+                reconcile_required=True,
+            ).to_dict()
 
     # 步骤 7: 调用 TiaCommander apply_patch
     try:
@@ -411,6 +492,18 @@ async def guarded_apply_execute(
             compile_result = compile_result.to_dict() if hasattr(compile_result, 'to_dict') else compile_result
         except Exception as e:
             compile_result = {"ok": False, "error": str(e)}
+
+    # 编译失败视为整体失败（fail-closed），不得以 success=True 返回
+    if compile_result is not None and not compile_result.get("ok"):
+        compile_err = compile_result.get("error", "")
+        return GuardedApplyResult(
+            success=False, operation="guarded_apply.execute",
+            block_name=block_name,
+            errors=[f"编译验证失败: {compile_err}" if compile_err else "编译验证失败"],
+            network_matches=network_matches,
+            compile_result=compile_result,
+            reconcile_required=True,
+        ).to_dict()
 
     return GuardedApplyResult(
         success=True,

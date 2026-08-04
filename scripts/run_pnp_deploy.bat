@@ -8,6 +8,9 @@ REM
 REM  Usage (run AS ADMINISTRATOR):
 REM    scripts\run_pnp_deploy.bat
 REM    scripts\run_pnp_deploy.bat --skip-tia
+REM
+REM  Each high-risk dynamic step (create tags / full deploy) requires
+REM  an explicit y/N human confirmation gate (fail-closed).
 REM ============================================================
 
 cd /d "%~dp0.."
@@ -51,6 +54,14 @@ if "%1"=="--skip-tia" set SKIP_TIA=1
 if %SKIP_TIA% equ 0 (
     echo [1/2] Creating PLC I/O tag table (PickAndPlace_IO)...
     echo.
+    call :ask_confirm "Create PLC I/O tag table PickAndPlace_IO and write to TIA project"
+    if errorlevel 1 (
+        echo.
+        echo [ABORT] Not confirmed - tag creation cancelled.
+        pause
+        exit /b 1
+    )
+    echo.
     %PYTHON% %CREATE_TAGS% --tags %TAGS_JSON%
     if errorlevel 1 (
         echo.
@@ -78,6 +89,14 @@ if %SKIP_TIA% equ 0 (
 )
 echo.
 
+call :ask_confirm "Run full deploy: SCL import, compile, download to PLCSIM, start Factory I/O, start Robot MCP"
+if errorlevel 1 (
+    echo.
+    echo [ABORT] Not confirmed - deploy cancelled.
+    pause
+    exit /b 1
+)
+echo.
 %PYTHON% %DEPLOY_PNP% %1
 if errorlevel 1 (
     echo.
@@ -96,6 +115,24 @@ echo    home()       -- reset to safe position
 echo    pick()       -- pick from entry
 echo    place()      -- place to exit
 echo    run_cycle(5) -- auto repeat 5 cycles
+echo.
+echo  [WARNING] pick()/place()/run_cycle() are high-risk robot control actions:
+echo           they require one-time human confirmation tokens on real
+echo           backends (OPC UA/snap7) and stay fail-closed while the
+echo           estop circuit is unhealthy or estop recovery has not been
+echo           re-confirmed by a human on site.
 echo ============================================
 echo.
 pause
+exit /b 0
+
+REM ============================================================
+REM  Human confirmation gate (fail-closed): only y/Y confirms.
+REM ============================================================
+:ask_confirm
+REM  Usage: call :ask_confirm "description"  ->  errorlevel 0=confirmed, 1=cancelled
+set _confirm=
+set /p _confirm=   [CONFIRM] %~1 [y/N]:
+if /i "%_confirm%"=="y" exit /b 0
+echo   [CANCEL] Not confirmed (answer must be y) - cancelling.
+exit /b 1

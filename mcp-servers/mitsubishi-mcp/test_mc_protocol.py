@@ -98,7 +98,7 @@ class TestParseDevice:
 
     def test_unknown_device_raises(self):
         with pytest.raises(MCFrameError, match="不支持的设备类型"):
-            _parse_device("Z100")
+            _parse_device("Q100")
 
     def test_no_number_raises(self):
         with pytest.raises(MCFrameError):
@@ -239,10 +239,9 @@ class TestBuildWriteRequest:
         frame = build_write_request("M100", 0)
         assert frame[21] == 0x00
 
-    def test_write_large_value_truncated(self):
-        frame = build_write_request("D100", 0x1FFFF)
-        value = struct.unpack("<H", frame[21:23])[0]
-        assert value == 0xFFFF
+    def test_write_large_value_raises(self):
+        with pytest.raises(MCFrameError, match="字写入值超出 16 位范围"):
+            build_write_request("D100", 0x1FFFF)
 
     def test_write_word_frame_length(self):
         # Header(9) + Timer(2) + Cmd(2) + SubCmd(2) + HeadDev(3) + DevCode(1) + Points(2) + Value(2) = 23

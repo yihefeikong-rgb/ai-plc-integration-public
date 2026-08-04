@@ -198,11 +198,12 @@ def insert_fb_calls(fb_names: list):
                     es.Delete()
                     print(f'   🗑 已删除旧外部源: {n}')
 
-        for old_name in ['MasterIO', 'MasterIO_DB', 'Main']:
-            for block in list(plc_sw.BlockGroup.Blocks):
-                if str(block.Name) == old_name:
-                    block.Delete()
-                    print(f'   🗑 已删除旧块: {old_name}')
+        # 单次物化 + 名称集合判断，避免对 BlockGroup.Blocks 做 3 次完整 list() 遍历
+        old_names = {'MasterIO', 'MasterIO_DB', 'Main'}
+        for block in list(plc_sw.BlockGroup.Blocks):
+            if str(block.Name) in old_names:
+                block.Delete()
+                print(f'   🗑 已删除旧块: {block.Name}')
 
         # ── 导入合并 SCL ──
         if ext_group is not None:
@@ -223,8 +224,14 @@ def insert_fb_calls(fb_names: list):
         # ── 编译 ──
         compiler = plc_sw.GetService[ICompilable]()
         cr = compiler.Compile()
-        status = '✅ 成功' if cr.State.ToString() == 'Success' else f'⚠ State={cr.State}'
+        compile_ok = cr.State.ToString() == 'Success' and cr.ErrorCount == 0
+        status = '✅ 成功' if compile_ok else f'⚠ State={cr.State}'
         print(f'   📦 编译: {status}, Errors={cr.ErrorCount}, Warnings={cr.WarningCount}')
+
+        if not compile_ok:
+            print('❌ 编译失败，OB1 调用链未就绪')
+            print('   注意：旧块已删除且无备份，项目可能处于不一致状态，请按 TIA Portal 编译输出人工处理')
+            return 1
 
         print()
         print('=' * 55)

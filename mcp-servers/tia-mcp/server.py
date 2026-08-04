@@ -7,6 +7,7 @@ TIA MCP Server — 阶段3：西门子工程态
 """
 
 import json
+import os
 import hmac
 import logging
 import re
@@ -37,11 +38,97 @@ from mcp_common.tiaworker_client import TiaWorkerClient
 from safety.validator import validator as safety_validator
 
 
-def _safety_gate(operation: str, block_name: str = "") -> dict | None:
+# 工程态危险操作（写工程 / 下载到设备）集合。_eng.* 标签不命中运行态
+# write_rules，require_bits 互锁不适用；除认证外还必须消费一次性人工
+# 确认令牌（fail-closed），不得静默放行。
+_CONFIRMATION_REQUIRED_OPS = frozenset({
+    "download_to_plcsim",
+    "import_scl_file",
+    "compile_project",
+    "full_pipeline",
+})
+
+
+def _consume_confirmation_token(
+    operation: str,
+    confirmation_token: str,
+    auth_token: str,
+    block_name: str,
+) -> dict | None:
+    """消费一次性人工确认令牌；失败返回阻断结果，成功返回 None（fail-closed）。
+
+    令牌绑定约定（与 ai-plc-assistant/backend 签发端 issue_confirmation 对齐）:
+      - operator : authenticated_actor(auth_token, "tia")，由共享认证密钥派生
+      - target   : f"_eng.{operation}"
+      - value    : "confirm"
+      - device_id: f"tia:{plcsim_instance}:{plc_ip}"，由唯一控制目标派生
+    确认服务未配置 / 令牌缺失 / 绑定不匹配一律拒绝，绝不降级为跳过。
+    """
+    try:
+        from safety.confirmation import ConfirmationService
+        from mcp_common.audit import authenticated_actor
+    except Exception as exc:
+        audit_log(operation, user_input=block_name, block_name=block_name,
+                  success=False, detail=f"人工确认模块不可用: {exc}")
+        return _make_result(ok=False, operation=operation,
+                            error=f"人工确认机制不可用，拒绝工程态操作: {operation}")
+
+    if not isinstance(confirmation_token, str) or not confirmation_token.strip():
+        audit_log(operation, user_input=block_name, block_name=block_name,
+                  success=False, detail="危险工程操作缺少一次性人工确认令牌")
+        return _make_result(ok=False, operation=operation,
+                            error=f"危险工程操作需要一次性人工确认令牌 confirmation_token: {operation}")
+
+    operator = authenticated_actor(auth_token, "tia")
+    if not operator:
+        audit_log(operation, user_input=block_name, block_name=block_name,
+                  success=False, detail="无法从认证令牌派生操作者身份")
+        return _make_result(ok=False, operation=operation,
+                            error="无法从认证令牌派生操作者身份，拒绝工程态操作")
+
+    try:
+        target = _control_target()
+        device_id = f"tia:{target.plcsim_instance}:{target.plc_ip}"
+    except Exception as exc:
+        audit_log(operation, user_input=block_name, block_name=block_name,
+                  success=False, detail=f"控制目标无效，无法派生设备身份: {exc}")
+        return _make_result(ok=False, operation=operation,
+                            error=f"控制目标无效，无法派生设备身份，拒绝工程态操作: {exc}")
+
+    try:
+        ConfirmationService().consume(
+            confirmation_token,
+            operator=operator,
+            target=f"_eng.{operation}",
+            value="confirm",
+            device_id=device_id,
+        )
+    except Exception as exc:
+        # 任何消费失败（含令牌失效/已使用/存储不可写）一律 fail-closed，
+        # 不允许未捕获异常绕过审计链。
+        audit_log(operation, user_input=block_name, block_name=block_name,
+                  success=False, detail=f"人工确认失败: {exc}")
+        return _make_result(ok=False, operation=operation,
+                            error=f"人工确认失败（fail-closed）: {exc}")
+    return None
+
+
+def _safety_gate(
+    operation: str,
+    block_name: str = "",
+    confirmation_token: str = "",
+    auth_token: str = "",
+) -> dict | None:
     """工程态安全闸：通过 validator 检查熔断状态和安全前置条件。
 
     注: 工程态操作（导入代码/下载到PLC）不同于运行态标签写入，
     shadow_sim 数值仿真不适用。安全链通过 validator 熔断机制保护。
+
+    危险工程操作（download_to_plcsim/import_scl_file/compile_project/
+    full_pipeline）默认必须携带一次性人工确认令牌（fail-closed）：
+    未提供令牌时拒绝执行，绝不静默放行。
+    仅当显式设置环境变量 TIA_MCP_ALLOW_UNCONFIRMED_ENGINEERING=1 时
+    才允许未确认的工程操作（有意的 opt-in 降级，供自动化流程使用）。
     """
     result = safety_validator.validate(f"_eng.{operation}", 0)
     if not result.allowed:
@@ -49,6 +136,13 @@ def _safety_gate(operation: str, block_name: str = "") -> dict | None:
                   success=False, detail=f"安全链拒绝: {result.reason}")
         return _make_result(ok=False, operation=operation,
                             error=f"安全链拒绝工程态操作: {result.reason}")
+    is_confirmable = result.needs_confirmation is True or operation in _CONFIRMATION_REQUIRED_OPS
+    if is_confirmable:
+        unconfirmed = os.environ.get("TIA_MCP_ALLOW_UNCONFIRMED_ENGINEERING", "")
+        if unconfirmed.strip().lower() in {"1", "true", "yes", "on"}:
+            return None  # 显式 opt-in 降级：自动化流程经配置允许未确认工程操作
+        return _consume_confirmation_token(operation, confirmation_token, auth_token, block_name)
+    return None
 
 # SVG 渲染器（可选，渲染失败不影响主流程）
 try:
@@ -319,6 +413,70 @@ def list_devices(project_path: str = "", auth_token: str = "") -> dict:
         return {"status": "error", "error": str(e)}
 
 
+# SCL 语义安全校验（与 LAD safety_validate_ladder 对齐的轻量启发式）
+_MOTOR_OUTPUT_KEYWORDS = ("motor", "run", "fwd", "forward", "rev", "reverse", "pump", "conveyor")
+
+
+def _scl_outputs_set_true(line: str, output_names: set) -> bool:
+    """判断语句行中是否有输出被直接赋值为 TRUE 字面量。"""
+    upper = line.upper()
+    for name in output_names:
+        m = re.search(r'\b' + re.escape(name) + r'\s*:=', upper)
+        if not m:
+            continue
+        rest = upper[m.end():].lstrip()
+        if rest.startswith("TRUE"):
+            return True
+    return False
+
+
+def _require_scl_semantic_safety(scl_code: str) -> list:
+    """对 SCL 做电机类输出块的语义安全校验（急停/过载/正反转互锁）。
+
+    与 LAD 路径 safety_validate_ladder 对齐：仅当块声明了电机类输出
+    （名称含 motor/run/fwd/rev/pump/conveyor）时才强制要求急停与过载
+    引用；同时禁止在同一语句中同时把正转和反转输出置 TRUE 字面量。
+
+    Returns:
+        list[str]: 违规列表；为空表示通过。
+    """
+    if not scl_code or not scl_code.strip():
+        return []
+
+    output_section = ""
+    m = re.search(r'\bVAR_OUTPUT\b(.*?)\bEND_VAR\b', scl_code, re.DOTALL | re.IGNORECASE)
+    if m:
+        output_section = m.group(1)
+    output_names = {name.strip() for name in re.findall(r'\b([A-Za-z_]\w*)\s*:', output_section)}
+
+    motor_outputs = {n for n in output_names
+                     if any(k in n.casefold() for k in _MOTOR_OUTPUT_KEYWORDS)}
+    if not motor_outputs:
+        return []
+
+    lowered = scl_code.casefold()
+    warnings = []
+    # 急停/过载引用（命名规则与 safety_validate_ladder 的 _is_estop/_is_overload 对齐）
+    if not any(k in lowered for k in ("estop", "emergency", "stop")):
+        warnings.append("电机类输出块缺少急停互锁引用（变量名须含 stop/emergency）")
+    if not any(k in lowered for k in ("overload", "fault")):
+        warnings.append("电机类输出块缺少过载保护引用（变量名须含 overload/fault）")
+
+    # 正反转互锁：同一语句不得同时将正转与反转输出置 TRUE
+    fwd_outputs = {n for n in motor_outputs
+                   if any(k in n.casefold() for k in ("fwd", "forward"))}
+    rev_outputs = {n for n in motor_outputs
+                   if any(k in n.casefold() for k in ("rev", "reverse"))}
+    if fwd_outputs and rev_outputs:
+        for lineno, line in enumerate(scl_code.splitlines(), 1):
+            if "TRUE" not in line.upper():
+                continue
+            if _scl_outputs_set_true(line, fwd_outputs) and _scl_outputs_set_true(line, rev_outputs):
+                warnings.append(f"第 {lineno} 行同时将正转与反转输出置 TRUE，缺少互锁")
+                break
+    return warnings
+
+
 @mcp.tool()
 def import_scl_file(
     scl_code: str,
@@ -326,6 +484,7 @@ def import_scl_file(
     project_path: str = "",
     tags: str = "",
     replace: bool = False,
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """将 SCL 源代码导入 TIA Portal 项目并生成程序块。
@@ -339,10 +498,12 @@ def import_scl_file(
         tags: 可选，JSON 格式的标签列表，在导入 SCL 前先创建标签。
               格式: '[{"name":"I0_8","dataType":"Bool","address":"%I0.8","comment":"急停"},...]'
         replace: 是否覆盖同名外部源（True 则先删旧同名外部源再导入，避免 "name not unique" 错误）
+        confirmation_token: 一次性人工确认令牌（危险工程操作必填，fail-closed）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
-    gate = _safety_gate("import_scl_file", block_name=block_name)
+    gate = _safety_gate("import_scl_file", block_name=block_name,
+                        confirmation_token=confirmation_token, auth_token=auth_token)
     if gate:
         return gate
     try:
@@ -374,6 +535,15 @@ def import_scl_file(
                     "message": f"SCL 静态校验发现 {len(lint_errors)} 个违规，已阻止导入"}
     except ImportError:
         pass  # scl_lint 模块不可用时跳过校验
+
+    # SCL 语义安全校验（与 LAD 路径 safety_validate_ladder 对齐：
+    # 电机类输出块必须含急停/过载引用与正反转互锁）
+    semantic_warnings = _require_scl_semantic_safety(scl_code)
+    if semantic_warnings:
+        audit_log("import_scl_file", user_input=scl_code[:200], block_name=block_name,
+                  result="semantic_blocked", detail=str(semantic_warnings)[:200])
+        return {"status": "error", "semantic_errors": semantic_warnings,
+                "message": f"SCL 语义安全校验发现 {len(semantic_warnings)} 个违规，已阻止导入"}
 
     # 写入系统临时文件（去除 BOM，确保 UTF-8 无 BOM）。不得使用由调用方
     # 提供的 block_name 拼接路径，且 worker 返回后立即清理。
@@ -429,6 +599,9 @@ def create_plc_tags(
         {"status": "ok", "created": N, "skipped": N, "errors": [...]}
     """
     _require_auth(auth_token)
+    gate = _safety_gate("create_plc_tags", block_name=tag_table_name)
+    if gate:
+        return gate
     try:
         path = _resolve_path(project_path)
     except ValueError as e:
@@ -440,22 +613,38 @@ def create_plc_tags(
         return {"status": "error", "error": f"tags_json 解析失败: {e}"}
 
     from create_plc_tags import create_tags
-    return create_tags(path, tag_list, tag_table_name)
+    result = create_tags(path, tag_list, tag_table_name)
+    success = result.get("status") != "error"
+    audit_log("create_plc_tags", user_input=tags_json[:200], block_name=tag_table_name,
+              result="ok" if success else "error",
+              detail=str(result.get("error", ""))[:200],
+              success=success)
+    return result
 
 
 @mcp.tool()
-def compile_project(project_path: str = "", auth_token: str = "") -> dict:
+def compile_project(project_path: str = "", confirmation_token: str = "", auth_token: str = "") -> dict:
     """编译 TIA Portal 项目。
 
     Args:
         project_path: TIA 项目路径，留空使用默认值
+        confirmation_token: 一次性人工确认令牌（危险工程操作必填，fail-closed）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
+    gate = _safety_gate("compile_project", confirmation_token=confirmation_token, auth_token=auth_token)
+    if gate:
+        return gate
     try:
         path = _resolve_path(project_path)
-        return _run_worker("compile", {"ProjectPath": path})
+        result = _run_worker("compile", {"ProjectPath": path})
+        success = result.get("ok") is True
+        audit_log("compile_project", result="ok" if success else "error",
+                  detail=str(result.get("error", ""))[:200],
+                  success=success)
+        return result
     except ValueError as e:
+        audit_log("compile_project", result="error", detail=str(e)[:200], success=False)
         return {"status": "error", "error": str(e)}
 
 @mcp.tool()
@@ -502,12 +691,20 @@ def create_block(
         return gate
     try:
         path = _resolve_path(project_path)
-        return _run_worker("create-block", {
+        result = _run_worker("create-block", {
             "ProjectPath": path,
             "BlockName": block_name,
             "BlockType": block_type,
         })
+        success = result.get("ok") is True
+        audit_log("create_block", block_name=block_name,
+                  result="ok" if success else "error",
+                  detail=str(result.get("error", ""))[:200],
+                  success=success)
+        return result
     except ValueError as e:
+        audit_log("create_block", block_name=block_name,
+                  result="error", detail=str(e)[:200], success=False)
         return {"status": "error", "error": str(e)}
 
 
@@ -527,14 +724,25 @@ def export_block(
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
+    gate = _safety_gate("export_block", block_name=block_name)
+    if gate:
+        return gate
     try:
         path = _resolve_path(project_path)
-        return _run_worker("export-block", {
+        result = _run_worker("export-block", {
             "ProjectPath": path,
             "BlockName": block_name,
             "ExportPath": export_path,
         })
+        success = result.get("ok") is True
+        audit_log("export_block", block_name=block_name,
+                  result="ok" if success else "error",
+                  detail=str(result.get("error", ""))[:200],
+                  success=success)
+        return result
     except ValueError as e:
+        audit_log("export_block", block_name=block_name,
+                  result="error", detail=str(e)[:200], success=False)
         return {"status": "error", "error": str(e)}
 
 
@@ -568,10 +776,21 @@ def go_online(
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
+    gate = _safety_gate("go_online", block_name=device_name)
+    if gate:
+        return gate
     try:
         path = _resolve_path(project_path)
-        return _run_worker("go-online", {"ProjectPath": path, "DeviceName": device_name})
+        result = _run_worker("go-online", {"ProjectPath": path, "DeviceName": device_name})
+        success = result.get("ok") is True
+        audit_log("go_online", block_name=device_name,
+                  result="ok" if success else "error",
+                  detail=str(result.get("error", ""))[:200],
+                  success=success)
+        return result
     except ValueError as e:
+        audit_log("go_online", block_name=device_name,
+                  result="error", detail=str(e)[:200], success=False)
         return {"status": "error", "error": str(e)}
 
 
@@ -589,10 +808,21 @@ def go_offline(
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
+    gate = _safety_gate("go_offline", block_name=device_name)
+    if gate:
+        return gate
     try:
         path = _resolve_path(project_path)
-        return _run_worker("go-offline", {"ProjectPath": path, "DeviceName": device_name})
+        result = _run_worker("go-offline", {"ProjectPath": path, "DeviceName": device_name})
+        success = result.get("ok") is True
+        audit_log("go_offline", block_name=device_name,
+                  result="ok" if success else "error",
+                  detail=str(result.get("error", ""))[:200],
+                  success=success)
+        return result
     except ValueError as e:
+        audit_log("go_offline", block_name=device_name,
+                  result="error", detail=str(e)[:200], success=False)
         return {"status": "error", "error": str(e)}
 
 
@@ -604,6 +834,7 @@ def download_to_plcsim(
     compile_first: bool = False,
     method: str = "auto",
     target_ip: str = "",
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """将项目下载到 PLCSIM 仿真 PLC。
@@ -618,12 +849,25 @@ def download_to_plcsim(
         compile_first: 下载前先编译
         method: "auto" (自动), "tiaworker", "tiaworker-gui", "python" 或 "ui"
         target_ip: 已弃用；下载目标只能来自经验证的配置
+        confirmation_token: 一次性人工确认令牌（危险工程操作必填，fail-closed）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
-    gate = _safety_gate("download_to_plcsim", block_name=project_path)
+    gate = _safety_gate("download_to_plcsim", block_name=project_path,
+                        confirmation_token=confirmation_token, auth_token=auth_token)
     if gate:
         return gate
+
+    def _finish(status: str, **fields) -> dict:
+        """构造下载结果并写入 HMAC 链式审计（每次工具调用只记一条）。"""
+        audit_log("download_to_plcsim", user_input=project_path, block_name=project_path,
+                  result=status,
+                  detail=str(fields.get("message") or fields.get("error", ""))[:200],
+                  success=status == "ok")
+        out = {"status": status}
+        out.update(fields)
+        return out
+
     try:
         path = _resolve_path(project_path)
         from download_to_plcsim import (
@@ -635,62 +879,62 @@ def download_to_plcsim(
         )
         method = method.strip().lower()
         if method not in {"auto", "tiaworker", "tiaworker-gui", "python", "ui"}:
-            return {"status": "error", "error": f"不支持的 method: {method}"}
+            return _finish("error", error=f"不支持的 method: {method}")
         target_ip = _verified_plcsim_target(target_ip)
 
         if method == "ui":
             rc = download_via_ui(compile_first)
-            return {"status": "ok" if rc == 0 else "error",
-                    "message": "UI Automation 下载完成" if rc == 0 else "UI Automation 下载失败"}
+            return _finish("ok" if rc == 0 else "error",
+                           message="UI Automation 下载完成" if rc == 0 else "UI Automation 下载失败")
 
         if method == "tiaworker":
             rc = _try_download_via_tiaworker(compile_first, target_ip)
-            return {"status": "ok" if rc == 0 else "error",
-                    "message": "TiaWorker 下载完成" if rc == 0 else "TiaWorker 未确认设备下载成功"}
+            return _finish("ok" if rc == 0 else "error",
+                           message="TiaWorker 下载完成" if rc == 0 else "TiaWorker 未确认设备下载成功")
 
         if method == "tiaworker-gui":
             rc = _try_download_via_tiaworker_gui(target_ip)
-            return {"status": "ok" if rc == 0 else "error",
-                    "message": "TiaWorker GUI 下载完成" if rc == 0 else "TiaWorker GUI 未确认设备下载成功"}
+            return _finish("ok" if rc == 0 else "error",
+                           message="TiaWorker GUI 下载完成" if rc == 0 else "TiaWorker GUI 未确认设备下载成功")
 
         if method == "python":
             rc = _try_download_via_python(compile_first, target_ip)
-            return {"status": "ok" if rc == 0 else "error",
-                    "message": "Python API 下载完成" if rc == 0 else "Python API 未确认设备下载成功"}
+            return _finish("ok" if rc == 0 else "error",
+                           message="Python API 下载完成" if rc == 0 else "Python API 未确认设备下载成功")
 
         # 仅当上一策略明确“不具备能力”(rc=-1) 时才切换，未知或失败结果禁止重试。
         rc = _try_download_via_tiaworker(compile_first, target_ip)
         if rc == 0:
-            return {"status": "ok", "message": "TiaWorker 下载完成"}
+            return _finish("ok", message="TiaWorker 下载完成")
 
         if rc == -1:
             rc = _try_download_via_tiaworker_gui(target_ip)
             if rc == 0:
-                return {"status": "ok", "message": "TiaWorker GUI 下载完成",
-                        "note": "headless TiaWorker 不可用，使用 GUI 模式"}
+                return _finish("ok", message="TiaWorker GUI 下载完成",
+                               note="headless TiaWorker 不可用，使用 GUI 模式")
 
         if rc == -1:
             rc = _try_download_via_python(compile_first, target_ip)
             if rc == 0:
-                return {"status": "ok", "message": "Python API 下载完成",
-                        "note": "TiaWorker 不可用，使用 Python API"}
+                return _finish("ok", message="Python API 下载完成",
+                               note="TiaWorker 不可用，使用 Python API")
 
         if rc == -1:
             rc = download_via_ui(compile_first=False)
             if rc == 0:
-                return {"status": "ok", "message": "UI Automation 下载完成",
-                        "note": "自动接口均不可用，使用 UI Automation"}
+                return _finish("ok", message="UI Automation 下载完成",
+                               note="自动接口均不可用，使用 UI Automation")
 
-        return {"status": "error",
-                "message": "未获得设备级下载成功回执，请手动下载并只读核验",
-                "manual_steps": [
-                    "1. 打开 TIA Portal，右键 PLC 设备",
-                    "2. 下载到设备 → 软件（全部）",
-                    "3. PG/PC 接口选 PLCSIM",
-                    "4. 下载 → 完成",
-                ]}
+        return _finish("error",
+                       message="未获得设备级下载成功回执，请手动下载并只读核验",
+                       manual_steps=[
+                           "1. 打开 TIA Portal，右键 PLC 设备",
+                           "2. 下载到设备 → 软件（全部）",
+                           "3. PG/PC 接口选 PLCSIM",
+                           "4. 下载 → 完成",
+                       ])
     except ValueError as e:
-        return {"status": "error", "error": str(e)}
+        return _finish("error", error=str(e))
 
 
 @mcp.tool()
@@ -722,6 +966,7 @@ def generate_and_import(
     block_name: str = "",
     template: str = "general",
     project_path: str = "",
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """一站式：AI 生成 SCL 代码 + 导入到 TIA Portal 项目。
@@ -731,6 +976,7 @@ def generate_and_import(
         block_name: 块名称，留空由 AI 自动命名
         template: 代码模板 (motor/conveyor/pid/general)
         project_path: TIA 项目路径
+        confirmation_token: 一次性人工确认令牌（导入为危险工程操作，必填）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
@@ -745,7 +991,8 @@ def generate_and_import(
     if not scl:
         return {"status": "error", "error": "AI 未生成有效 SCL 代码"}
 
-    return import_scl_file(scl, name, project_path, auth_token=auth_token)
+    return import_scl_file(scl, name, project_path,
+                           confirmation_token=confirmation_token, auth_token=auth_token)
 
 
 # ─── 梯形图 LAD 工具 ─────────────────────────────
@@ -782,7 +1029,8 @@ def _gen_lad_spec(description: str, block_name: str) -> dict:
     if not validation["valid"]:
         raise ValueError(f"LadderSpec 格式校验失败: {validation['errors']}")
 
-    return _require_ladder_semantic_safety(spec)
+    # 语义安全校验统一由 create_ladder_block 调用一次（_run_cartgen 不再重复扫描）
+    return spec
 
 
 def _require_ladder_semantic_safety(spec: dict) -> dict:
@@ -795,8 +1043,10 @@ def _require_ladder_semantic_safety(spec: dict) -> dict:
 
 
 def _run_cartgen(spec: dict) -> str:
-    """保存 LadderSpec JSON + 调用 CartGen 生成 SimaticML XML，返回 XML 路径"""
-    _require_ladder_semantic_safety(spec)
+    """保存 LadderSpec JSON + 调用 CartGen 生成 SimaticML XML，返回 XML 路径。
+
+    语义安全校验由调用方 create_ladder_block 统一执行一次。
+    """
     tmp_json = os.path.join(tempfile.gettempdir(), f"lad_{spec['blockName']}.json")
     with open(tmp_json, "w", encoding="utf-8") as f:
         json.dump(spec, f, ensure_ascii=False, indent=2)
@@ -889,10 +1139,21 @@ def _import_xml_into_tia(xml_path: str) -> dict:
         plc_sw.BlockGroup.Blocks.Import(
             FileInfo(xml_path), ImportOptions.Override, SWImportOptions(2))
         compiler = plc_sw.GetService[ICompilable]()
-        compiler.Compile()
+        compile_result = compiler.Compile()
         project.Save()
 
-    return _make_result(ok=True, operation="_import_xml_into_tia")
+        # 编译失败必须失败关闭：与 call_fb_in_ob1.py 检查 cr.State 的做法一致
+        state = compile_result.State.ToString()
+        error_count = int(compile_result.ErrorCount)
+        if state != "Success" or error_count > 0:
+            return _make_result(
+                ok=False, operation="_import_xml_into_tia",
+                error=f"LAD 导入后编译失败: State={state}, ErrorCount={error_count}",
+                result={"compile_state": state, "compile_error_count": error_count},
+            )
+
+    return _make_result(ok=True, operation="_import_xml_into_tia",
+                        result={"compile_state": "Success", "compile_error_count": 0})
 
 
 def _render_lad_svg(spec: dict) -> str:
@@ -948,7 +1209,13 @@ def create_ladder_block(
         _require_ladder_semantic_safety(spec)
         xml_path = _run_cartgen(spec)
         _clean_xml(xml_path)
-        _import_xml_into_tia(xml_path)
+        import_result = _import_xml_into_tia(xml_path)
+        if not import_result.get("ok"):
+            _audit_lad_creation(description, spec.get("blockName"),
+                                len(spec.get("networks", [])), "error")
+            return _make_result(ok=False, operation="create_ladder_block",
+                                error=import_result.get("error", "LAD 导入 TIA 失败"),
+                                extra={"step": "_import_xml_into_tia"})
         svg_preview = _render_lad_svg(spec)
         _audit_lad_creation(description, spec.get("blockName"),
                             len(spec.get("networks", [])), "ok")
@@ -1016,6 +1283,7 @@ def full_pipeline(
     description: str,
     block_name: str = "",
     project_path: str = "",
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """一键全流程：自然语言 → LAD FB → IO_Map → OB1 调用链 → 编译。
@@ -1026,13 +1294,14 @@ def full_pipeline(
         description: 功能描述，如 "电机正反转，带急停和过载保护"
         block_name: 块名称（可选，留空自动生成）
         project_path: TIA 项目路径（可选，留空使用默认）
+        confirmation_token: 一次性人工确认令牌（危险工程操作必填，fail-closed）
         auth_token: 认证令牌
 
     Returns:
         {"status": "ok", "blockName": "...", "steps": [...]}
     """
     _require_auth(auth_token)
-    gate = _safety_gate("full_pipeline")
+    gate = _safety_gate("full_pipeline", confirmation_token=confirmation_token, auth_token=auth_token)
     if gate:
         return gate
     steps = []
@@ -1053,29 +1322,32 @@ def full_pipeline(
         _sys.path.insert(0, str(Path(__file__).parent))
         from gen_io_map import generate_io_map
 
-        # 查找生成的 JSON 模板文件
+        # 优先使用 Step1 中 _run_cartgen 刚写入的临时 JSON
+        # （lad_{blockName}.json 即本次生成的真实 LadderSpec，无需全量扫描模板目录）
         template_dir = cfg.generation.templates_dir
         json_path = None
-        for fname in _os.listdir(template_dir):
-            if fname.endswith('.json'):
-                fpath = _os.path.join(template_dir, fname)
-                with open(fpath, encoding='utf-8') as f:
-                    spec = json.load(f)
-                if spec.get('blockName') == gen_block_name:
-                    json_path = fpath
-                    break
+        tmp = _os.path.join(tempfile.gettempdir(), f"lad_{gen_block_name}.json")
+        if _os.path.exists(tmp):
+            json_path = tmp
+        else:
+            for fname in _os.listdir(template_dir):
+                if fname.endswith('.json'):
+                    fpath = _os.path.join(template_dir, fname)
+                    with open(fpath, encoding='utf-8') as f:
+                        spec = json.load(f)
+                    if spec.get('blockName') == gen_block_name:
+                        json_path = fpath
+                        break
 
         if not json_path:
-            # 使用临时 JSON
-            tmp = _os.path.join(tempfile.gettempdir(), f"lad_{gen_block_name}.json")
-            if _os.path.exists(tmp):
-                json_path = tmp
-            else:
-                steps.append({"step": "gen_io_map", "status": "skipped",
-                               "reason": "未找到模板 JSON 文件，跳过 IO 映射"})
-                return _make_result(ok=True, operation="full_pipeline",
-                                    result={"blockName": gen_block_name, "steps": steps},
-                                    warnings=["IO 映射跳过：未找到模板 JSON"])
+            steps.append({"step": "gen_io_map", "status": "skipped",
+                           "reason": "未找到模板 JSON 文件，IO 映射与 OB1 调用链未建成"})
+            audit_log("full_pipeline", user_input=description, block_name=gen_block_name,
+                      result="error", steps_count=len(steps),
+                      detail="未找到模板 JSON，IO 映射未生成（fail-closed）")
+            return _make_result(ok=False, operation="full_pipeline",
+                                error="未找到模板 JSON，IO 映射与 OB1 调用链未建成",
+                                extra={"step": "gen_io_map", "steps": steps})
 
         io_map_scl = generate_io_map(json_path)
         io_map_name = f"IO_Map_{gen_block_name}"
@@ -1086,17 +1358,55 @@ def full_pipeline(
         with open(scl_path, 'w', encoding='utf-8-sig') as f:
             f.write(io_map_scl)
         steps.append({"step": "gen_io_map", "sclPath": scl_path, "blockName": io_map_name})
+
+        # IO 映射 SCL 必须真正导入 TIA：仅写盘并报告成功是 fail-open。
+        path = _resolve_path(project_path)
+        tmp_scl_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".scl", prefix="tia-scl-", delete=False, encoding="utf-8"
+            ) as scl_file:
+                scl_file.write(io_map_scl.lstrip("\ufeff"))
+                tmp_scl_path = scl_file.name
+            import_result = _run_worker("import-scl-replace", {
+                "ProjectPath": path,
+                "SclFilePath": tmp_scl_path,
+            })
+        finally:
+            if tmp_scl_path:
+                try:
+                    _os.unlink(tmp_scl_path)
+                except OSError:
+                    pass
+        if import_result.get("ok") is not True:
+            steps.append({"step": "gen_io_map_import", "status": "error",
+                           "error": import_result.get("error", "IO 映射 SCL 导入 TIA 失败")})
+            audit_log("full_pipeline", user_input=description, block_name=gen_block_name,
+                      result="error", steps_count=len(steps),
+                      detail=f"IO 映射 SCL 导入失败: {str(import_result.get('error', ''))[:200]}")
+            return _make_result(ok=False, operation="full_pipeline",
+                                error=import_result.get("error", "IO 映射 SCL 导入 TIA 失败"),
+                                extra={"step": "gen_io_map_import", "steps": steps})
+        steps.append({"step": "gen_io_map_import", "blockName": io_map_name, "result": "success"})
     except Exception as e:
         steps.append({"step": "gen_io_map", "status": "error", "error": str(e)})
         return _make_result(ok=False, operation="full_pipeline",
                             error=str(e), extra={"step": "gen_io_map", "steps": steps})
 
-    # ── Step 3: OB1 调用链 ──
+    # ── Step 3: OB1 调用链（insert_fb_calls 返回非 0 即失败，fail-closed）──
     try:
         from call_fb_in_ob1 import insert_fb_calls
         call_result = insert_fb_calls([io_map_name])
-        steps.append({"step": "ob1_calls", "fb": io_map_name,
-                       "result": "success" if call_result == 0 else f"code={call_result}"})
+        if call_result != 0:
+            steps.append({"step": "ob1_calls", "status": "error", "fb": io_map_name,
+                           "error": f"OB1 调用链构建失败，返回码 {call_result}"})
+            audit_log("full_pipeline", user_input=description, block_name=gen_block_name,
+                      result="error", steps_count=len(steps),
+                      detail=f"insert_fb_calls 返回 {call_result}")
+            return _make_result(ok=False, operation="full_pipeline",
+                                error=f"OB1 调用链构建失败，返回码 {call_result}",
+                                extra={"step": "ob1_calls", "steps": steps})
+        steps.append({"step": "ob1_calls", "fb": io_map_name, "result": "success"})
     except Exception as e:
         steps.append({"step": "ob1_calls", "status": "error", "error": str(e)})
         return _make_result(ok=False, operation="full_pipeline",
@@ -1157,7 +1467,7 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
       "title": "网络标题",
       "comment": "逻辑说明",
       "elements": [
-        {{"type": "normally_open|normally_closed|coil|coil_set|coil_reset|timer_on_delay|timer_off_delay", "operand": "变量名"}}
+        {{"type": "normally_open|normally_closed|coil|coil_set|coil_reset|timer_on_delay|timer_off_delay", "operand": "变量名（定时器类型不需要 operand，见下方定时器用法）"}}
       ]
     }},
     {{
@@ -1181,8 +1491,8 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
 - 过载保护必须串联 normally_closed iOverload
 
 ## 定时器用法
-- 延时接通: {{"type": "timer_on_delay", "operand": "oDone", "timer_instance": "IEC_Timer_0", "preset_time": "T#5S"}}
-- 延时断开: {{"type": "timer_off_delay", "operand": "oDone", "timer_instance": "IEC_Timer_1", "preset_time": "T#3S"}}
+- 延时接通: {{"type": "timer_on_delay", "timer_instance": "IEC_Timer_0", "preset_time": "T#5S"}}
+- 延时断开: {{"type": "timer_off_delay", "timer_instance": "IEC_Timer_1", "preset_time": "T#3S"}}
 - timer_instance 必须是唯一的（IEC_Timer_0, IEC_Timer_1, ...）
 - preset_time 格式: T#5S (秒), T#100MS (毫秒), T#1M30S (1分30秒)
 - 定时器的 Q 输出通过链式连接驱动后续元素，示例：

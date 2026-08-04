@@ -1,12 +1,44 @@
 """标签表管理工具"""
+import asyncio
 from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _dry_run_msg, _handle_preview_or_dry_run, PROJECT_PATH
+
+# ── 审计日志（强制，HMAC 链式）：与 tools_blocks.py 使用同一审计链 ──
+from mcp_common.audit import get_audit_logger, AuditConfigurationError, AuditStorageError
+
+_audit = get_audit_logger()
+
+
+async def _run_tiaworker_async(command: str, data: dict, timeout: int = 180) -> dict:
+    """在线程池中运行 TiaWorker 子进程，避免阻塞事件循环与并发请求。"""
+    return await asyncio.to_thread(_run_tiaworker, command, data, timeout=timeout)
+
+
+def _audit_gate(operation: str, target: str, params: dict) -> str | None:
+    """破坏性操作执行前的审计闸门（fail-closed）：审计不可用或主体未认证时拒绝执行。
+
+    与 tools_blocks.py 一致：MCP 尚无已认证会话上下文，空主体使生产控制动作被拒绝。
+    """
+    try:
+        _audit.begin_control_operation(operation, target, "", params)
+    except (AuditConfigurationError, AuditStorageError) as exc:
+        return f"🚫 操作被拒绝: {exc}"
+    return None
+
+
+def _audit_outcome(operation: str, target: str, success: bool, detail: str, operator: str = "") -> str:
+    """记录破坏性操作结果审计；写入失败返回告警后缀，不掩盖已发生的副作用。"""
+    try:
+        _audit.log(operation, target, "", operator=operator, success=success, detail=detail)
+    except (AuditStorageError, OSError) as exc:
+        return f" ⚠ 结果审计写入失败: {exc}"
+    return ""
 
 
 @mcp.tool(name="plc_list_tag_tables", annotations={"readOnlyHint": True})
 async def list_tag_tables() -> str:
     """列出 TIA 项目中所有标签表及标签数量"""
     if err := _check_project(): return err
-    result = _run_tiaworker("list-tags", {"ProjectPath": PROJECT_PATH})
+    result = await _run_tiaworker_async("list-tags", {"ProjectPath": PROJECT_PATH})
     if result.get("success"):
         data = result.get("data", {})
         tables = data.get("tables", [])
@@ -25,7 +57,7 @@ async def get_tags(tag_table_name: str) -> str:
         tag_table_name: 标签表名称
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("get-tags", {
+    result = await _run_tiaworker_async("get-tags", {
         "ProjectPath": PROJECT_PATH,
         "TagTableName": tag_table_name,
     })
@@ -68,10 +100,15 @@ async def add_tag(
     }
     if msg := _handle_preview_or_dry_run("add-tag", params, dry_run, preview):
         return msg
-    result = _run_tiaworker("add-tag", params)
+    if msg := _audit_gate("tags.add_tag", tag_name, params):
+        return msg
+    result = await _run_tiaworker_async("add-tag", params)
     if result.get("success"):
         data = result.get("data", {})
-        return f"✅ 已添加标签 `{data.get('tagName', tag_name)}` : {data.get('dataType', data_type)} @ {data.get('address', logical_address)}"
+        warn = _audit_outcome("tags.add_tag", tag_name, True,
+                              f"table={tag_table_name} address={data.get('address', logical_address)}")
+        return f"✅ 已添加标签 `{data.get('tagName', tag_name)}` : {data.get('dataType', data_type)} @ {data.get('address', logical_address)}{warn}"
+    _audit_outcome("tags.add_tag", tag_name, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "添加失败"))
 
 
@@ -87,9 +124,14 @@ async def create_tag_table(tag_table_name: str, dry_run: bool = False) -> str:
     params = {"ProjectPath": PROJECT_PATH, "TagTableName": tag_table_name}
     if dry_run:
         return _dry_run_msg("create-tag-table", params)
-    result = _run_tiaworker("create-tag-table", params)
+    if msg := _audit_gate("tags.create_tag_table", tag_table_name, params):
+        return msg
+    result = await _run_tiaworker_async("create-tag-table", params)
     if result.get("success"):
-        return f"✅ 已创建标签表 `{result.get('data', {}).get('tableName', tag_table_name)}`"
+        warn = _audit_outcome("tags.create_tag_table", tag_table_name, True,
+                              f"created={result.get('data', {}).get('tableName', tag_table_name)}")
+        return f"✅ 已创建标签表 `{result.get('data', {}).get('tableName', tag_table_name)}`{warn}"
+    _audit_outcome("tags.create_tag_table", tag_table_name, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "创建失败"))
 
 
@@ -105,9 +147,13 @@ async def delete_tag_table(tag_table_name: str, dry_run: bool = False) -> str:
     params = {"ProjectPath": PROJECT_PATH, "TagTableName": tag_table_name}
     if dry_run:
         return _dry_run_msg("delete-tag-table", params)
-    result = _run_tiaworker("delete-tag-table", params)
+    if msg := _audit_gate("tags.delete_tag_table", tag_table_name, params):
+        return msg
+    result = await _run_tiaworker_async("delete-tag-table", params)
     if result.get("success"):
-        return f"✅ 已删除标签表 `{tag_table_name}`"
+        warn = _audit_outcome("tags.delete_tag_table", tag_table_name, True, "deleted")
+        return f"✅ 已删除标签表 `{tag_table_name}`{warn}"
+    _audit_outcome("tags.delete_tag_table", tag_table_name, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "删除失败"))
 
 
@@ -119,7 +165,7 @@ async def search_tags(query: str) -> str:
         query: 搜索关键词
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("search-tag", {
+    result = await _run_tiaworker_async("search-tag", {
         "ProjectPath": PROJECT_PATH,
         "Query": query,
     })
@@ -137,7 +183,7 @@ async def search_tags(query: str) -> str:
 async def check_tag_conflicts() -> str:
     """检测所有标签表中是否存在逻辑地址冲突（同一地址被多个标签占用）"""
     if err := _check_project(): return err
-    result = _run_tiaworker("check-tag-conflicts", {"ProjectPath": PROJECT_PATH}, timeout=120)
+    result = await _run_tiaworker_async("check-tag-conflicts", {"ProjectPath": PROJECT_PATH}, timeout=120)
     if result.get("success"):
         d = result.get("data", {})
         conflicts = d.get("conflicts", [])
@@ -161,7 +207,7 @@ async def find_free_address(area: str = "M", start_byte: int = 0) -> str:
         start_byte: 起始字节偏移
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("find-free-address", {
+    result = await _run_tiaworker_async("find-free-address", {
         "ProjectPath": PROJECT_PATH,
         "Area": area,
         "StartByte": start_byte,
@@ -190,7 +236,11 @@ async def delete_tag(tag_table_name: str, tag_name: str, dry_run: bool = False, 
     }
     if msg := _handle_preview_or_dry_run("delete-tag", params, dry_run, preview):
         return msg
-    result = _run_tiaworker("delete-tag", params)
+    if msg := _audit_gate("tags.delete_tag", tag_name, params):
+        return msg
+    result = await _run_tiaworker_async("delete-tag", params)
     if result.get("success"):
-        return f"✅ 已删除标签 `{tag_name}`"
+        warn = _audit_outcome("tags.delete_tag", tag_name, True, f"table={tag_table_name}")
+        return f"✅ 已删除标签 `{tag_name}`{warn}"
+    _audit_outcome("tags.delete_tag", tag_name, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "删除失败"))

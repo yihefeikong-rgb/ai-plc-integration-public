@@ -12,6 +12,7 @@ TIA 全流水线工作流：跨 plc-mcp-bridge + tia-mcp 的端到端流水线�
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from mcp_common.control_target import get_control_target, require_control_ip
@@ -19,6 +20,17 @@ from config_loader import cfg as _tia_cfg
 from orchestrator.core import WorkflowContext, OrchestratorEngine
 
 _logger = logging.getLogger(__name__)
+
+# 编译成功文本指示符，仅用于 MCP 服务器未返回结构化 success/ok 键时的降级判定。
+# "ok" 必须整词匹配（\bok\b），避免 "token"/"book" 等包含 "ok" 的词汇造成误判（fail-closed）。
+_COMPILE_SUCCESS_TEXT_RE = re.compile(
+    r"(?:success|成功|0 errors|0 error|compilation successful|\bok\b)"
+)
+
+
+def _text_indicates_compile_success(text: str) -> bool:
+    """判断编译工具文本输出是否含明确的成功指示。"""
+    return _COMPILE_SUCCESS_TEXT_RE.search(text) is not None
 
 
 def build_pipeline_steps(
@@ -128,6 +140,7 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
         max_retries = 3
         compile_errors_history: list[dict[str, Any]] = []
         step5 = None
+        compile_ok = False
         scl_code = ""
         block_name = ""
 
@@ -177,11 +190,14 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
             compile_success = compile_result.get("success")
             if compile_success is None:
                 compile_success = compile_result.get("ok", False)
-            # MCP 降级: 如果只有 text 字段且无 success/ok，检查文本是否包含成功指示符
+            # MCP 降级: 如果只有 text 字段且无 success/ok，检查文本是否包含成功指示符。
+            # 旧实现用 "ok" in text 子串匹配，会命中 token/block/book 等词误判成功；现按整词匹配。
             if not compile_success and "text" in compile_result and "success" not in compile_result and "ok" not in compile_result:
                 text_content = str(compile_result["text"]).lower()
-                if any(kw in text_content for kw in ("success", "ok", "成功", "0 errors", "0 error", "compilation successful")):
+                if _text_indicates_compile_success(text_content):
                     compile_success = True
+            # 记录最终判定，供返回字段 compile_ok 使用（文本回退判定的成功也必须一致返回 True）
+            compile_ok = bool(compile_success)
             compile_errors = compile_result.get("error_list") or compile_result.get("errors_list") or []
 
             if compile_success:
@@ -227,6 +243,6 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
             "project_path": project_path,
             "scl_code": scl_code,
             "block_name": block_name,
-            "compile_ok": step5.get("ok", step5.get("success", False)) if step5 else False,
+            "compile_ok": compile_ok,
             "download_ok": step6.get("ok", False),
         }

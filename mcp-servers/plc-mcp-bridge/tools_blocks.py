@@ -1,13 +1,45 @@
 """PLC 块管理工具（FB/FC/OB/DB）"""
+import asyncio
 import os
 from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _handle_preview_or_dry_run, PROJECT_PATH
+
+# ── 审计日志（强制，HMAC 链式）：与 tools_s7.py 使用同一审计链 ──
+from mcp_common.audit import get_audit_logger, AuditConfigurationError, AuditStorageError
+
+_audit = get_audit_logger()
+
+
+async def _run_tiaworker_async(command: str, data: dict, timeout: int = 180) -> dict:
+    """在线程池中运行 TiaWorker 子进程，避免阻塞事件循环与并发请求。"""
+    return await asyncio.to_thread(_run_tiaworker, command, data, timeout=timeout)
+
+
+def _audit_gate(operation: str, target: str, params: dict) -> str | None:
+    """破坏性操作执行前的审计闸门（fail-closed）：审计不可用或主体未认证时拒绝执行。
+
+    与 tools_s7.py 一致：MCP 尚无已认证会话上下文，空主体使生产控制动作被拒绝。
+    """
+    try:
+        _audit.begin_control_operation(operation, target, "", params)
+    except (AuditConfigurationError, AuditStorageError) as exc:
+        return f"🚫 操作被拒绝: {exc}"
+    return None
+
+
+def _audit_outcome(operation: str, target: str, success: bool, detail: str, operator: str = "") -> str:
+    """记录破坏性操作结果审计；写入失败返回告警后缀，不掩盖已发生的副作用。"""
+    try:
+        _audit.log(operation, target, "", operator=operator, success=success, detail=detail)
+    except (AuditStorageError, OSError) as exc:
+        return f" ⚠ 结果审计写入失败: {exc}"
+    return ""
 
 
 @mcp.tool(name="plc_list_blocks", annotations={"readOnlyHint": True})
 async def list_blocks() -> str:
     """列出 TIA 项目中所有 PLC 块（FB/FC/OB/DB）及其编号和语言"""
     if err := _check_project(): return err
-    result = _run_tiaworker("list-blocks", {"ProjectPath": PROJECT_PATH}, timeout=120)
+    result = await _run_tiaworker_async("list-blocks", {"ProjectPath": PROJECT_PATH}, timeout=120)
     if result.get("success"):
         data = result.get("data", {})
         blocks = data.get("blocks", [])
@@ -22,7 +54,7 @@ async def list_blocks() -> str:
 async def list_dbs() -> str:
     """列出 TIA 项目中所有数据块（GlobalDB/InstanceDB）"""
     if err := _check_project(): return err
-    result = _run_tiaworker("list-dbs", {"ProjectPath": PROJECT_PATH}, timeout=120)
+    result = await _run_tiaworker_async("list-dbs", {"ProjectPath": PROJECT_PATH}, timeout=120)
     if result.get("success"):
         data = result.get("data", {})
         dbs = data.get("dbs", [])
@@ -62,10 +94,15 @@ async def create_block(
     }
     if msg := _handle_preview_or_dry_run("create-block", params, dry_run, preview):
         return msg
-    result = _run_tiaworker("create-block", params)
+    if msg := _audit_gate("blocks.create_block", block_name, params):
+        return msg
+    result = await _run_tiaworker_async("create-block", params)
     if result.get("success"):
         data = result.get("data", {})
-        return f"✅ 已创建 {block_type} `{data.get('blockName', block_name)}` (编号: {data.get('number', '?')})"
+        warn = _audit_outcome("blocks.create_block", block_name, True,
+                              f"created={data.get('blockName', block_name)} number={data.get('number', '?')}")
+        return f"✅ 已创建 {block_type} `{data.get('blockName', block_name)}` (编号: {data.get('number', '?')}){warn}"
+    _audit_outcome("blocks.create_block", block_name, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "创建失败"))
 
 
@@ -78,7 +115,7 @@ async def export_block(block_name: str, output_path: str) -> str:
         output_path: 输出 XML 文件路径
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("export-block", {
+    result = await _run_tiaworker_async("export-block", {
         "ProjectPath": PROJECT_PATH,
         "BlockName": block_name,
         "OutputPath": output_path,
@@ -108,11 +145,15 @@ async def import_block(file_path: str, override: bool = False, dry_run: bool = F
     }
     if msg := _handle_preview_or_dry_run("import-block", params, dry_run, preview):
         return msg
-    result = _run_tiaworker("import-block", params)
+    if msg := _audit_gate("blocks.import_block", file_path, params):
+        return msg
+    result = await _run_tiaworker_async("import-block", params)
     if result.get("success"):
         data = result.get("data", {})
         blocks = data.get("blocks", [])
-        return f"✅ 已导入: {', '.join(blocks)}"
+        warn = _audit_outcome("blocks.import_block", file_path, True, f"imported={blocks}")
+        return f"✅ 已导入: {', '.join(blocks)}{warn}"
+    _audit_outcome("blocks.import_block", file_path, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "导入失败"))
 
 
@@ -124,7 +165,7 @@ async def get_block_details(block_name: str) -> str:
         block_name: 块名称
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("get-block-details", {"ProjectPath": PROJECT_PATH, "BlockName": block_name}, timeout=120)
+    result = await _run_tiaworker_async("get-block-details", {"ProjectPath": PROJECT_PATH, "BlockName": block_name}, timeout=120)
     if result.get("success"):
         d = result.get("data", {})
         consistent = "✅" if d.get("isConsistent") else "⚠"
@@ -145,10 +186,15 @@ async def delete_block(block_name: str, dry_run: bool = False, preview: bool = F
     params = {"ProjectPath": PROJECT_PATH, "BlockName": block_name}
     if msg := _handle_preview_or_dry_run("delete-block", params, dry_run, preview):
         return msg
-    result = _run_tiaworker("delete-block", params)
+    if msg := _audit_gate("blocks.delete_block", block_name, params):
+        return msg
+    result = await _run_tiaworker_async("delete-block", params)
     if result.get("success"):
         d = result.get("data", {})
-        return f"✅ 已删除 `{d.get('deleted')}` (#{d.get('number')})"
+        warn = _audit_outcome("blocks.delete_block", block_name, True,
+                              f"deleted={d.get('deleted')} number={d.get('number')}")
+        return f"✅ 已删除 `{d.get('deleted')}` (#{d.get('number')}){warn}"
+    _audit_outcome("blocks.delete_block", block_name, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "删除失败"))
 
 
@@ -160,7 +206,7 @@ async def compile_block(block_name: str) -> str:
         block_name: 要编译的块名称
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("compile-block", {"ProjectPath": PROJECT_PATH, "BlockName": block_name}, timeout=120)
+    result = await _run_tiaworker_async("compile-block", {"ProjectPath": PROJECT_PATH, "BlockName": block_name}, timeout=120)
     if result.get("success"):
         d = result.get("data", {})
         status = "✅ 通过" if d.get("success") else "❌ 失败"
@@ -186,10 +232,15 @@ async def create_db(db_name: str, db_number: int = 0, dry_run: bool = False, pre
     }
     if msg := _handle_preview_or_dry_run("create-db", params, dry_run, preview):
         return msg
-    result = _run_tiaworker("create-db", params)
+    if msg := _audit_gate("blocks.create_db", db_name, params):
+        return msg
+    result = await _run_tiaworker_async("create-db", params)
     if result.get("success"):
         data = result.get("data", {})
-        return f"✅ 已创建 DB `{data.get('dbName', db_name)}` (编号: {data.get('number', '?')})"
+        warn = _audit_outcome("blocks.create_db", db_name, True,
+                              f"created={data.get('dbName', db_name)} number={data.get('number', '?')}")
+        return f"✅ 已创建 DB `{data.get('dbName', db_name)}` (编号: {data.get('number', '?')}){warn}"
+    _audit_outcome("blocks.create_db", db_name, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "创建失败"))
 
 
@@ -206,10 +257,15 @@ async def delete_db(db_name: str, dry_run: bool = False, preview: bool = False) 
     params = {"ProjectPath": PROJECT_PATH, "BlockName": db_name}
     if msg := _handle_preview_or_dry_run("delete-db", params, dry_run, preview):
         return msg
-    result = _run_tiaworker("delete-db", params)
+    if msg := _audit_gate("blocks.delete_db", db_name, params):
+        return msg
+    result = await _run_tiaworker_async("delete-db", params)
     if result.get("success"):
         d = result.get("data", {})
-        return f"✅ 已删除 DB `{d.get('deleted')}` (#{d.get('number')})"
+        warn = _audit_outcome("blocks.delete_db", db_name, True,
+                              f"deleted={d.get('deleted')} number={d.get('number')}")
+        return f"✅ 已删除 DB `{d.get('deleted')}` (#{d.get('number')}){warn}"
+    _audit_outcome("blocks.delete_db", db_name, False, result.get("error", ""))
     return _format_result(False, error=result.get("error", "删除失败"))
 
 
@@ -221,7 +277,7 @@ async def get_block_interface(block_name: str) -> str:
         block_name: 块名称（如 Main, MotorControl 等）
     """
     if err := _check_project(): return err
-    result = _run_tiaworker("get-block-interface", {
+    result = await _run_tiaworker_async("get-block-interface", {
         "ProjectPath": PROJECT_PATH,
         "BlockName": block_name,
     }, timeout=120)

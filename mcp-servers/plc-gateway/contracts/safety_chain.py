@@ -89,24 +89,42 @@ class SafetyChain:
 
     def check_preview_token(self, token_id: str, project_path: str = "",
                             target_hash: str = "", device_id: str = "") -> SafetyGateResult:
-        """检查预览令牌是否有效"""
+        """检查预览令牌是否有效（未配置 HMAC 密钥时 fail-closed）"""
+        if not self._secret_key:
+            return SafetyGateResult.block("安全链未配置 HMAC 密钥，拒绝放行")
         mgr = self.preview_manager
         token = mgr.validate_token(token_id, project_path, target_hash, device_id)
         if token is None:
             return SafetyGateResult.block("预览令牌无效或已过期")
+        if not token.signature:
+            return SafetyGateResult.block("预览令牌未签名（HMAC 认证未生效）")
         return SafetyGateResult.allow()
 
     def check_confirmation(self, confirmed: bool = False,
-                           confirmation_token: str = "") -> SafetyGateResult:
-        """检查确认（支持传统 confirmed 布尔值和确认令牌）"""
-        if confirmation_token:
-            # 验证确认令牌
-            token = self.preview_manager.validate_token(confirmation_token)
-            if token is None:
-                return SafetyGateResult.block("确认令牌无效")
-            return SafetyGateResult.allow()
-        if not confirmed:
-            return SafetyGateResult.block("操作必须人工确认")
+                           confirmation_token: str = "",
+                           project_path: str = "",
+                           target_hash: str = "",
+                           device_id: str = "") -> SafetyGateResult:
+        """检查确认（fail-closed：必须提供有效、绑定且一次性消费的确认令牌）
+
+        安全要求：
+        - confirmed 布尔值不构成人工确认证据，不能单独放行（保留参数仅为 API 兼容）；
+        - 确认令牌必须与项目路径 / 目标 Hash / 设备 ID 绑定；
+        - 确认令牌必须一次性消费，防止重放；
+        - 未配置 HMAC 密钥时拒绝放行，避免认证链空转。
+        """
+        if not confirmation_token:
+            return SafetyGateResult.block("操作必须人工确认（缺少确认令牌）")
+        if not self._secret_key:
+            return SafetyGateResult.block("安全链未配置 HMAC 密钥，拒绝确认")
+        # 一次性消费确认令牌（验证 + 绑定检查 + 标记已使用）
+        token = self.preview_manager.consume_token(
+            confirmation_token, project_path, target_hash, device_id)
+        if token is None:
+            return SafetyGateResult.block(
+                "确认令牌无效、已使用、已过期或与项目/目标/设备绑定不符")
+        if not token.signature:
+            return SafetyGateResult.block("确认令牌未签名（HMAC 认证未生效）")
         return SafetyGateResult.allow()
 
     def check_all(self, project_path: str, configured_project: str,
@@ -129,9 +147,14 @@ class SafetyChain:
             checks.append(("预览令牌", self.check_preview_token(
                 preview_token, project_path, target_hash, device_id)))
 
-        # 需要确认的操作必须确认
+        # 需要确认的操作必须确认（fail-closed：确认令牌一次性消费）
         if requires_confirmation(risk_level):
-            result = self.check_confirmation(confirmed, confirmation_token)
+            if confirmation_token and confirmation_token == preview_token:
+                return SafetyGateResult.block(
+                    "确认令牌不能与预览令牌相同（同一令牌不能同时充当预览与确认）")
+            result = self.check_confirmation(
+                confirmed, confirmation_token,
+                project_path, target_hash, device_id)
             if not result.allowed:
                 return result
 
@@ -152,7 +175,15 @@ class SafetyChain:
 
         Returns:
             操作结果字典
+
+        安全要求：
+        - 未配置 HMAC 密钥时 fail-closed（拒绝 Apply 并要求人工介入），
+          确保认证/审计链在写入前生效。
         """
+        if not self._secret_key:
+            return {"ok": False, "status": "reconcile_required",
+                    "error": "安全链未配置 HMAC 密钥，拒绝 Apply（需人工介入）"}
+
         mgr = self.preview_manager
 
         # 1. 标记开始

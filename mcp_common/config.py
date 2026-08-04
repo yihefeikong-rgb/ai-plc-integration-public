@@ -20,9 +20,10 @@
     host = settings.modbus_host
 """
 
+import ipaddress
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Optional
 
 
@@ -69,18 +70,50 @@ _PATH_KEYS = {
     "audit_log", "batch_log", "interlock_rules",
 }
 
+# 任意 scheme://（http/https/tcp/opc.tcp/mqtt/modbus+tcp…）都是网络端点，不是路径
+_URI_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
+
+# 点号分隔的主机名（如 plc.local、broker.mqtt.com）是网络标识，不是路径
+_HOSTNAME_RE = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$"
+)
+
+# 版本号（如 V2.30、1.2.3）是软件版本，不是路径
+_VERSION_RE = re.compile(r"^[Vv]?\d+(?:\.\d+)+$")
+
 
 def _looks_like_path(key: str, value: str) -> bool:
     """判断值是否像路径（需要 resolve 到绝对路径）"""
-    if value.startswith(("http://", "https://", "tcp://")):
+    # TIA 设备名可以包含 "/"，但它是工程对象身份，不是文件系统路径。
+    if key == "device_name":
         return False
+    # URL/URI 端点（任意 scheme://）不是路径
+    if _URI_SCHEME_RE.match(value):
+        return False
+    # IP 地址（如 192.168.0.10）是网络标识，不是路径
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        pass
+    else:
+        return False
+    # 显式声明路径意图的键始终 resolve
     if key in _PATH_KEYS:
         return True
+    # 主机名（plc.local、broker.mqtt.com）与版本号（V2.30、1.2.3）不得被
+    # 静默改写为绝对路径，否则 MODBUS_HOST 等非路径配置值会被损坏。
+    if _HOSTNAME_RE.fullmatch(value) or _VERSION_RE.fullmatch(value):
+        return False
     return bool(re.search(r"[\\/]|\.[a-z0-9]{2,6}$", value))
 
 
 def _resolve_path(value: str, base_dir: Path = None) -> str:
     """将相对路径转为绝对路径"""
+    # 控制目标路径是 Windows 语义（TIA 工程站、D:\… 盘符路径）。非 Windows
+    # 平台上必须按 PureWindowsPath 识别，否则会被错误地拼到 base_dir 下。
+    if PureWindowsPath(value).is_absolute():
+        return value
     if base_dir is None:
         base_dir = _PROJECT_ROOT
     p = Path(value)
@@ -93,9 +126,15 @@ class Config:
     """支持点号访问和 `${ENV}` 解析的配置对象"""
 
     def __init__(self, data: dict, env: dict = None, base_dir: Path = None):
+        if not isinstance(data, dict):
+            raise TypeError(
+                f"配置数据必须是 dict，收到 {type(data).__name__}；"
+                "请检查 YAML 文件顶层是否为映射"
+            )
         object.__setattr__(self, "_data", data)
         object.__setattr__(self, "_env", env or {})
         object.__setattr__(self, "_base", base_dir or _PROJECT_ROOT)
+        object.__setattr__(self, "_cache", {})
 
     def __getattr__(self, key: str) -> Any:
         if key.startswith("_"):
@@ -108,9 +147,12 @@ class Config:
             if isinstance(val, list):
                 return val
             if isinstance(val, str):
+                if key in self._cache:
+                    return self._cache[key]
                 val = _resolve_env(val, self._env)
                 if _looks_like_path(key, val):
                     val = _resolve_path(val, self._base)
+                self._cache[key] = val
             return val
         raise AttributeError(f"配置项不存在: {key}")
 
@@ -135,6 +177,12 @@ def load_yaml_config(yaml_path: str, env_path: str = "") -> Config:
         p = _PROJECT_ROOT / p
     with open(p, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
+
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"配置文件 {p} 顶层必须是 YAML 映射（dict），"
+            f"实际得到: {'空文件或 null' if raw is None else type(raw).__name__}"
+        )
 
     env = _load_env_file(Path(env_path) if env_path else None)
     return Config(raw, env, p.parent)

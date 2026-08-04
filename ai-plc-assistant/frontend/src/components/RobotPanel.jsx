@@ -66,6 +66,25 @@ export default function RobotPanel({ currentProject }) {
   // F-019：高风险确认弹窗（real-control 模式下每次操作弹出）
   const [pendingAction, setPendingAction] = useState(null)
   const logRef = useRef(null)
+  // 挂起动作定时器句柄：急停时统一清理，中止进行中的动作序列
+  const timersRef = useRef([])
+  // 急停状态镜像（供异步回调读取最新值，fail-closed）
+  const emergencyStopRef = useRef(robot.emergencyStop)
+
+  // 清除所有挂起动作定时器（急停触发时调用）
+  const clearScheduledActions = useCallback(() => {
+    timersRef.current.forEach((handle) => clearTimeout(handle))
+    timersRef.current = []
+  }, [])
+
+  // 调度动作步骤：保存句柄以便急停清理；回调执行时移除自身句柄
+  const schedule = useCallback((fn, delay) => {
+    const handle = setTimeout(() => {
+      timersRef.current = timersRef.current.filter((h) => h !== handle)
+      fn()
+    }, delay)
+    timersRef.current.push(handle)
+  }, [])
 
   // 自动滚动日志到底部
   useEffect(() => {
@@ -73,6 +92,11 @@ export default function RobotPanel({ currentProject }) {
       logRef.current.scrollTop = logRef.current.scrollHeight
     }
   }, [logs])
+
+  // 镜像急停状态到 ref，供异步回调读取
+  useEffect(() => {
+    emergencyStopRef.current = robot.emergencyStop
+  }, [robot.emergencyStop])
 
   const addLog = useCallback((action, result) => {
     setLogs(prev => {
@@ -82,7 +106,11 @@ export default function RobotPanel({ currentProject }) {
   }, [])
 
   const update = useCallback((patch) => {
-    setRobot(prev => ({ ...prev, ...patch }))
+    setRobot(prev => {
+      // 急停激活时拒绝应用任何动作状态变更（fail-closed），防止挂起步骤覆盖急停重置状态
+      if (prev.emergencyStop) return prev
+      return { ...prev, ...patch }
+    })
   }, [])
 
   // F-019：写入操作守卫 — readonly 禁用，real-control 弹高风险确认
@@ -113,28 +141,31 @@ export default function RobotPanel({ currentProject }) {
 
   // ---- 急停 ----
   const toggleEmergencyStop = useCallback(() => {
-    setRobot(prev => {
-      const next = !prev.emergencyStop
-      if (next) {
-        addLog('模拟急停触发', '仅重置本地模拟状态；不控制真实设备')
-        return { ...INITIAL_STATE, emergencyStop: true, connected: prev.connected, backend: prev.backend }
-      }
+    // 根据当前渲染的急停状态判定目标值；副作用全部放在 updater 外，避免 StrictMode 下重复日志
+    const next = !robot.emergencyStop
+    if (next) {
+      // 急停触发：清理挂起动作定时器、中止进行中的动作序列、释放执行锁
+      clearScheduledActions()
+      setExecuting(false)
+      setRobot(prev => ({ ...INITIAL_STATE, emergencyStop: true, connected: prev.connected, backend: prev.backend }))
+      addLog('模拟急停触发', '仅重置本地模拟状态；不控制真实设备')
+    } else {
+      setRobot(prev => ({ ...prev, emergencyStop: false }))
       addLog('模拟急停解除', '本地模拟状态已恢复')
-      return { ...prev, emergencyStop: false }
-    })
-  }, [addLog])
+    }
+  }, [robot.emergencyStop, addLog, clearScheduledActions])
 
   // ---- 回位 ----
   const goHome = useCallback(() => {
     if (robot.emergencyStop || executing) return
     setExecuting(true)
     addLog('回位', '执行中...')
-    setTimeout(() => {
+    schedule(() => {
       update({ armPosition: 'home', grabClosed: false, xRetracted: true, zUp: true })
       addLog('回位', '完成')
       setExecuting(false)
     }, 400)
-  }, [robot.emergencyStop, executing, addLog, update])
+  }, [robot.emergencyStop, executing, addLog, update, schedule])
 
   // ---- 拾取序列（5步，每步 500ms）----
   const pickItem = useCallback(() => {
@@ -148,7 +179,7 @@ export default function RobotPanel({ currentProject }) {
       { patch: { armPosition: 'retract', xRetracted: true }, log: '机械臂收回' },
     ]
     steps.forEach((step, i) => {
-      setTimeout(() => {
+      schedule(() => {
         update(step.patch)
         addLog(`拾取 [${i + 1}/5]`, step.log)
         if (i === steps.length - 1) {
@@ -158,7 +189,7 @@ export default function RobotPanel({ currentProject }) {
         }
       }, (i + 1) * 500)
     })
-  }, [robot.emergencyStop, executing, addLog, update])
+  }, [robot.emergencyStop, executing, addLog, update, schedule])
 
   // ---- 放置序列（5步，反向）----
   const placeItem = useCallback(() => {
@@ -172,7 +203,7 @@ export default function RobotPanel({ currentProject }) {
       { patch: { armPosition: 'home', xRetracted: true }, log: '机械臂回位' },
     ]
     steps.forEach((step, i) => {
-      setTimeout(() => {
+      schedule(() => {
         update(step.patch)
         addLog(`放置 [${i + 1}/5]`, step.log)
         if (i === steps.length - 1) {
@@ -181,12 +212,22 @@ export default function RobotPanel({ currentProject }) {
         }
       }, (i + 1) * 500)
     })
-  }, [robot.emergencyStop, executing, addLog, update])
+  }, [robot.emergencyStop, executing, addLog, update, schedule])
 
   // ---- 自动循环（调用编排层工作流）----
   const runAutoCycle = useCallback(async () => {
     if (robot.emergencyStop || executing) return
     setExecuting(true)
+    // DEMO 模式：纯演示，不调用任何后端，仅本地模拟
+    if (mode === ROBOT_MODES.DEMO.id) {
+      addLog('自动循环', 'DEMO 模式：本地模拟，不调用后端')
+      schedule(() => {
+        update({ armPosition: 'home', grabClosed: false, xRetracted: true, zUp: true })
+        addLog('自动循环', 'DEMO 模式：本地模拟完成')
+        setExecuting(false)
+      }, 400)
+      return
+    }
     addLog('自动循环', '调用 robot_pick_place 工作流...')
     try {
       const res = await fetch(`${API_BASE}/orchestrator/workflows/robot_pick_place/run`, {
@@ -202,20 +243,33 @@ export default function RobotPanel({ currentProject }) {
         throw new Error(err.detail || `HTTP ${res.status}`)
       }
       const data = await res.json()
+      // 急停期间丢弃过期的异步工作流结果，不覆盖急停重置状态（fail-closed）
+      if (emergencyStopRef.current) {
+        addLog('自动循环', '已急停，工作流结果已丢弃')
+        return
+      }
       if (data.ok) {
-        addLog('自动循环', `工作流完成 (${data.total_duration_ms.toFixed(0)}ms)`)
+        // total_duration_ms 为可选展示字段，缺失时不得抛错（否则会被外层 catch 误判为请求失败并降级本地模拟）
+        const durationText = typeof data.total_duration_ms === 'number'
+          ? ` (${data.total_duration_ms.toFixed(0)}ms)`
+          : ''
+        addLog('自动循环', `工作流完成${durationText}`)
         update({ armPosition: 'home', grabClosed: false, xRetracted: true, zUp: true })
       } else {
         addLog('自动循环', `工作流失败: ${data.error || '未知错误'}`)
       }
     } catch (e) {
+      if (emergencyStopRef.current) {
+        addLog('自动循环', '已急停，请求结果已丢弃')
+        return
+      }
       addLog('自动循环', `请求失败: ${e.message}`)
       // 降级：本地模拟
       update({ armPosition: 'home', grabClosed: false, xRetracted: true, zUp: true })
       addLog('自动循环', '降级为本地模拟')
     }
     setExecuting(false)
-  }, [robot.emergencyStop, executing, addLog, update])
+  }, [robot.emergencyStop, executing, mode, addLog, update, schedule])
 
   // ---- 传送带控制 ----
   const conveyorAction = useCallback((action) => {

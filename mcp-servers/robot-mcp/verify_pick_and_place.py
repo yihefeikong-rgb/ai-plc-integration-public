@@ -71,40 +71,58 @@ async def test_opcua_connectivity():
 
 
 async def explore_opcua_nodes(client):
-    """探索 OPC UA 地址空间，寻找 I/O 节点"""
+    """探索 OPC UA 地址空间，寻找 I/O 节点（有界探索，避免全量遍历）"""
     print_header("2. OPC UA 地址空间探索")
-    
+
+    # 有界探索：限制访问节点数、取值次数与并行网络调用数，
+    # 避免对大型地址空间全量遍历造成数百次串行网络调用
+    MAX_NODES = 200          # 访问节点总数上限
+    MAX_VALUE_READS = 60     # 命中关键字后读取值的次数上限
+    MAX_CONCURRENCY = 16     # 并行网络调用上限
+    sem = asyncio.Semaphore(MAX_CONCURRENCY)
+    visited = 0
+    value_reads = 0
+
     try:
         root = client.get_objects_node()
         children = await root.get_children()
         print(f"   根节点下 {len(children)} 个子节点")
-        
+
         # 递归探索，最多 3 层，寻找 PLC/I/O 相关节点
         async def explore(node, depth=0, max_depth=3):
-            if depth > max_depth:
+            nonlocal visited, value_reads
+            if depth > max_depth or visited >= MAX_NODES:
                 return []
+            visited += 1
             results = []
             try:
-                browse_name = await node.read_browse_name()
-                node_name = browse_name.Name
-                node_id = str(node)
-                
-                # 过滤感兴趣的节点
-                keywords = ['PLC', 'I', 'Q', 'INPUT', 'OUTPUT', 'PROGRAM', 'tag']
-                if any(k in node_name.upper() for k in keywords):
-                    try:
-                        val = await node.read_value()
-                        results.append((node_id, node_name, str(val)[:50], depth))
-                    except:
-                        results.append((node_id, node_name, '(结构节点)', depth))
-                
-                subs = await node.get_children()
-                for sub in subs:
-                    results.extend(await explore(sub, depth + 1, max_depth))
+                async with sem:
+                    browse_name = await node.read_browse_name()
+                    node_name = browse_name.Name
+                    node_id = str(node)
+
+                    # 过滤感兴趣的节点
+                    keywords = ['PLC', 'I', 'Q', 'INPUT', 'OUTPUT', 'PROGRAM', 'tag']
+                    if value_reads < MAX_VALUE_READS and any(k in node_name.upper() for k in keywords):
+                        value_reads += 1
+                        try:
+                            val = await node.read_value()
+                            results.append((node_id, node_name, str(val)[:50], depth))
+                        except:
+                            results.append((node_id, node_name, '(结构节点)', depth))
+
+                    subs = await node.get_children()
+
+                # 并行探索子节点（受访问预算与并发上限约束），替代逐个串行 await
+                remaining = MAX_NODES - visited
+                sub_coros = [explore(sub, depth + 1, max_depth) for sub in subs[:remaining]]
+                for sub_results in await asyncio.gather(*sub_coros, return_exceptions=True):
+                    if isinstance(sub_results, list):
+                        results.extend(sub_results)
             except:
                 pass
             return results
-        
+
         found = await explore(root, 0, 4)
         
         if found:

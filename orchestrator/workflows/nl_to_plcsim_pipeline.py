@@ -4,9 +4,11 @@ from __future__ import annotations
 from typing import Any
 
 from orchestrator.core import OrchestratorEngine, WorkflowContext
+from orchestrator.mcp_pool import McpConnectionPool
 
 DEFAULT_ACCEPTANCE_PROMPT = "三相异步电机正反转带急停和过载保护"
-_ALLOWED_INPUT_FIELDS = {"description", "block_name", "launch_fio"}
+_ALLOWED_INPUT_FIELDS = {"description", "block_name", "launch_fio", "dry_run",
+                         "confirmation_token", "confirmation_request_id"}
 
 
 def _is_ok(result: Any) -> bool:
@@ -21,9 +23,21 @@ def _is_ok(result: Any) -> bool:
             return _is_ok(result["text"])
         return bool(result)
     text = str(result).strip()
-    if not text or any(marker in text for marker in ("❌", "🚫", "失败", "错误", "被拒绝")):
+    if not text:
+        return False
+    # 与 mcp_client._from_text / core._unwrap_tool_result 保持一致：
+    # 失败信号只在文本开头生效，"编译成功，0 错误"这类诊断文本不能被误判为失败。
+    if text.startswith(("!", "❌", "🚫", "失败", "错误", "被拒绝")):
         return False
     return any(marker in text for marker in ("✅", "成功", "已连接", "已断开", "📍"))
+
+
+def _is_dry_run_preview(result: Any) -> bool:
+    """识别 MCP 工具返回的 dry-run 预览（🔍/Dry-Run 标记，既非成功也非失败）。"""
+    if isinstance(result, dict):
+        text = result.get("text", "")
+        return isinstance(text, str) and _is_dry_run_preview(text)
+    return "🔍" in str(result) or "Dry-Run" in str(result)
 
 
 def _fail(message: str, suggestion: str) -> None:
@@ -54,6 +68,64 @@ def register_nl_to_plcsim_pipeline_workflow(engine: OrchestratorEngine) -> None:
 
         block_name = ctx.input.get("block_name", "AutoGen")
         launch_fio = bool(ctx.input.get("launch_fio", False))
+        dry_run = bool(ctx.input.get("dry_run", False))
+        confirmation_token = ctx.input.get("confirmation_token", "")
+
+        # 生产链路（真实 MCP 连接池）下，编译→下载→连接→FIO 是危险操作链，
+        # 必须由人工确认令牌真实授权才能执行：编排层在入口消费一次性工作流级
+        # 确认令牌（绑定 _wf.nl_to_plcsim_pipeline）。令牌必须真实有效——
+        # 仅非空占位串不足以通过（此前仅存在性检查，确认机制形同虚设）。
+        # dry_run 预览不产生任何副作用，无需确认令牌。
+        if not dry_run and isinstance(ctx._pool, McpConnectionPool):
+            request_id = ctx.input.get("confirmation_request_id", "")
+            if not isinstance(confirmation_token, str) or not confirmation_token.strip():
+                from safety.confirmation_requests import _confirmation_request_store
+                if isinstance(request_id, str) and request_id:
+                    # 凭 request_id 领取人工已批准的一次性令牌
+                    confirmation_token = _confirmation_request_store.take_token(request_id) or ""
+                if not confirmation_token:
+                    # 未批准/无令牌：创建人工审批请求并返回 request_id
+                    record = _confirmation_request_store.create(
+                        "nl_to_plcsim_pipeline",
+                        f"自然语言需求: {description[:120]}",
+                        operator="ai-agent",
+                    )
+                    raise RuntimeError(
+                        f"危险操作链需要人工批准。已创建人工审批请求 {record['request_id']}，"
+                        "请在审批界面批准后，携带 confirmation_request_id 重新执行本工作流"
+                    )
+            try:
+                from safety.confirmation import ConfirmationService, ConfirmationError
+                ConfirmationService().consume(
+                    confirmation_token,
+                    operator="wf:nl_to_plcsim_pipeline",
+                    target="_wf.nl_to_plcsim_pipeline",
+                    value="run",
+                    device_id="workflow",
+                )
+            except ConfirmationError as exc:
+                _fail(
+                    f"人工确认令牌无效: {exc}",
+                    "由人工重新签发工作流确认令牌后重试（令牌一次性有效，且须在有效期内）",
+                )
+
+        if dry_run:
+            preview = await ctx.call_async(
+                "plc-mcp-bridge.plc_download_project",
+                method="auto",
+                compile_first=False,
+                dry_run=True,
+            )
+            if not _is_ok(preview) and not _is_dry_run_preview(preview):
+                _fail("下载预览失败", "确认 TIA Portal、PLCSIM Advanced 和虚拟网卡均已就绪")
+            return {
+                "status": "ok",
+                "dry_run": True,
+                "description": description,
+                "block_name": block_name,
+                "snap7_verified": False,
+                "fio_requested": False,
+            }
 
         ladder = await ctx.call_async(
             "tia-mcp.create_ladder_block",

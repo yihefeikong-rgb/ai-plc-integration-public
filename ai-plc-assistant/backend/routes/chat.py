@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import logging
+import re
 import threading
 import time
 from collections import defaultdict, deque
@@ -15,6 +17,8 @@ from routes import knowledge as kb_module
 from security import require_local_session
 
 router = APIRouter()
+
+_logger = logging.getLogger(__name__)
 
 MAX_MESSAGES = 32
 MAX_MESSAGE_CHARS = 8_000
@@ -136,6 +140,25 @@ def _inject_project_context(base_prompt: str, project_context: dict[str, str]) -
     return base_prompt + "\n\n## 当前项目配置\n" + "\n".join(parts)
 
 
+_SECRET_PATTERNS = (
+    # OpenAI 兼容/Anthropic 风格 key（sk-、sk-ant-、sk-proj- 等）
+    re.compile(r"(?i)\bsk-[a-z0-9_-]{6,}\b"),
+    # Bearer 令牌
+    re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]{8,}"),
+    # api_key / x-api-key 等带值形式
+    re.compile(r"(?i)\b(?:api[_-]?key|apikey|x-api-key)\s*[:=]\s*[\"']?[a-z0-9._~+/=-]{8,}"),
+)
+
+
+def _redact_secrets(text: str) -> str:
+    """对文本中疑似 API Key / 令牌的片段做脱敏，防止泄露到响应或日志。"""
+    if not text:
+        return text
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
+
+
 def _rag_search(query: str, top_k: int = 3) -> tuple[str, list[str]]:
     """从知识库检索非可信参考资料，绝不把它当作指令。"""
     engine = kb_module.engine
@@ -143,7 +166,8 @@ def _rag_search(query: str, top_k: int = 3) -> tuple[str, list[str]]:
         return "", []
     try:
         results = engine.search(query, top_k=top_k)
-    except Exception:
+    except Exception as exc:
+        _logger.warning("知识库检索失败，本次对话将不带参考资料: %s", _redact_secrets(str(exc)))
         return "", []
     context_parts = []
     sources = []
@@ -206,7 +230,8 @@ async def chat_with_llm(
             rag_sources=rag_sources,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # ValueError 消息可能携带 provider 原始异常（含 API Key），必须脱敏后再回传。
+        raise HTTPException(status_code=400, detail=_redact_secrets(str(exc))) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="模型调用失败") from exc
     finally:

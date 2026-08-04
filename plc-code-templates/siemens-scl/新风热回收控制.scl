@@ -68,6 +68,10 @@ VAR
     rOutdoorEnthalpy : Real;
     rIndoorEnthalpy : Real;
 
+    // 中间量缓存（避免同一表达式重复 ABS/乘除运算）
+    rTempDiff : Real;      // |室外温度-室内温度| 温差绝对值
+    rPreheatError : Real;  // 预热PID误差
+
     // 定时器
     tonFreezeDelay : TON;
     tonFilterDelay : TON;
@@ -196,6 +200,9 @@ BEGIN
     // ============================================
     // 模式执行
     // ============================================
+    // 温差绝对值只计算一次，供热回收转速与效率计算复用
+    rTempDiff := ABS(rOutdoorTemp - rIndoorTemp);
+
     CASE eMode OF
         1:  // 热回收模式
             sMode := 'RECOVERY';
@@ -203,8 +210,8 @@ BEGIN
             rBypassDamper := 0.0;
 
             // 转轮/板换效率控制：温差越大速度越高
-            IF ABS(rOutdoorTemp - rIndoorTemp) > 2.0 THEN
-                rRecoverySpeed := ABS(rOutdoorTemp - rIndoorTemp) * 5.0;
+            IF rTempDiff > 2.0 THEN
+                rRecoverySpeed := rTempDiff * 5.0;
                 IF rRecoverySpeed > 100.0 THEN rRecoverySpeed := 100.0; END_IF;
                 IF rRecoverySpeed < 30.0 THEN rRecoverySpeed := 30.0; END_IF;
             ELSE
@@ -213,12 +220,13 @@ BEGIN
 
             // 预热：冬季新风过冷时辅助加热
             IF rSupplyTemp < (rIndoorTempSetpoint - 5.0) THEN
+                rPreheatError := rIndoorTempSetpoint - 3.0 - rSupplyTemp;
                 rPreheatIntegral := rPreheatIntegral
-                    + ((rIndoorTempSetpoint - 3.0 - rSupplyTemp) * rPreheatKi);
+                    + (rPreheatError * rPreheatKi);
                 IF rPreheatIntegral > 100.0 THEN rPreheatIntegral := 100.0; END_IF;
                 IF rPreheatIntegral < 0.0 THEN rPreheatIntegral := 0.0; END_IF;
 
-                rPreheaterValve := ((rIndoorTempSetpoint - 3.0 - rSupplyTemp) * rPreheatKp)
+                rPreheaterValve := (rPreheatError * rPreheatKp)
                                    + rPreheatIntegral;
                 IF rPreheaterValve > 100.0 THEN rPreheaterValve := 100.0; END_IF;
                 IF rPreheaterValve < 0.0 THEN rPreheaterValve := 0.0; END_IF;
@@ -252,9 +260,9 @@ BEGIN
     // ============================================
     // 热回收效率计算
     // ============================================
-    IF ABS(rOutdoorTemp - rIndoorTemp) > 1.0 THEN
+    IF rTempDiff > 1.0 THEN
         rRecoveryEfficiency := ABS(rSupplyTemp - rOutdoorTemp)
-                              / ABS(rIndoorTemp - rOutdoorTemp) * 100.0;
+                              / rTempDiff * 100.0;
         IF rRecoveryEfficiency > 100.0 THEN rRecoveryEfficiency := 100.0; END_IF;
         IF rRecoveryEfficiency < 0.0 THEN rRecoveryEfficiency := 0.0; END_IF;
     ELSE

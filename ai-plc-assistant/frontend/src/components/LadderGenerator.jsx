@@ -227,11 +227,11 @@ export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) 
               </div>
             )}
 
-            {/* 图形模式 */}
-            {displayMode === 'graph' && networks?.length > 0 && (
+            {/* 图形模式：仅传含 rungs 的网络给 LadderVisualizer，避免与下方旧格式兼容块重复渲染同一 code */}
+            {displayMode === 'graph' && networks?.some((n) => n.rungs?.length) && (
               <div>
                 <div className="text-2xs font-medium text-text-secondary mb-2 uppercase tracking-wider">程序逻辑</div>
-                <LadderVisualizer networks={networks} />
+                <LadderVisualizer networks={networks.filter((n) => n.rungs?.length)} />
               </div>
             )}
 
@@ -243,8 +243,8 @@ export default function LadderGenerator({ addLog, selectedModel = 'deepseek' }) 
               </div>
             )}
 
-            {/* 旧格式 code 字段兼容 */}
-            {displayMode === 'graph' && (!networks?.length || !networks[0]?.rungs) && networks?.map((n, i) => (
+            {/* 旧格式 code 字段兼容：逐网络判断，仅无 rungs 的网络在此显示，与 LadderVisualizer 互斥不重复 */}
+            {displayMode === 'graph' && networks?.filter((n) => !n.rungs?.length).map((n, i) => (
               <div key={i} className="border border-ide-border rounded overflow-hidden">
                 <div className="px-3 py-1.5 bg-ide-panel border-b border-ide-border flex items-center gap-2">
                   <span className="text-2xs font-mono text-accent">Network {n.number}</span>

@@ -8,6 +8,9 @@ export default function LadderTemplateModal({ onClose, onUseTemplate }) {
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
+  // 修复：加载失败不再静默吞掉；通过 error 状态暴露（fail-closed：失败可见而非假装成功）
+  const [listError, setListError] = useState(null)
+  const [detailError, setDetailError] = useState(null)
   const containerRef = useRef(null)
 
   // Batch 8：Esc 关闭弹窗（主计划 §11.4）
@@ -16,16 +19,20 @@ export default function LadderTemplateModal({ onClose, onUseTemplate }) {
   useFocusTrap(containerRef, true)
 
   useEffect(() => {
-    listLadderTemplates().then(d => setTemplates(d.templates || [])).catch(() => {})
+    listLadderTemplates().then(d => setTemplates(d.templates || [])).catch(err => setListError(err))
   }, [])
 
   const handleSelect = async (t) => {
     setSelected(t)
     setLoading(true)
+    setDetailError(null)
     try {
       const data = await getLadderTemplate(t.name)
       setDetail(data)
-    } catch { setDetail(null) }
+    } catch (err) {
+      setDetail(null)
+      setDetailError(err)
+    }
     setLoading(false)
   }
 
@@ -69,8 +76,11 @@ export default function LadderTemplateModal({ onClose, onUseTemplate }) {
                 </div>
               </button>
             ))}
-            {templates.length === 0 && (
+            {templates.length === 0 && !listError && (
               <div className="text-text-dim text-xs text-center py-8">加载中...</div>
+            )}
+            {listError && (
+              <div className="text-text-dim text-xs text-center py-8">模板列表加载失败</div>
             )}
           </div>
 
@@ -80,6 +90,10 @@ export default function LadderTemplateModal({ onClose, onUseTemplate }) {
               <div className="flex items-center justify-center h-full text-text-dim text-xs">加载中...</div>
             ) : detail ? (
               <pre className="p-4 text-xs text-text-primary font-mono leading-relaxed whitespace-pre-wrap">{detail.text}</pre>
+            ) : detailError ? (
+              <div className="flex items-center justify-center h-full text-text-dim text-xs">
+                模板详情加载失败
+              </div>
             ) : (
               <div className="flex items-center justify-center h-full text-text-dim text-xs">
                 ← 选择一个梯形图模板查看详情

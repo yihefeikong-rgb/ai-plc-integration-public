@@ -34,6 +34,7 @@ END_VAR
 VAR
     // PID 内部变量
     rIntegral : Real;                  // 积分累加值
+    rIntegralInc : Real;               // 本次积分增量（只计算一次）
     rPrevError : Real;                 // 上次偏差
     rPrevPV : Real;                    // 上次过程值（用于微分）
     rSampleTime : Real;                // 采样时间 (秒)
@@ -57,7 +58,11 @@ END_VAR
 
 BEGIN
     // ── 采样周期 (200ms) ──
-    tCycle(IN := bEnable, PT := T#200MS);
+    // 自复位定时器：每 200ms 产生一周期脉冲，PID 计算仅在脉冲周期执行一次，
+    // 而非使能后每个扫描周期都执行；rSampleTime 为采样周期对应秒数，
+    // 用于斜坡步长、积分增量与微分项的时间换算
+    tCycle(IN := bEnable AND NOT tCycle.Q, PT := T#200MS);
+    rSampleTime := 0.2;
 
     IF tCycle.Q AND bEnable THEN
         // ── 设定值斜坡 ──
@@ -68,13 +73,13 @@ BEGIN
 
         IF rSetpointRampRate > 0.0 AND rRampCurrent <> rRampTarget THEN
             IF rRampTarget > rRampCurrent THEN
-                rRampCurrent := rRampCurrent + rSetpointRampRate * 0.2;
+                rRampCurrent := rRampCurrent + rSetpointRampRate * rSampleTime;
                 IF rRampCurrent >= rRampTarget THEN
                     rRampCurrent := rRampTarget;
                     bRampActive := FALSE;
                 END_IF;
             ELSE
-                rRampCurrent := rRampCurrent - rSetpointRampRate * 0.2;
+                rRampCurrent := rRampCurrent - rSetpointRampRate * rSampleTime;
                 IF rRampCurrent <= rRampTarget THEN
                     rRampCurrent := rRampTarget;
                     bRampActive := FALSE;
@@ -99,29 +104,33 @@ BEGIN
         // ── P 分量 ──
         rP := rKp * rError;
 
+        // ── D 分量（微分先行：对 PV 微分，避免阶跃冲击） ──
+        IF rTd > 0.0 THEN
+            rD := rKp * rTd * (rPrevPV - rProcessValue) / rSampleTime;
+        ELSE
+            rD := 0.0;
+        END_IF;
+
         // ── I 分量（积分分离 + 抗饱和） ──
         bAntiWindupActive := FALSE;
         IF rTi > 0.0 THEN
-            // 积分分离：|偏差| > 100 时停止积分
-            IF ABS(rError) < 100.0 THEN
-                rIntegral := rIntegral + rKp * rError * 0.2 / rTi;
-            END_IF;
+            // 积分增量只计算一次（原实现同一周期重复两次 Real 除法）
+            rIntegralInc := rKp * rError * rSampleTime / rTi;
 
-            // 抗饱和：输出超限时反向积分
-            IF rOutput >= rOutputMax OR rOutput <= rOutputMin THEN
-                rIntegral := rIntegral - rKp * rError * 0.2 / rTi;
+            // 抗饱和：按当前周期预计输出（P + 当前积分 + D）判定，不再使用
+            // 上一周期陈旧 rOutput；输出越限且偏差方向加剧饱和时反向积分，
+            // 否则正常积分——二者互斥，避免原实现“先加后减、净效果为零”
+            IF (rP + rIntegral + rD >= rOutputMax AND rError > 0.0) OR
+               (rP + rIntegral + rD <= rOutputMin AND rError < 0.0) THEN
+                rIntegral := rIntegral - rIntegralInc;
                 bAntiWindupActive := TRUE;
+            ELSIF ABS(rError) < 100.0 THEN
+                // 积分分离：|偏差| > 100 时停止积分
+                rIntegral := rIntegral + rIntegralInc;
             END_IF;
         END_IF;
 
         rI := rIntegral;
-
-        // ── D 分量（微分先行：对 PV 微分，避免阶跃冲击） ──
-        IF rTd > 0.0 THEN
-            rD := rKp * rTd * (rPrevPV - rProcessValue) / 0.2;
-        ELSE
-            rD := 0.0;
-        END_IF;
 
         // ── 合成输出 ──
         rOutput := rP + rI + rD;

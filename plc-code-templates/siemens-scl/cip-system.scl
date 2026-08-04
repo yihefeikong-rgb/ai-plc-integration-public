@@ -68,6 +68,10 @@ VAR
     bCondCheckPassed : Bool;           // 浓度检测通过
     bTempReached : Bool;               // 温度达到
     bRinseCondOK : Bool;               // 冲洗电导率达标
+
+    // 停留监控
+    tStallTimer : TON;                 // 阶段完成条件停留超时计时
+    tStallTimeout : Time := T#30S;     // 停留超时时间
 END_VAR
 
 BEGIN
@@ -78,6 +82,7 @@ BEGIN
         bAcidValve := FALSE; bDrainValve := FALSE;
         bPhaseActive := FALSE; bFault := TRUE; iFaultCode := 1;
         iCurrentPhase := c_IDLE;
+        tPhaseTimer(IN := FALSE);
         RETURN;
     END_IF;
 
@@ -107,6 +112,18 @@ BEGIN
         bCycleComplete := FALSE;
     END_IF;
 
+    // ── 安全联锁：罐满/罐空/回流丢失 → 立即停机（fail-closed）──
+    IF iCurrentPhase <> c_IDLE AND NOT bDrainValve AND
+       (bTankFull OR bTankEmpty OR NOT bReturnFlowOK) THEN
+        bSupplyPump := FALSE; bReturnPump := FALSE; bHeater := FALSE;
+        bRinseValve := FALSE; bCausticValve := FALSE;
+        bAcidValve := FALSE; bDrainValve := FALSE;
+        bPhaseActive := FALSE; bFault := TRUE; iFaultCode := 2;
+        iCurrentPhase := c_IDLE;
+        tPhaseTimer(IN := FALSE);
+        RETURN;
+    END_IF;
+
     // ── 清洗阶段执行 ──
     CASE iCurrentPhase OF
 
@@ -115,7 +132,7 @@ BEGIN
             bRinseValve := TRUE; bPhaseActive := TRUE;
             tPhaseTimer(IN := TRUE, PT := tRinse1Time);
 
-            IF (tPhaseTimer.Q AND bFlowOK) THEN
+            IF (tPhaseTimer.Q AND bFlowOK AND bReturnFlowOK) THEN
                 bRinseValve := FALSE;
                 bDrainValve := TRUE;
                 tPhaseTimer(IN := FALSE);
@@ -124,7 +141,7 @@ BEGIN
 
         2:  // CAUSTIC — 碱洗循环
             bSupplyPump := TRUE; bReturnPump := TRUE;
-            bCausticValve := TRUE; bPhaseActive := TRUE;
+            bCausticValve := TRUE; bDrainValve := FALSE; bPhaseActive := TRUE;
 
             // 升温控制
             IF rTemperature < rCausticTempSetpoint THEN
@@ -137,7 +154,7 @@ BEGIN
             bCondCheckPassed := rConductivity >= rCausticCondMin;
 
             tPhaseTimer(IN := TRUE, PT := tCausticTime);
-            IF tPhaseTimer.Q AND bCondCheckPassed AND bFlowOK THEN
+            IF tPhaseTimer.Q AND bCondCheckPassed AND bFlowOK AND bReturnFlowOK THEN
                 bCausticValve := FALSE; bHeater := FALSE;
                 bDrainValve := TRUE;
                 tPhaseTimer(IN := FALSE);
@@ -146,10 +163,10 @@ BEGIN
 
         3:  // RINSE2 — 第二次清水冲洗
             bSupplyPump := TRUE; bReturnPump := TRUE;
-            bRinseValve := TRUE; bPhaseActive := TRUE;
+            bRinseValve := TRUE; bDrainValve := FALSE; bPhaseActive := TRUE;
             tPhaseTimer(IN := TRUE, PT := tRinse2Time);
 
-            IF (tPhaseTimer.Q AND bFlowOK) THEN
+            IF (tPhaseTimer.Q AND bFlowOK AND bReturnFlowOK) THEN
                 // 检查冲洗水电导率是否达标
                 bRinseCondOK := rConductivity <= rRinseCondMax;
                 IF bRinseCondOK THEN
@@ -162,7 +179,7 @@ BEGIN
 
         4:  // ACID — 酸洗循环
             bSupplyPump := TRUE; bReturnPump := TRUE;
-            bAcidValve := TRUE; bPhaseActive := TRUE;
+            bAcidValve := TRUE; bDrainValve := FALSE; bPhaseActive := TRUE;
 
             // 升温控制
             IF rTemperature < rAcidTempSetpoint THEN
@@ -175,7 +192,7 @@ BEGIN
             bCondCheckPassed := rConductivity >= rAcidCondMin;
 
             tPhaseTimer(IN := TRUE, PT := tAcidTime);
-            IF tPhaseTimer.Q AND bCondCheckPassed AND bFlowOK THEN
+            IF tPhaseTimer.Q AND bCondCheckPassed AND bFlowOK AND bReturnFlowOK THEN
                 bAcidValve := FALSE; bHeater := FALSE;
                 bDrainValve := TRUE;
                 tPhaseTimer(IN := FALSE);
@@ -184,11 +201,11 @@ BEGIN
 
         5:  // FINAL_RINSE — 最终清水冲洗
             bSupplyPump := TRUE; bReturnPump := TRUE;
-            bRinseValve := TRUE; bPhaseActive := TRUE;
+            bRinseValve := TRUE; bDrainValve := FALSE; bPhaseActive := TRUE;
             tPhaseTimer(IN := TRUE, PT := tFinalRinseTime);
 
             bRinseCondOK := rConductivity <= rRinseCondMax;
-            IF tPhaseTimer.Q AND bRinseCondOK AND bFlowOK THEN
+            IF tPhaseTimer.Q AND bRinseCondOK AND bFlowOK AND bReturnFlowOK THEN
                 bRinseValve := FALSE;
                 bSupplyPump := FALSE; bReturnPump := FALSE;
                 tPhaseTimer(IN := FALSE);
@@ -203,5 +220,21 @@ BEGIN
             bPhaseActive := FALSE;
 
     END_CASE;
+
+    // ── 停留超时：阶段计时到点但完成条件不满足 → fail-closed 停机 ──
+    IF iCurrentPhase <> c_IDLE AND tPhaseTimer.Q THEN
+        tStallTimer(IN := TRUE, PT := tStallTimeout);
+        IF tStallTimer.Q THEN
+            bFault := TRUE; iFaultCode := 3;
+            bSupplyPump := FALSE; bReturnPump := FALSE; bHeater := FALSE;
+            bRinseValve := FALSE; bCausticValve := FALSE;
+            bAcidValve := FALSE; bDrainValve := FALSE;
+            bPhaseActive := FALSE;
+            tPhaseTimer(IN := FALSE);
+            iCurrentPhase := c_IDLE;
+        END_IF;
+    ELSE
+        tStallTimer(IN := FALSE);
+    END_IF;
 
 END_FUNCTION_BLOCK

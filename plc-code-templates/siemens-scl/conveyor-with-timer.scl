@@ -23,9 +23,11 @@ END_VAR
 VAR
     bSafetyOK : Bool;        // 安全条件
     bRunCmd : Bool;          // 运行指令
+    bStopLatch : Bool;       // 停止请求锁存（瞬时按下也生效）
     tStartDelay : TON;       // 启动延时 2s
     tStopDelay : TON;        // 停止延时 3s
     tFaultLatch : Bool;      // 故障锁存
+    trgEntry : R_TRIG;       // 入口物料上升沿检测
 END_VAR
 
 BEGIN
@@ -54,10 +56,14 @@ BEGIN
     
     // ── 停止逻辑 ──
     IF bStop OR NOT bSafetyOK THEN
+        bStopLatch := TRUE;
+    END_IF;
+    IF bStopLatch THEN
         tStopDelay(IN := TRUE, PT := T#3S);
         IF tStopDelay.Q THEN
             bRunCmd := FALSE;
             tStartDelay(IN := FALSE);
+            bStopLatch := FALSE;
         END_IF;
     END_IF;
     
@@ -65,7 +71,7 @@ BEGIN
     IF NOT bStart THEN
         tStartDelay(IN := FALSE);
     END_IF;
-    IF NOT bStop AND bSafetyOK THEN
+    IF NOT bStopLatch AND bSafetyOK THEN
         tStopDelay(IN := FALSE);
     END_IF;
     
@@ -75,8 +81,9 @@ BEGIN
     // ── 速度选择 ──
     bSpeedHigh := bMotorRun AND bSpeedSelect;
     
-    // ── 物料计数 ──
-    IF bSensorEntry AND NOT bSensorExit THEN
+    // ── 物料计数（入口上升沿计一次，避免每周期累加） ──
+    trgEntry(CLK := bSensorEntry);
+    IF trgEntry.Q AND NOT bSensorExit THEN
         iCycleCount := iCycleCount + 1;
     END_IF;
     

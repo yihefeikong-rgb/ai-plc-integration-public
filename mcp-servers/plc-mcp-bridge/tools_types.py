@@ -1,6 +1,29 @@
 """UDT 和 Watch 表管理工具"""
 from _helpers import mcp, _run_tiaworker, _format_result, _check_project, _dry_run_msg, _handle_preview_or_dry_run, PROJECT_PATH
 
+# ── 审计日志（强制，HMAC 链式）：与 tools_blocks.py / tools_s7.py 同一审计链 ──
+from mcp_common.audit import get_audit_logger, AuditConfigurationError, AuditStorageError
+
+_audit = get_audit_logger()
+
+
+def _audit_gate(operation: str, target: str, params: dict) -> str | None:
+    """破坏性操作执行前的审计闸门（fail-closed）：审计不可用或主体未认证时拒绝执行。"""
+    try:
+        _audit.begin_control_operation(operation, target, "", params)
+    except (AuditConfigurationError, AuditStorageError) as exc:
+        return f"🚫 操作被拒绝: {exc}"
+    return None
+
+
+def _audit_outcome(operation: str, target: str, success: bool, detail: str, operator: str = "") -> str:
+    """记录破坏性操作结果审计；写入失败返回告警后缀，不掩盖已发生的副作用。"""
+    try:
+        _audit.log(operation, target, "", operator=operator, success=success, detail=detail)
+    except Exception as exc:
+        return f" ⚠️(审计写入失败: {exc})"
+    return ""
+
 
 # ── UDT 管理 ──
 
@@ -32,9 +55,13 @@ async def create_udt(udt_name: str, dry_run: bool = False, preview: bool = False
     params = {"ProjectPath": PROJECT_PATH, "UdtName": udt_name}
     if msg := _handle_preview_or_dry_run("create-udt", params, dry_run, preview):
         return msg
+    if msg := _audit_gate("types.create_udt", udt_name, params):
+        return msg
     result = _run_tiaworker("create-udt", params)
     if result.get("success"):
-        return f"✅ 已创建 UDT `{udt_name}`"
+        warn = _audit_outcome("types.create_udt", udt_name, True, f"udt={udt_name}")
+        return f"✅ 已创建 UDT `{udt_name}`{warn}"
+    _audit_outcome("types.create_udt", udt_name, False, result.get("error", "创建失败"))
     return _format_result(False, error=result.get("error", "创建失败"))
 
 
@@ -51,9 +78,13 @@ async def delete_udt(udt_name: str, dry_run: bool = False, preview: bool = False
     params = {"ProjectPath": PROJECT_PATH, "UdtName": udt_name}
     if msg := _handle_preview_or_dry_run("delete-udt", params, dry_run, preview):
         return msg
+    if msg := _audit_gate("types.delete_udt", udt_name, params):
+        return msg
     result = _run_tiaworker("delete-udt", params)
     if result.get("success"):
-        return f"✅ 已删除 UDT `{udt_name}`"
+        warn = _audit_outcome("types.delete_udt", udt_name, True, f"udt={udt_name}")
+        return f"✅ 已删除 UDT `{udt_name}`{warn}"
+    _audit_outcome("types.delete_udt", udt_name, False, result.get("error", "删除失败"))
     return _format_result(False, error=result.get("error", "删除失败"))
 
 
@@ -86,9 +117,13 @@ async def create_watch_table(watch_table_name: str, dry_run: bool = False) -> st
     params = {"ProjectPath": PROJECT_PATH, "WatchTableName": watch_table_name}
     if dry_run:
         return _dry_run_msg("create-watch-table", params)
+    if msg := _audit_gate("types.create_watch_table", watch_table_name, params):
+        return msg
     result = _run_tiaworker("create-watch-table", params)
     if result.get("success"):
-        return f"✅ 已创建监控表 `{watch_table_name}`"
+        warn = _audit_outcome("types.create_watch_table", watch_table_name, True, f"watch_table={watch_table_name}")
+        return f"✅ 已创建监控表 `{watch_table_name}`{warn}"
+    _audit_outcome("types.create_watch_table", watch_table_name, False, result.get("error", "创建失败"))
     return _format_result(False, error=result.get("error", "创建失败"))
 
 
@@ -104,7 +139,11 @@ async def delete_watch_table(watch_table_name: str, dry_run: bool = False) -> st
     params = {"ProjectPath": PROJECT_PATH, "WatchTableName": watch_table_name}
     if dry_run:
         return _dry_run_msg("delete-watch-table", params)
+    if msg := _audit_gate("types.delete_watch_table", watch_table_name, params):
+        return msg
     result = _run_tiaworker("delete-watch-table", params)
     if result.get("success"):
-        return f"✅ 已删除监控表 `{watch_table_name}`"
+        warn = _audit_outcome("types.delete_watch_table", watch_table_name, True, f"watch_table={watch_table_name}")
+        return f"✅ 已删除监控表 `{watch_table_name}`{warn}"
+    _audit_outcome("types.delete_watch_table", watch_table_name, False, result.get("error", "删除失败"))
     return _format_result(False, error=result.get("error", "删除失败"))

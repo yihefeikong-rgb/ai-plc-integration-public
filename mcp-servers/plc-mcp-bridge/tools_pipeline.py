@@ -19,8 +19,6 @@ async def download_project(method: str = "auto", compile_first: bool = True, dry
         dry_run: 预览模式，不实际执行
     """
     if err := _check_project(): return err
-    if dry_run:
-        return f"🔍 [Dry-Run] 将执行: download-project\n```json\n{json.dumps({'method': method, 'compile_first': compile_first}, ensure_ascii=False, indent=2)}\n```"
 
     method_map = {
         "auto": [],
@@ -30,19 +28,33 @@ async def download_project(method: str = "auto", compile_first: bool = True, dry
         "ui": ["--ui"],
         "golden-restore": ["--golden-restore"],
     }
-    extra_args = method_map.get(method, [])
-    if compile_first and method == "auto":
-        extra_args = ["--compile-first"]
+    if method not in method_map:
+        return _format_result(False, error=f"未知的下载方式: {method}（可选: {', '.join(method_map)}）")
+    if dry_run:
+        return f"🔍 [Dry-Run] 将执行: download-project\n```json\n{json.dumps({'method': method, 'compile_first': compile_first}, ensure_ascii=False, indent=2)}\n```"
+
+    extra_args = method_map[method]
+    # compile_first 仅对底层 download_to_plcsim.py 支持编译的方式生效；
+    # 其余方式不静默忽略，而是在返回结果中显式说明
+    compile_supported = method in ("auto", "tiaworker", "python", "ui")
+    if compile_first and compile_supported:
+        extra_args = extra_args + ["--compile-first"]
+    compile_note = None
+    if compile_first and not compile_supported:
+        compile_note = f"下载方式 '{method}' 不支持 compile_first，编译请求已忽略"
 
     if method == "golden-restore":
         result = _run_python(DOWNLOAD_SCRIPT, ["--golden-restore"], timeout=120)
-        return _format_result(result.get("success"), error=result.get("error", "恢复失败"))
+        return _format_result(result.get("success"), data={"note": compile_note} if compile_note else None, error=result.get("error", "恢复失败"))
 
     result = _run_python(DOWNLOAD_SCRIPT, extra_args, timeout=300)
-    return _format_result(result.get("success"), data={
+    data = {
         "method": method,
         "output": result.get("output", "")[:500],
-    }, error=result.get("error", "下载失败"))
+    }
+    if compile_note:
+        data["note"] = compile_note
+    return _format_result(result.get("success"), data=data, error=result.get("error", "下载失败"))
 
 
 @mcp.tool(name="plc_fio_write_config", annotations={"destructiveHint": False})
@@ -68,6 +80,7 @@ drivers.siemens_s7plcsim.instance_name = '{name}'
 drivers.siemens_s7plcsim.connection_timeout = 60
 """
     written = []
+    errors = []
     for p in [
         r'C:\ProgramData\Real Games\Factory IO\auto.cfg',
         os.path.join(os.path.expanduser('~'), 'Documents', 'Factory IO', 'auto.cfg'),
@@ -77,12 +90,13 @@ drivers.siemens_s7plcsim.connection_timeout = 60
             with open(p, 'w', encoding='utf-8-sig') as f:
                 f.write(cfg_text)
             written.append(p)
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(f"{p}: {e}")
 
     if written:
         return f"✅ auto.cfg 已写入 ({len(written)} 个位置)"
-    return "! 无法写入 auto.cfg（权限不足？）"
+    detail = "; ".join(errors)
+    return f"! 无法写入 auto.cfg: {detail or '未知原因'}"
 
 
 @mcp.tool(name="plc_fio_launch", annotations={"destructiveHint": False})
@@ -125,8 +139,13 @@ async def run_pipeline(skip_compile: bool = False, launch_fio: bool = True, dry_
         timeout=600,
     )
     out = result.get("output", "")
-    if result.get("success") is False and not out:
-        return _format_result(False, error=result.get("error", "流水线执行失败"))
+    if result.get("success") is False:
+        # 子进程失败时 stdout 可能仍有诊断输出（如 p3_flow 打印的失败摘要），
+        # 必须 fail-closed 返回失败；error 已含完整 stdout 时不再重复拼接
+        error = (result.get("error") or "流水线执行失败")[:1000]
+        if out and out not in error:
+            error = f"{error}\n{out[:1000]}"
+        return _format_result(False, error=error)
     return f"流水线结果:\n{out[:1000]}" if out else "✅ 流水线完成"
 
 
@@ -146,6 +165,12 @@ async def golden_restore(dry_run: bool = False) -> str:
         return "🔍 [Dry-Run] 将执行: golden-restore"
     result = _run_python(P3_SCRIPT, ["--golden-restore"], timeout=120)
     out = result.get("output", "")
+    if result.get("success") is False:
+        # stdout 非空不能掩盖失败：fail-closed 返回失败；error 已含 stdout 时不再重复拼接
+        error = (result.get("error") or "恢复失败")[:1000]
+        if out and out not in error:
+            error = f"{error}\n{out[:1000]}"
+        return _format_result(False, error=error)
     return out if out else _format_result(result.get("success"), error=result.get("error", "恢复失败"))
 
 

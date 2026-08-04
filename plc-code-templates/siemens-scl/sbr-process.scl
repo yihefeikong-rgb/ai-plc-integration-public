@@ -48,17 +48,12 @@ VAR
     c_AERATE : Int := 2;
     c_SETTLE : Int := 3;
     c_DECANT : Int := 4;
+    c_VALVE_MOVE_TIME : Time := T#10S; // 滗水阀动作确认超时
 
     // 阶段计时器
     tPhaseTimer : TON;                 // 阶段计时
     tAerateTrans : TON;                // 曝气切换延时
-
-    // 阶段预设时间 (秒)
-    tFillTimeS : Time;
-    tAerateTimeS : Time;
-    tSettleTimeS : Time;
-    tDecantTimeS : Time;
-    tIdleTimeS : Time;
+    tValveCheck : TON;                 // 滗水阀动作超时校验
 
     // 边沿检测
     bStartOld : Bool;
@@ -111,7 +106,7 @@ BEGIN
 
         1:  // FILL — 进水阶段
             bInletValve := TRUE; bPhaseActive := TRUE;
-            tPhaseTimer(IN := TRUE, PT := tFillTimeS);
+            tPhaseTimer(IN := TRUE, PT := tFillTime);
 
             // 达到高液位或计时到则进入曝气
             IF tPhaseTimer.Q OR bHighLevel THEN
@@ -132,7 +127,7 @@ BEGIN
                 bAeratorLow := FALSE; bAeratorHigh := FALSE;  // 停止曝气
             END_IF;
 
-            tPhaseTimer(IN := TRUE, PT := tAerateTimeS);
+            tPhaseTimer(IN := TRUE, PT := tAerateTime);
             IF tPhaseTimer.Q THEN
                 bAeratorLow := FALSE; bAeratorHigh := FALSE;
                 tPhaseTimer(IN := FALSE);
@@ -143,7 +138,7 @@ BEGIN
             bPhaseActive := TRUE;
             bAeratorLow := FALSE; bAeratorHigh := FALSE;
 
-            tPhaseTimer(IN := TRUE, PT := tSettleTimeS);
+            tPhaseTimer(IN := TRUE, PT := tSettleTime);
             IF tPhaseTimer.Q THEN
                 tPhaseTimer(IN := FALSE);
                 iCurrentPhase := c_DECANT;
@@ -152,12 +147,24 @@ BEGIN
         4:  // DECANT — 滗水阶段
             bPhaseActive := TRUE;
 
-            // 低液位到达或滗水器全开反馈
+            // 低液位未到前保持滗水阀开启
             IF NOT bLowLevel THEN
                 bDecantValve := TRUE;
             END_IF;
 
-            tPhaseTimer(IN := TRUE, PT := tDecantTimeS);
+            // 滗水阀开反馈校验：指令开但超时无开反馈 → 滗水器卡死故障
+            IF bDecantValve AND NOT bDecantValveOpen THEN
+                tValveCheck(IN := TRUE, PT := c_VALVE_MOVE_TIME);
+                IF tValveCheck.Q THEN
+                    bDecantValve := FALSE; bPhaseActive := FALSE;
+                    bFault := TRUE;
+                    RETURN;
+                END_IF;
+            ELSE
+                tValveCheck(IN := FALSE);
+            END_IF;
+
+            tPhaseTimer(IN := TRUE, PT := tDecantTime);
             IF tPhaseTimer.Q OR bLowLevel THEN
                 bDecantValve := FALSE;
                 tPhaseTimer(IN := FALSE);
@@ -169,6 +176,17 @@ BEGIN
         0:  // IDLE — 闲置
             bInletValve := FALSE; bAeratorLow := FALSE; bAeratorHigh := FALSE;
             bDecantValve := FALSE; bSludgeValve := FALSE; bPhaseActive := FALSE;
+
+            // 滗水阀关反馈校验：滗水结束指令关但超时无关反馈 → 卡死故障
+            IF bCycleComplete AND NOT bDecantValveClosed THEN
+                tValveCheck(IN := TRUE, PT := c_VALVE_MOVE_TIME);
+                IF tValveCheck.Q THEN
+                    bFault := TRUE;
+                    RETURN;
+                END_IF;
+            ELSE
+                tValveCheck(IN := FALSE);
+            END_IF;
 
     END_CASE;
 

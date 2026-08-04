@@ -24,6 +24,18 @@ def _make_validator(bit_states: dict | None = None):
     return v
 
 
+class _FakeClock:
+    """固定不走的假时钟：仅替换 validator 模块内的 time 引用。
+
+    用于把冷却互锁测试与墙钟解耦：两次 validate() 之间的 elapsed 恒为 0，
+    慢 CI/GC/调试下不会因 elapsed>=cooldown 产生假失败；也不像全局
+    time.time monkeypatch 那样污染同进程其他测试。
+    """
+
+    def time(self):
+        return 1000.0
+
+
 # ── DB1.GripperPressure（0-100, SafetyOK+EmergencyStopOff, cooldown=1s） ─────
 
 
@@ -59,8 +71,13 @@ class TestGripperPressure:
         assert not result.allowed
         assert "安全前置条件" in result.reason
 
-    def test_cooldown_enforced(self):
+    def test_cooldown_enforced(self, monkeypatch):
         v = _make_validator()
+        # cooldown=1s：两次 validate 必须落在冷却窗口内。用假时钟替换
+        # validator 模块内的 time 引用（不触碰进程级 time.time），
+        # 消除慢 CI/GC/调试下 elapsed>=cooldown 导致的墙钟竞态。
+        import safety.validator as validator_mod
+        monkeypatch.setattr(validator_mod, "time", _FakeClock())
         r1 = v.validate(self.TAG, 50)
         assert r1.allowed, r1.reason
         r2 = v.validate(self.TAG, 60)

@@ -2,7 +2,7 @@
 import { API_BASE, localControlHeaders } from '../../api'
 
 export async function apiGet(path) {
-  const res = await fetch(`${API_BASE}${path}`)
+  const res = await fetch(`${API_BASE}${path}`, { headers: localControlHeaders() })
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || `HTTP ${res.status}`) }
   return res.json()
 }

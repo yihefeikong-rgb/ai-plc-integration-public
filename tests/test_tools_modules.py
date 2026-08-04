@@ -67,9 +67,16 @@ class TestDiagnostics:
 class TestHardware:
     """tools_hardware 硬件配置工具"""
 
+    @staticmethod
+    def _clear_cache():
+        """清空模块级 TTL 缓存，避免测试间相互污染"""
+        import tools_hardware
+        tools_hardware._topology_cache._store.clear()
+
     @patch("tools_hardware._check_project", return_value=None)
     @patch("tools_hardware._run_tiaworker")
     def test_get_device_config_success(self, mock_tia, mock_check):
+        self._clear_cache()
         import tools_hardware
         mock_tia.return_value = {
             "success": True,
@@ -85,6 +92,7 @@ class TestHardware:
     @patch("tools_hardware._check_project", return_value=None)
     @patch("tools_hardware._run_tiaworker")
     def test_get_device_config_empty(self, mock_tia, mock_check):
+        self._clear_cache()
         import tools_hardware
         mock_tia.return_value = {"success": True, "data": {"devices": []}}
         result = asyncio.run(tools_hardware.get_device_config())

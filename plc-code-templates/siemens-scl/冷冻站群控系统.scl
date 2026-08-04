@@ -82,6 +82,11 @@ VAR
     tonStartDelay : TON;                 // 冷机启动间隔延时
     bStarting : Bool;                    // 正在启动过程中
 
+    // 水泵启动确认（主泵故障切换保护）
+    tonPumpStartTimer : TON;             // 泵启动反馈确认超时(10s)
+    bPumpRunCheckActive : Bool;          // 泵启动反馈等待中
+    bPumpFaultLatched : Bool;            // 泵启动故障已锁存（超时无反馈）
+
     // 轮换选择
     iNextChiller : Int;                  // 下一个启动的冷机号
     iPrimaryPump : Int;                  // 当前主泵编号 (1/2)
@@ -215,13 +220,15 @@ BEGIN
     // ============================================
     // 冷机轮换选择（累计运行时间最短优先）
     // ============================================
-    // 选择下一个启动的冷机（排除故障机）
-    iNextChiller := 1;
-    IF NOT bChiller1Fault AND (diChiller1Hours <= diChiller2Hours) AND (diChiller1Hours <= diChiller3Hours) THEN
+    // 选择下一个启动的冷机（排除故障机与已运行机，避免命令重复发给已运行冷机）
+    iNextChiller := 0;
+    IF NOT bChiller1Run AND NOT bChiller1Fault THEN
         iNextChiller := 1;
-    ELSIF NOT bChiller2Fault AND (diChiller2Hours <= diChiller1Hours) AND (diChiller2Hours <= diChiller3Hours) THEN
+    END_IF;
+    IF NOT bChiller2Run AND NOT bChiller2Fault AND (iNextChiller = 0 OR diChiller2Hours < diChiller1Hours) THEN
         iNextChiller := 2;
-    ELSIF NOT bChiller3Fault THEN
+    END_IF;
+    IF NOT bChiller3Run AND NOT bChiller3Fault AND (iNextChiller = 0 OR diChiller3Hours < diChiller1Hours OR diChiller3Hours < diChiller2Hours) THEN
         iNextChiller := 3;
     END_IF;
 
@@ -261,20 +268,37 @@ BEGIN
         IF iPrimaryPump = 1 THEN
             bChPump1Cmd := TRUE;
             bChPump2Cmd := FALSE;
-            // 主泵故障切备泵
-            IF NOT bChPump1Run AND bChPump1Cmd THEN
-                bChPump2Cmd := TRUE;
-            END_IF;
         ELSE
             bChPump2Cmd := TRUE;
             bChPump1Cmd := FALSE;
-            IF NOT bChPump2Run AND bChPump2Cmd THEN
-                bChPump1Cmd := TRUE;
-            END_IF;
         END_IF;
     ELSE
         bChPump1Cmd := FALSE;
         bChPump2Cmd := FALSE;
+    END_IF;
+
+    // 主泵启动确认（故障切换保护）：启动命令与运行反馈必须分开扫描判断。
+    // 收到启动命令后等待反馈，反馈在超时(10s)内未建立才判定启动故障：
+    // 停止故障泵命令并切换至备泵。原逻辑同扫描内检查，正常启动时反馈必为
+    // FALSE，每次启动都会误判故障并同时启动备泵。
+    bPumpRunCheckActive := (bChPump1Cmd AND NOT bChPump1Run) OR (bChPump2Cmd AND NOT bChPump2Run);
+    tonPumpStartTimer(IN := bPumpRunCheckActive, PT := T#10s);
+
+    IF tonPumpStartTimer.Q AND NOT bPumpFaultLatched THEN
+        // 启动超时且无运行反馈 -> 启动故障：停故障泵并切备泵
+        bPumpFaultLatched := TRUE;
+        IF bChPump1Cmd AND NOT bChPump1Run THEN
+            bChPump1Cmd := FALSE;
+            bChPump2Cmd := TRUE;
+        ELSIF bChPump2Cmd AND NOT bChPump2Run THEN
+            bChPump2Cmd := FALSE;
+            bChPump1Cmd := TRUE;
+        END_IF;
+    END_IF;
+
+    // 等待条件解除（反馈已建立或无启动命令）后清除故障锁存，允许重新计时
+    IF bPumpFaultLatched AND NOT bPumpRunCheckActive THEN
+        bPumpFaultLatched := FALSE;
     END_IF;
 
     // 泵轮换：每720小时（30天）切换主泵
@@ -314,7 +338,7 @@ BEGIN
     // 报警处理
     // ============================================
     bChillerAlarm := bChiller1Fault OR bChiller2Fault OR bChiller3Fault;
-    bPumpAlarm := (bChPump1Cmd AND NOT bChPump1Run AND NOT bChPump2Run);
+    bPumpAlarm := bPumpFaultLatched;   // 泵启动故障（启动命令下发后10s内无运行反馈）
     bPressureAlarm := (rChwPressure < 1.0) OR (rChwPressure > 8.0)
                       OR (rCwPressure < 0.5) OR (rCwPressure > 6.0);
 
@@ -324,6 +348,7 @@ BEGIN
     IF bReset THEN
         bChillerAlarm := FALSE;
         bPumpAlarm := FALSE;
+        bPumpFaultLatched := FALSE;
         bPressureAlarm := FALSE;
     END_IF;
 

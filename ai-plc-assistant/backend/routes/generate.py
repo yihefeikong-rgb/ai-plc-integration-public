@@ -177,15 +177,33 @@ async def export_code(req: ExportRequest, _actor: str = Depends(require_local_se
     }
 
 
+def _safe_filename(name: str) -> str:
+    """清理用户可控文件名，防止注入 Content-Disposition 响应头。
+
+    RFC 6266 的 quoted-string 不允许 CR/LF、内嵌引号与控制字符；
+    这里同时过滤路径分隔符与非法字符，并限制为 ASCII 可见字符，
+    避免非 ASCII 文件名在 latin-1 编码的响应头中直接崩溃。
+    """
+    safe = []
+    for ch in name:
+        o = ord(ch)
+        if 32 <= o <= 126 and ch not in ('"', "\\", "/", ":", "*", "?", "<", ">", "|"):
+            safe.append(ch)
+        else:
+            safe.append("_")
+    return "".join(safe).strip(" ._") or "export"
+
+
 @router.post("/export/download")
 async def download_export(req: ExportRequest, _actor: str = Depends(require_local_session)):
     """导出并直接下载文件"""
     result = await export_code(req, _actor)
     mime = result["mime_type"]
+    filename = _safe_filename(result["filename"])
     return PlainTextResponse(
         content=result["content"],
         media_type=mime,
-        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -196,6 +214,85 @@ async def get_generation_prompt(req: GenerateRequest, _actor: str = Depends(requ
         raise HTTPException(status_code=400, detail="请输入程序描述")
     prompt = build_prompt(req.input, req.context or None)
     return {"prompt": prompt}
+
+
+def _element_to_ascii(elem: dict) -> tuple[str, str]:
+    """将结构化元素 dict 转为 (名称, 符号) 两行式 ASCII-LAD-V2 表示。"""
+    etype = elem.get("type")
+    if etype == "contact":
+        return elem.get("name", ""), ("|/|" if elem.get("normally_closed") else "| |")
+    if etype == "coil":
+        symbol = {"set": "(S)", "reset": "(R)"}.get(elem.get("kind", "normal"), "( )")
+        return elem.get("name", ""), symbol
+    if etype == "timer":
+        return "", f"[{elem.get('timer_type', 'TON')} {elem.get('name', '')} PT={elem.get('pt', '')}]"
+    if etype == "counter":
+        return "", f"[{elem.get('counter_type', 'CTU')} {elem.get('name', '')} PV={elem.get('pv', 0)}]"
+    if etype == "move":
+        return "", f"[MOVE IN={elem.get('source', '')} OUT={elem.get('target', '')}]"
+    if etype == "comparator":
+        return "", f"[CMP {elem.get('op', 'EQ')} {elem.get('a', '')} {elem.get('b', '')}]"
+    if etype == "block_call":
+        return "", f"[{elem.get('block_type', 'FC')} {elem.get('name', '')}]"
+    return "", ""
+
+
+def _rungs_to_ascii(network: dict) -> str:
+    """将结构化 rungs 反序列化为 ASCII-LAD-V2 文本。
+
+    program_to_dict 输出的 networks 只带结构化 rungs（无 code），而
+    scl_generator/xml_generator 只消费 Network.code（ASCII 文本）。
+    这里把结构化元素重建回 ASCII，避免 /ladder/scl 与 /ladder/xml
+    的导出结果静默丢失梯形图逻辑。
+    """
+    rows: list[str] = []
+
+    for rung in network.get("rungs", []):
+        names: list[str] = []
+        symbols: list[str] = []
+        branch_paths: list[list[dict]] = []
+
+        for elem in rung.get("elements", []):
+            if elem.get("type") == "branch":
+                paths = elem.get("paths") or []
+                if not paths:
+                    continue
+                # 主路径并入串联序列，其余路径作为 OR 分支单独成行
+                for e in paths[0]:
+                    name, symbol = _element_to_ascii(e)
+                    if symbol:
+                        names.append(name)
+                        symbols.append(symbol)
+                branch_paths.extend(paths[1:])
+            else:
+                name, symbol = _element_to_ascii(elem)
+                if symbol:
+                    names.append(name)
+                    symbols.append(symbol)
+
+        if not symbols:
+            continue
+
+        # 两行式：名称行在上，符号行在下（符号前补 -- 导轨便于 SCL 提取）
+        widths = [max(len(names[i]), len(symbols[i])) + 2 for i in range(len(symbols))]
+        name_row = "".join(names[i].ljust(widths[i]) for i in range(len(names))).rstrip()
+        symbol_row = "--" + "--".join(
+            symbols[i].ljust(widths[i] - 2) for i in range(len(symbols))
+        ).rstrip()
+
+        if name_row:
+            rows.append(name_row)
+        rows.append(symbol_row)
+
+        for path in branch_paths:
+            path_blocks = [b for b in (_element_to_ascii(e) for e in path) if b[1]]
+            if not path_blocks:
+                continue
+            if any(name for name, _ in path_blocks):
+                rows.append("| " + " ".join(name for name, _ in path_blocks if name))
+            rows.append("+--" + "--".join(symbol for _, symbol in path_blocks))
+
+    return "\n".join(rows)
 
 
 def _dict_to_program(data: dict) -> LadderProgram:
@@ -209,10 +306,15 @@ def _dict_to_program(data: dict) -> LadderProgram:
             v.get("comment", ""),
         )
     for n in data.get("networks", []):
+        code = n.get("code", "")
+        if not code and n.get("rungs"):
+            # program_to_dict 只输出结构化 rungs，这里反序列化回 ASCII
+            # 填入 Network.code，供 scl_generator/xml_generator 消费
+            code = _rungs_to_ascii(n)
         p.add_network(
             n.get("number", 0),
             n.get("title", ""),
-            n.get("code", ""),
+            code,
             n.get("comment", ""),
         )
     return p

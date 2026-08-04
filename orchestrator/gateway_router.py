@@ -22,6 +22,11 @@ def is_tia_read_operation(operation: str) -> bool:
     return operation in READ_ROUTE_MAP
 
 
+def _shadow_compare_enabled() -> bool:
+    """影子对比默认关闭：避免每次只读调用固定双倍 MCP 往返与审计条目。"""
+    return os.environ.get("PLC_GATEWAY_SHADOW_COMPARE", "").strip().lower() not in {"", "0", "false", "no", "off"}
+
+
 async def _call(pool, endpoint: tuple[str, str], arguments: dict[str, Any]) -> tuple[dict | None, str]:
     try:
         return normalize_tool_result(await pool.call_tool(*endpoint, arguments))
@@ -65,10 +70,17 @@ def _block_set(result: dict | None) -> set[tuple[str, str, str, str]]:
     return normalized
 
 
+def _is_success(result: dict | None) -> bool:
+    """对称的成功判定：与 normalize_tool_result 的失败语义一致，显式失败标记才判失败。"""
+    if not isinstance(result, dict):
+        return False
+    return result.get("ok") is not False and result.get("success") is not False
+
+
 def compare_results(operation: str, gateway_result: dict | None, legacy_result: dict | None) -> dict:
     """比较标准化只读结果；不记录项目路径、完整 XML 或原始载荷。"""
-    gateway_ok = bool(gateway_result and gateway_result.get("ok") is True)
-    legacy_ok = bool(legacy_result and legacy_result.get("ok", True) is not False)
+    gateway_ok = _is_success(gateway_result)
+    legacy_ok = _is_success(legacy_result)
     comparison: dict[str, Any] = {
         "operation": operation,
         "gateway_ok": gateway_ok,
@@ -103,6 +115,21 @@ async def route_tia_read(pool, canonical_operation: str, arguments: dict[str, An
         return result or {"ok": False, "status": "error", "error": f"Gateway 不可用: {error}"}
     if mode != "shadow":
         return {"ok": False, "status": "blocked", "error": f"未知 Gateway 路由模式: {mode}"}
+
+    # 影子对比是迁移验证行为，默认关闭：只走旧 MCP（单次往返、单份审计条目），
+    # 仅当显式设置 PLC_GATEWAY_SHADOW_COMPARE 时才并发调用两个 provider 进行比较。
+    if not _shadow_compare_enabled():
+        legacy_result, legacy_error = await _call(pool, route["legacy"], args)
+        if legacy_result is not None:
+            return legacy_result
+        # 旧 MCP 失败时做一次 gateway 探活，仅用于诊断，不改变失败结论。
+        gateway_result, gateway_error = await _call(pool, route["gateway"], args)
+        return {
+            "ok": False,
+            "status": "error",
+            "error": f"旧 MCP 不可用: {legacy_error}",
+            "gateway_diagnostics": {"available": gateway_result is not None, "error": gateway_error},
+        }
 
     gateway_task = _call(pool, route["gateway"], args)
     legacy_task = _call(pool, route["legacy"], args)

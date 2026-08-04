@@ -51,6 +51,9 @@ def _make_engine(**kwargs):
 
     engine = MagicMock()
     engine.list_workflows.return_value = wf_list
+    # api.py 现用 get_workflow/get_dynamic_workflow 做 O(1) 成员判断（不再重建列表）
+    engine.get_workflow.side_effect = lambda n: (wf_name if n == wf_name else None)
+    engine.get_dynamic_workflow.return_value = None
     engine.run_async = AsyncMock(return_value=result)
     return engine, result
 
@@ -107,6 +110,8 @@ class TestWorkflowRun:
         )
         engine = MagicMock()
         engine.list_workflows.return_value = ["s7_monitor"]
+        engine.get_workflow.side_effect = lambda n: n if n == "s7_monitor" else None
+        engine.get_dynamic_workflow.return_value = None
         engine.run_async = AsyncMock(return_value=result)
 
         with _orch_client(engine, monkeypatch) as c:
@@ -131,6 +136,8 @@ class TestWorkflowRun:
 
         engine = MagicMock()
         engine.list_workflows.return_value = ["test_wf"]
+        engine.get_workflow.side_effect = lambda n: n if n == "test_wf" else None
+        engine.get_dynamic_workflow.return_value = None
         engine.run_async = _capture
 
         with _orch_client(engine, monkeypatch) as c:
@@ -153,6 +160,8 @@ class TestWorkflowRun:
         )
         engine = MagicMock()
         engine.list_workflows.return_value = ["bad"]
+        engine.get_workflow.side_effect = lambda n: n if n == "bad" else None
+        engine.get_dynamic_workflow.return_value = None
         engine.run_async = AsyncMock(return_value=result)
 
         with _orch_client(engine, monkeypatch) as c:

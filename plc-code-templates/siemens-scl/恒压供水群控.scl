@@ -52,6 +52,7 @@ VAR
     rPidKd : Real;
     rPidIntegral : Real;
     rPidPrevErr : Real;
+    rPidErr : Real;                     // 本次扫描的压力偏差（复用，避免重复求值）
     rPidOutput : Real;
 
     // 加减泵
@@ -169,14 +170,15 @@ BEGIN
     // ============================================
     // PID 恒压控制
     // ============================================
-    rPidIntegral := rPidIntegral + ((rPressureSetpoint - rPressureActual) * rPidKi);
+    rPidErr := rPressureSetpoint - rPressureActual;
+    rPidIntegral := rPidIntegral + (rPidErr * rPidKi);
     IF rPidIntegral > 50.0 THEN rPidIntegral := 50.0; END_IF;
     IF rPidIntegral < -10.0 THEN rPidIntegral := -10.0; END_IF;
 
-    rPidOutput := ((rPressureSetpoint - rPressureActual) * rPidKp)
+    rPidOutput := (rPidErr * rPidKp)
                   + rPidIntegral
-                  + ((rPidPrevErr - (rPressureSetpoint - rPressureActual)) * rPidKd);
-    rPidPrevErr := rPressureSetpoint - rPressureActual;
+                  + ((rPidPrevErr - rPidErr) * rPidKd);
+    rPidPrevErr := rPidErr;
 
     // 频率输出 (0-50Hz)
     rVFDFreqCmd := rPidOutput;
@@ -210,19 +212,19 @@ BEGIN
     IF iTargetPumps < 1 THEN iTargetPumps := 1; END_IF;
 
     // ============================================
-    // 泵选择（运行时间最短优先）
+    // 泵选择（未运行且无故障的泵中，累计运行时间最短优先）
     // ============================================
-    iNextPump := 1;
-    IF NOT bPump1Fault AND (diPump1Hours <= diPump2Hours) AND (diPump1Hours <= diPump3Hours) THEN
+    iNextPump := 0;
+    IF NOT bPump1Run AND NOT bPump1Fault AND (diPump1Hours <= diPump2Hours) AND (diPump1Hours <= diPump3Hours) THEN
         iNextPump := 1;
-    ELSIF NOT bPump2Fault AND (diPump2Hours <= diPump1Hours) AND (diPump2Hours <= diPump3Hours) THEN
+    ELSIF NOT bPump2Run AND NOT bPump2Fault AND (diPump2Hours <= diPump1Hours) AND (diPump2Hours <= diPump3Hours) THEN
         iNextPump := 2;
-    ELSIF NOT bPump3Fault THEN
+    ELSIF NOT bPump3Run AND NOT bPump3Fault THEN
         iNextPump := 3;
     END_IF;
 
-    // 加泵
-    IF iTargetPumps > iRunningPumps THEN
+    // 加泵（仅当选中未运行的泵时才发启动命令，避免命令重复到已运行泵）
+    IF (iTargetPumps > iRunningPumps) AND (iNextPump <> 0) THEN
         CASE iNextPump OF
             1: bPump1Cmd := TRUE;
             2: bPump2Cmd := TRUE;

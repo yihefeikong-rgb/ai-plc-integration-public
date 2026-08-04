@@ -82,10 +82,19 @@ def _progress_bar(current: int, total: int, label: str = "", width: int = 30) ->
     print(f"\r  [{_GREEN}{bar}{_RESET}] {int(pct * 100)}%{label_str}", end="", flush=True)
 
 
-def _big_result(success: bool) -> None:
-    """输出大字结果。"""
+def _big_result(success: bool, skipped: bool = False) -> None:
+    """输出大字结果。skipped=True 表示验证被跳过、结果未经验证。"""
     print("\n\n")
-    if success:
+    if skipped:
+        print(f"{_YELLOW}{_BOLD}")
+        print("  ╔══════════════════════════════════════╗")
+        print("  ║                                      ║")
+        print("  ║  >>> Demo 完成（未验证）<<<         ║")
+        print("  ║  >>> snap7 验证已跳过 <<<           ║")
+        print("  ║                                      ║")
+        print("  ╚══════════════════════════════════════╝")
+        print(f"{_RESET}")
+    elif success:
         print(f"{_GREEN}{_BOLD}")
         print("  ╔══════════════════════════════════════╗")
         print("  ║                                      ║")
@@ -149,14 +158,16 @@ def _read_snap7_variables(ip: str) -> dict[str, Any]:
             return {"success": False, "error": str(e), "duration_ms": (time.time() - t0) * 1000}
 
         variables = {}
+        read_ok = True
         try:
             m0_data = client.read_area(snap7.types.Areas.MK, 0, 0, 1)
             variables["M0.0"] = {"value": get_bool(m0_data, 0, 0), "desc": "电机运行位"}
         except Exception as e:
             variables["M0.0"] = {"value": None, "error": str(e)}
+            read_ok = False
 
         client.disconnect()
-        return {"success": True, "variables": variables, "duration_ms": (time.time() - t0) * 1000}
+        return {"success": read_ok, "variables": variables, "duration_ms": (time.time() - t0) * 1000}
     except ImportError:
         return {"success": False, "error": "snap7 未安装"}
     except Exception as e:
@@ -319,7 +330,9 @@ def run_demo(
     # ═══════════════════════════════════════
     if skip_snap7:
         _step_header(3, 4, "snap7 验证 — 跳过")
-        _log("已通过 --skip-snap7 跳过", "info")
+        _log("已通过 --skip-snap7 跳过", "warn")
+        _log("未执行 PLC 变量验证，本次运行不视为全链路验证通过", "warn")
+        snap7_ok = False
     else:
         _step_header(3, 4, "snap7 PLC 变量验证")
 
@@ -336,10 +349,22 @@ def run_demo(
                     _log(f"  {var_name} = {val} ({desc})", "ok")
                 else:
                     _log(f"  {var_name}: 读取失败 ({desc})", "warn")
+            read_ok = [
+                var_info.get("value") is not None
+                for var_info in snap7_result.get("variables", {}).values()
+            ]
+            snap7_ok = bool(read_ok) and all(read_ok)
+            if not snap7_ok:
+                _log("PLC 变量读取失败，验证未通过", "fail")
         else:
             error = snap7_result.get("error", "未知错误")
-            _log(f"snap7 连接失败: {error}", "warn")
+            _log(f"snap7 连接或变量读取失败: {error}", "fail")
+            for var_info in snap7_result.get("variables", {}).values():
+                var_err = var_info.get("error")
+                if var_err:
+                    _log(f"  读取错误: {var_err}", "warn")
             _log("PLCSIM 可能未就绪或 PLC IP 不匹配", "info")
+            snap7_ok = False
 
     # ═══════════════════════════════════════
     #  Step 4: 演示完成
@@ -351,6 +376,14 @@ def run_demo(
     print(f"  Prompt:   {_FIXED_PROMPT}")
     print(f"  项目名:   {project_name}")
     print(f"  PLC IP:   {plc_ip}")
+
+    if not snap7_ok:
+        if skip_snap7:
+            _log("snap7 验证已跳过：本次运行未验证 PLC 可读，不能视为全链路通过", "warn")
+            _big_result(False, skipped=True)
+        else:
+            _big_result(False)
+        return False
 
     _big_result(True)
 
@@ -383,7 +416,7 @@ def main() -> None:
     parser.add_argument("--project-name", default=None, help="TIA 项目名")
     parser.add_argument("--project-path", default=None, help="TIA 项目路径")
     parser.add_argument("--plc-ip", default=None, help="PLC IP（仅接受 config.yaml 的唯一 target）")
-    parser.add_argument("--skip-snap7", action="store_true", help="跳过 snap7 变量读取")
+    parser.add_argument("--skip-snap7", action="store_true", help="跳过 snap7 变量读取（结果视为未验证，不按成功退出）")
     args = parser.parse_args()
 
     success = run_demo(

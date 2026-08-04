@@ -161,11 +161,15 @@ def _ensure_user_interface():
 # ── 强制清理 ──
 
 
-def force_cleanup(name: str):
+def force_cleanup(name: str, *, confirm: bool = False):
     """强制清理 PLCSIM 实例残留数据。
 
     当 PLCSIM Advanced GUI 中出现无法删除的残留实例（如 IP 显示 0.0.0.0），
     或同名实例删除后自动恢复时，使用此函数完全清理。
+
+    ⚠ 不可逆的破坏性操作：注销实例、删除存储目录与 golden backup 文件、
+    清理 ProgramData 残留、删除注册表匹配键。默认拒绝执行（fail-closed），
+    调用方必须显式传入 confirm=True 才会真正清理。
 
     清理项目:
       1. 通过 API 注销实例（UnregisterInstance）
@@ -175,8 +179,15 @@ def force_cleanup(name: str):
 
     Args:
         name: 实例名称（如 "factoryio"）
+        confirm: 必须为 True 才执行；缺省 False 一律拒绝（fail-closed）。
     """
     _require_isolated_target(name)
+    if confirm is not True:
+        raise TargetConfigurationError(
+            f"拒绝执行 force_cleanup('{name}')：该操作不可逆"
+            "（注销实例、删除存储目录与 golden backup、清理 ProgramData、删除注册表键）。"
+            "必须显式传入 confirm=True 才会执行。"
+        )
     print(f"[plcsim] 强制清理实例 '{name}' ...")
 
     sp = None
@@ -342,15 +353,21 @@ def create_instance(
     existing = _get_instance(name)
     if existing is not None:
         st = STATE_NAMES.get(existing.OperatingState, "unknown")
-        if st == "run":
-            print(f"[plcsim] 实例 '{name}' 已在运行，复用")
-            return existing
-        elif st in ("stop", "off"):
-            print(f"[plcsim] 实例 '{name}' 已存在（{st}），恢复运行")
+        if st in ("run", "stop", "off"):
+            # 复用前强制重设 TCP/IP：SetIPSuite 只能在 Stop 状态调用。
+            # 已注册实例可能被外部工具以漂移 IP 注册；若不在此纠正，
+            # 下载闸门只校验实例名、不校验 IP，漂移实例可通过全部闸门。
+            print(f"[plcsim] 实例 '{name}' 已存在（{st}），重设 IP 并恢复运行")
+            _ensure_off(existing)
             existing.PowerOn()
-            time.sleep(2)
+            _wait_for_state(existing, EOperatingState.Stop, timeout=20)
+            if interface == "tcpip":
+                existing.SetIPSuite(0, SIPSuite4(ip, subnet, "0.0.0.0"), False)
+                print(f"[plcsim] TCPIP {ip}/{subnet}")
             existing.Run()
             _wait_for_state(existing, EOperatingState.Run, timeout=30)
+            time.sleep(2)
+            print(f"[plcsim] OK '{name}' RUN (IP={ip})")
             return existing
         else:
             print(f"[plcsim] 实例 '{name}' 状态异常（{st}），重建")

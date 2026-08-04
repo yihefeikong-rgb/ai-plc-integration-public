@@ -1,5 +1,5 @@
 // 聊天输入区 — 模板/附件/引用工程 + 输入框 + 发送/停止
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Send, Square, FileText, Paperclip, AtSign, Loader2,
 } from 'lucide-react'
@@ -15,8 +15,18 @@ export default function ChatInput({
 }) {
   const fileRef = useRef(null)
   const [uploading, setUploading] = useState(false)
+  // P4-N1 修复：超限文件给用户可见提示 + 短暂视觉反馈（替代仅 console.warn 的静默丢弃）
+  const [attachError, setAttachError] = useState('')
+  const [rejecting, setRejecting] = useState(false)
+  const rejectTimerRef = useRef(null)
+  const clearRejection = () => {
+    setAttachError('')
+    setRejecting(false)
+  }
+  // 卸载时清理计时器，避免对已卸载组件 setState
+  useEffect(() => () => clearTimeout(rejectTimerRef.current), [])
   const handleAttachmentClick = () => {
-    if (uploading) return
+    if (uploading || rejecting) return
     fileRef.current?.click()
   }
   const handleFileChange = async (e) => {
@@ -26,13 +36,19 @@ export default function ChatInput({
     if (!file) return
     // P4-N1：文件大小预检 — 用提示消息而非 alert 阻塞
     if (file.size > MAX_FILE_SIZE) {
-      const msg = `[附件] 大小 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 10MB 上限`
+      const msg = `[附件] 大小 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 10MB 上限，已取消上传`
       onAddAttachment && console.warn(msg)
-      // ChatInput 没有 addLog 直接访问；用 console.warn + 视觉禁用按钮一段时间
+      // ChatInput 没有 addLog 直接访问；用内联错误消息 + 视觉禁用按钮一段时间
+      setAttachError(msg)
+      setRejecting(true)
+      clearTimeout(rejectTimerRef.current)
+      rejectTimerRef.current = setTimeout(clearRejection, 4000)
       return
     }
     if (!onAddAttachment) return
     // P4-N2：防重复点击
+    clearRejection()
+    clearTimeout(rejectTimerRef.current)
     setUploading(true)
     try {
       await onAddAttachment(file)
@@ -73,7 +89,7 @@ export default function ChatInput({
         <button
           type="button"
           onClick={handleAttachmentClick}
-          disabled={uploading}
+          disabled={uploading || rejecting}
           title={uploading ? '上传中...' : '上传附件到知识库'}
           className="px-2 py-2 text-text-dim hover:text-accent border border-ide-border rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -123,6 +139,12 @@ export default function ChatInput({
           </button>
         )}
       </form>
+      {/* P4-N1 修复：超限附件错误提示（用户可见，非阻塞） */}
+      {attachError && (
+        <div className="max-w-4xl mx-auto px-3 pb-2 text-2xs text-error" role="alert">
+          {attachError}
+        </div>
+      )}
     </div>
   )
 }

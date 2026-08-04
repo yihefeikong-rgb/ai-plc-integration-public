@@ -158,6 +158,19 @@ export async function streamChat({ model_id = 'deepseek', messages = [], tempera
   const decoder = new TextDecoder()
   let buffer = ''
   let ragSources = []
+  // 修复：统一终止回调（fail-closed），保证 onDone/onError 至多触发一次，
+  // 避免 '[DONE]'/done 事件重复回调，或全部丢失时调用方永久停留在 loading
+  let settled = false
+  const settleDone = (data = {}) => {
+    if (settled) return
+    settled = true
+    onDone?.({ ...data, rag_sources: ragSources })
+  }
+  const settleError = (err) => {
+    if (settled) return
+    settled = true
+    onError?.(err)
+  }
 
   while (true) {
     const { done, value } = await reader.read()
@@ -170,18 +183,30 @@ export async function streamChat({ model_id = 'deepseek', messages = [], tempera
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue
       const payload = line.slice(6).trim()
-      if (payload === '[DONE]') return
+      if (payload === '[DONE]') {
+        // 修复：'[DONE]' 哨兵即流终止信号，必须触发 onDone；
+        // 否则 done 事件丢失/被代理截断时调用方将永久停留在生成中
+        settleDone()
+        return
+      }
       try {
         const data = JSON.parse(payload)
         if (data.token) onToken?.(data.token)
-        if (data.error) { onError?.(new Error(data.error)); return }
+        if (data.error) { settleError(new Error(data.error)); return }
         if (data.rag_sources) ragSources = data.rag_sources
-        if (data.done) onDone?.({ ...data, rag_sources: ragSources })
+        if (data.done) settleDone(data)
       } catch (e) {
         // F-070 修复：SSE JSON.parse 失败时记录，不静默丢消息
         console.warn('[SSE] JSON.parse 失败:', payload?.slice(0, 100), e?.message)
       }
     }
+  }
+  // 流已结束但未收到任何终止信号（[DONE] 或 done 事件）——
+  // fail-closed：按异常终止上报，避免调用方 status/streaming 永久停留在运行中
+  // buffer 残留 '[DONE]'（分块边界截断）仍视为正常完成
+  if (buffer.includes('[DONE]')) settleDone()
+  if (!settled) {
+    onError?.(new Error('SSE 流提前终止（未收到完成信号）'))
   }
 }
 

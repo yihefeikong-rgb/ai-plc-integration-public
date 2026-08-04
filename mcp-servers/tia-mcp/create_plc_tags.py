@@ -62,6 +62,72 @@ from config_loader import cfg
 
 # ─── 核心函数（PythonNET API 方式） ───────────────────────────
 
+def _validate_tag_defs(tags):
+    """校验标签定义列表。
+
+    返回 (valid_tags, errors)。非法项不进入 API/XML 生成流程，
+    逐条记录原因（fail-closed）：保证 Create() 与 XML 插值
+    只接收已校验的字符串数据。
+    """
+    valid = []
+    errors = []
+    if not isinstance(tags, list):
+        return [], ["标签定义必须是数组"]
+
+    def _has_control_chars(s: str) -> bool:
+        return any(ord(c) < 32 for c in s)
+
+    for i, tag in enumerate(tags):
+        if not isinstance(tag, dict):
+            errors.append(f"标签[{i}] 不是对象，已跳过")
+            continue
+
+        problems = []
+        name = tag.get("name")
+        if not isinstance(name, str) or not name.strip():
+            problems.append("name 缺失或为空")
+        elif len(name.strip()) > 128:
+            problems.append("name 超过 128 字符")
+        elif _has_control_chars(name):
+            problems.append("name 含控制字符")
+
+        address = tag.get("address")
+        if not isinstance(address, str) or not address.strip():
+            problems.append("address 缺失或为空")
+        elif _has_control_chars(address):
+            problems.append("address 含控制字符")
+
+        if "dataType" not in tag or tag["dataType"] is None:
+            data_type = "Bool"  # 保持原有默认行为
+        elif not isinstance(tag["dataType"], str):
+            problems.append("dataType 必须是字符串")
+            data_type = ""
+        else:
+            data_type = tag["dataType"].strip()
+            if not data_type:
+                problems.append("dataType 为空")
+            elif _has_control_chars(data_type):
+                problems.append("dataType 含控制字符")
+
+        if problems:
+            errors.append(f"标签 '{name}' 无效: {'; '.join(problems)}，已跳过")
+            continue
+
+        comment = tag.get("comment", "")
+        if not comment:
+            comment = ""
+        elif not isinstance(comment, str):
+            comment = str(comment)
+
+        valid.append({
+            "name": name.strip(),
+            "dataType": data_type,
+            "address": address.strip(),
+            "comment": comment,
+        })
+    return valid, errors
+
+
 def create_tags_via_api(project_path: str, tags: list, tag_table_name: str = "PickAndPlace_IO") -> dict:
     """
     通过 TIA Openness API（PythonNET）创建 PLC 标签。
@@ -73,6 +139,10 @@ def create_tags_via_api(project_path: str, tags: list, tag_table_name: str = "Pi
     from tia_session import tia_session
 
     result = {"status": "ok", "created": 0, "skipped": 0, "errors": []}
+
+    # 校验标签定义：非法项不进入 Create()，逐条记录错误（fail-closed）
+    tags, tag_errors = _validate_tag_defs(tags)
+    result["errors"].extend(tag_errors)
 
     try:
         with tia_session(project_path, mode="gui") as (project, plc_sw):
@@ -88,8 +158,9 @@ def create_tags_via_api(project_path: str, tags: list, tag_table_name: str = "Pi
                     if str(t.Name) == tag_table_name:
                         table = t
                         break
-                except:
-                    pass
+                except Exception as e:
+                    print(f"   警告: 读取标签表名称失败: {e}", file=sys.stderr)
+                    sys.stderr.flush()
 
             if table is None:
                 table = grp.TagTables.Create(tag_table_name)
@@ -103,8 +174,9 @@ def create_tags_via_api(project_path: str, tags: list, tag_table_name: str = "Pi
             for t in table.Tags:
                 try:
                     existing.add(str(t.Name))
-                except:
-                    pass
+                except Exception as e:
+                    print(f"   警告: 读取已有标签名失败: {e}", file=sys.stderr)
+                    sys.stderr.flush()
 
             if existing:
                 print(f"   已存在 {len(existing)} 个标签")
@@ -126,8 +198,11 @@ def create_tags_via_api(project_path: str, tags: list, tag_table_name: str = "Pi
                     if comment:
                         try:
                             entry.Comment = comment
-                        except:
-                            pass
+                        except Exception as e:
+                            err_msg = f"设置标签 '{name}' 注释失败: {e}"
+                            result["errors"].append(err_msg)
+                            print(f"   ⚠ {err_msg}", file=sys.stderr)
+                            sys.stderr.flush()
                     result["created"] += 1
                     print(f"   ✅ {name:20s} {data_type:8s} {address:10s} {comment}")
                     sys.stdout.flush()
@@ -142,8 +217,11 @@ def create_tags_via_api(project_path: str, tags: list, tag_table_name: str = "Pi
             sys.stdout.flush()
 
     except Exception as e:
+        # 完整堆栈仅输出到本地 stderr（供 CLI 调试），不放入返回 dict——
+        # server.py 会原样透传给 MCP 客户端，泄露本地路径与内部调用链。
         import traceback
-        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+        traceback.print_exc()
+        return {"status": "error", "error": str(e)}
 
     return result
 
@@ -174,7 +252,7 @@ def _generate_tag_xml(tags: list, table_name: str) -> str:
         tag_id = i * 10
         lines.append(f'      <SW.Tags.PlcTag ID="{tag_id}" CompositionName="Tags">')
         lines.append('        <AttributeList>')
-        lines.append(f'          <DataTypeName>{tag["dataType"]}</DataTypeName>')
+        lines.append(f'          <DataTypeName>{xml_escape(str(tag["dataType"]))}</DataTypeName>')
         lines.append(f'          <LogicalAddress>{xml_escape(tag["address"])}</LogicalAddress>')
         lines.append(f'          <Name>{xml_escape(tag["name"])}</Name>')
         lines.append('        </AttributeList>')
@@ -210,6 +288,14 @@ def create_tags_via_xml(project_path: str, tags: list, tag_table_name: str = "Pi
 
     result = {"status": "ok", "created": 0, "skipped": 0, "errors": []}
 
+    # 校验标签定义：非法项不进入 XML 生成，逐条记录错误（fail-closed）
+    tags, tag_errors = _validate_tag_defs(tags)
+    result["errors"].extend(tag_errors)
+
+    # 无有效标签时不执行覆盖式导入（避免把现有标签表替换成空表）
+    if not tags:
+        return {"status": "error", "error": "没有有效的标签可导入，已跳过覆盖式 XML 导入", "errors": result["errors"]}
+
     # 生成 XML
     xml = _generate_tag_xml(tags, tag_table_name)
     xml_path = os.path.join(tempfile.gettempdir(), f"{tag_table_name}.xml")
@@ -234,8 +320,9 @@ def create_tags_via_xml(project_path: str, tags: list, tag_table_name: str = "Pi
                         print(f"   已删除旧表: {tag_table_name}")
                         sys.stdout.flush()
                         break
-                except:
-                    pass
+                except Exception as e:
+                    print(f"   警告: 删除旧表失败: {e}", file=sys.stderr)
+                    sys.stderr.flush()
 
             # Import XML（覆盖模式）
             imported = plc_sw.TagTableGroup.TagTables.Import(
@@ -255,15 +342,19 @@ def create_tags_via_xml(project_path: str, tags: list, tag_table_name: str = "Pi
                         print(f"   表中标签数: {tag_count}")
                         sys.stdout.flush()
                         break
-                except:
-                    pass
+                except Exception as e:
+                    print(f"   警告: 校验标签表失败: {e}", file=sys.stderr)
+                    sys.stderr.flush()
 
             project.Save()
             result["status"] = "ok"
 
     except Exception as e:
+        # 完整堆栈仅输出到本地 stderr（供 CLI 调试），不放入返回 dict——
+        # server.py 会原样透传给 MCP 客户端，泄露本地路径与内部调用链。
         import traceback
-        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+        traceback.print_exc()
+        return {"status": "error", "error": str(e)}
 
     return result
 
@@ -282,11 +373,19 @@ def create_tags(project_path: str, tags: list, tag_table_name: str = "PickAndPla
         total_attempted = result["created"] + result["skipped"] + len(result["errors"])
         if total_attempted > 0 and len(result["errors"]) / total_attempted < 0.5:
             return result
-        # 半数以上失败 → 尝试 XML Import 降级
+        # 半数以上失败 → 需要 XML Import 降级
         if result["created"] == 0 and len(result["errors"]) > 0:
-            print(f"\n   ⚠ API 创建失败过多，降级到 XML Import...")
-            sys.stdout.flush()
-            return create_tags_via_xml(project_path, tags, tag_table_name)
+            # fail-closed：XML 覆盖导入会先删除同名表再导入本次标签，
+            # 表中已有的其他标签会被静默清空（数据丢失）。自动降级有覆盖风险，
+            # 改为中止并要求人工确认，绝不静默覆盖已有标签表。
+            print("\n   ⚠ API 创建标签全部失败，XML 覆盖导入会清空同名表中已有标签，已中止自动降级", file=sys.stderr)
+            sys.stderr.flush()
+            return {
+                "status": "error",
+                "error": "API 创建标签全部失败；XML 覆盖导入会清空同名表中已有标签（数据丢失风险），"
+                         "已中止自动降级。请修复 API 失败原因，或人工确认后显式调用 create_tags_via_xml。",
+                "errors": result["errors"],
+            }
 
     return result
 
@@ -348,8 +447,6 @@ def main():
                 print(f"   ⚠ {e}")
     else:
         print(f"❌ 失败: {result.get('error', '未知错误')}")
-        if result.get("traceback"):
-            print(result["traceback"])
     sys.stdout.flush()
 
     return 0 if result["status"] == "ok" else 1

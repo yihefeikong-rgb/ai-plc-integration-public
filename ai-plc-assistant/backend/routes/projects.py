@@ -1,5 +1,6 @@
 """项目管理 API — CRUD + 工程导入"""
 
+import asyncio
 import os
 import shutil
 import stat
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from security import require_local_session
+from search.indexer import SearchIndex
 from storage.projects import ProjectStore
 
 router = APIRouter()
@@ -142,11 +144,24 @@ def _safe_extract_zip(archive: zipfile.ZipFile, destination: Path) -> None:
 
     total_uncompressed = 0
     validated: list[tuple[zipfile.ZipInfo, Path]] = []
+    seen_targets: set[Path] = set()
+    seen_file_targets: set[Path] = set()
+    implicit_dirs: set[Path] = set()
     for info in members:
         target = _safe_member_path(destination, info)
+        if target in seen_targets:
+            raise HTTPException(status_code=400, detail="ZIP 含重复路径成员")
+        for parent in target.parents:
+            if parent in seen_file_targets:
+                raise HTTPException(status_code=400, detail="ZIP 文件成员与目录路径冲突")
+        seen_targets.add(target)
         if info.is_dir():
             validated.append((info, target))
             continue
+        if target in implicit_dirs:
+            raise HTTPException(status_code=400, detail="ZIP 成员路径与已有内容冲突")
+        seen_file_targets.add(target)
+        implicit_dirs.update(target.parents)
         if info.file_size > MAX_ZIP_SINGLE_FILE_BYTES:
             raise HTTPException(status_code=413, detail="ZIP 中存在超过大小上限的文件")
         total_uncompressed += info.file_size
@@ -165,14 +180,46 @@ def _safe_extract_zip(archive: zipfile.ZipFile, destination: Path) -> None:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         written = 0
-        with archive.open(info, "r") as source, target.open("xb") as output:
-            while chunk := source.read(UPLOAD_CHUNK_BYTES):
-                written += len(chunk)
-                if written > MAX_ZIP_SINGLE_FILE_BYTES:
-                    raise HTTPException(status_code=413, detail="ZIP 成员超过大小上限")
-                output.write(chunk)
+        try:
+            with archive.open(info, "r") as source, target.open("xb") as output:
+                while chunk := source.read(UPLOAD_CHUNK_BYTES):
+                    written += len(chunk)
+                    if written > MAX_ZIP_SINGLE_FILE_BYTES:
+                        raise HTTPException(status_code=413, detail="ZIP 成员超过大小上限")
+                    output.write(chunk)
+        except FileExistsError as exc:
+            raise HTTPException(status_code=400, detail="ZIP 成员路径与已有内容冲突") from exc
         if written != info.file_size:
             raise HTTPException(status_code=400, detail="ZIP 成员大小不一致")
+
+
+def _import_worker(store: ProjectStore, search_engine: SearchIndex, filename: str, tmp_path: str):
+    """在线程池中执行解压 + 索引 + 项目记录创建（均为阻塞 IO）。
+
+    失败时自行清理解压目录；成功返回 (extract_dir, project, index_result)。
+    """
+    import_root = _import_root()
+    extract_dir = Path(tempfile.mkdtemp(prefix="plc_import_", dir=import_root))
+    try:
+        with zipfile.ZipFile(tmp_path, "r") as archive:
+            _safe_extract_zip(archive, extract_dir)
+
+        # 复用全局搜索引擎（与 /api/search 同一实例/同一连接），避免对同一
+        # search_index.db 另开第二个写连接，造成并发写竞争。
+        result = search_engine.index_projects([str(extract_dir)], allowed_root=str(extract_dir))
+
+        ext = Path(filename).suffix.lower()
+        tia_version = "V18" if ext == ".ap18" else "V19" if ext == ".ap19" else "V17" if ext == ".ap17" else ""
+        project = store.create(
+            name=Path(filename).stem,
+            path=str(extract_dir),
+            tia_version=tia_version,
+            description=f"从 {filename} 导入",
+        )
+        return extract_dir, project, result
+    except Exception:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise
 
 
 @router.post("/import", status_code=201)
@@ -182,7 +229,7 @@ async def import_project(
 ):
     """导入 TIA Portal 工程文件 (.ap18/.zip)
 
-    解压 ZIP → 扫描 XML/SCL → 索引到搜索引擎 → 创建项目记录
+    流式接收上传 → 线程内解压 → 复用全局搜索引擎索引 → 创建项目记录
     """
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
@@ -191,8 +238,6 @@ async def import_project(
     ext = Path(filename).suffix.lower()
     if ext not in ALLOWED_IMPORT_EXTS:
         raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}，仅支持 .ap18/.ap19/.zip")
-
-    project_name = Path(filename).stem
 
     tmp_path: str | None = None
     extract_dir: Path | None = None
@@ -208,25 +253,16 @@ async def import_project(
                     raise HTTPException(status_code=413, detail="上传文件超过大小上限")
                 tmp.write(chunk)
 
-        import_root = _import_root()
-        extract_dir = Path(tempfile.mkdtemp(prefix="plc_import_", dir=import_root))
-        with zipfile.ZipFile(tmp_path, "r") as archive:
-            _safe_extract_zip(archive, extract_dir)
+        # 复用全局搜索引擎实例（与 /api/search 同一连接），未初始化时拒绝导入（fail-closed）。
+        from routes import search as search_router
 
-        # 索引解压后的文件；根约束与搜索 API 使用相同的扫描器。
-        from config import settings as app_config
-        from search.indexer import SearchIndex
+        search_engine = search_router.engine
+        if search_engine is None:
+            raise HTTPException(status_code=503, detail="搜索引擎未初始化")
 
-        indexer = SearchIndex(db_path=app_config.project_search_db)
-        indexer.initialize()
-        result = indexer.index_projects([str(extract_dir)], allowed_root=str(extract_dir))
-
-        tia_version = "V18" if ext == ".ap18" else "V19" if ext == ".ap19" else "V17" if ext == ".ap17" else ""
-        project = store.create(
-            name=project_name,
-            path=str(extract_dir),
-            tia_version=tia_version,
-            description=f"从 {filename} 导入",
+        # 解压与全量索引均为阻塞 IO，放入线程池执行，避免大量文件时阻塞事件循环。
+        extract_dir, project, result = await asyncio.to_thread(
+            _import_worker, store, search_engine, filename, tmp_path
         )
         imported = True
         return {

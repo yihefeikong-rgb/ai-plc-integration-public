@@ -136,7 +136,17 @@ def _ensure_tia_gui_running(timeout_sec: int = 120) -> bool:
         )
         if r.stdout and 'Siemens.Automation.Portal.exe' in r.stdout:
             print('   ✅ TIA Portal GUI 已启动，等待项目加载...')
-            time.sleep(15)  # 给项目加载留时间
+            # 等待项目加载：轮询确认进程保持存活，而非无条件固定 sleep 后盲目继续
+            load_deadline = time.time() + 15
+            while time.time() < load_deadline:
+                time.sleep(3)
+                r2 = subprocess.run(
+                    ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe', '/fo', 'csv', '/nh'],
+                    capture_output=True, text=True, encoding='gbk', errors='replace',
+                )
+                if not (r2.stdout and 'Siemens.Automation.Portal.exe' in r2.stdout):
+                    print('   ⚠ TIA Portal GUI 在项目加载期间退出')
+                    return False
             return True
         time.sleep(5)
 
@@ -266,39 +276,66 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
             print(f'   网卡: {pc_iface.Name}')
             print(f'   目标: {target.Name} @ {ip}')
 
-            def on_pre(c):
+            _target_confirm = {'plcsim_advanced': False}
+
+            def _set_plcsim_advanced(c, stage):
+                """V21 关键：设置下载目标为 PLCSIM Advanced（而非默认的 CPU）。
+
+                失败必须记录日志而非静默 pass —— 否则可能下载到非批准目标。
+                """
                 try:
-                    # V21 关键：设置下载目标为 PLCSIM Advanced（而非默认的 CPU）
                     p = c.GetType().GetProperty('TargetForSoftware')
-                    if p:
-                        target_obj = p.GetValue(c, None)
-                        if target_obj:
-                            sel_p = target_obj.GetType().GetProperty('CurrentSelection')
-                            if sel_p:
-                                sel_type = sel_p.PropertyType
-                                # 选择 PlcSimulationAdvanced（枚举值）
-                                try:
-                                    adv = sel_type.GetEnumValues().GetValue(1)  # 1 = PlcSimulationAdvanced
-                                    sel_p.SetValue(target_obj, adv, None)
-                                except:
-                                    pass
-                except: pass
+                    if not p:
+                        print(f'   ⚠ {stage}: 下载配置无 TargetForSoftware 属性，目标未确认')
+                        return False
+                    target_obj = p.GetValue(c, None)
+                    if not target_obj:
+                        print(f'   ⚠ {stage}: TargetForSoftware 值为空，目标未确认')
+                        return False
+                    sel_p = target_obj.GetType().GetProperty('CurrentSelection')
+                    if not sel_p:
+                        print(f'   ⚠ {stage}: 目标对象无 CurrentSelection 属性，目标未确认')
+                        return False
+                    sel_type = sel_p.PropertyType
+                    # 按名称解析 PlcSimulationAdvanced，不依赖枚举下标顺序（GetValue(1) 不可靠）
+                    try:
+                        from System import Enum
+                        adv = Enum.Parse(sel_type, 'PlcSimulationAdvanced')
+                    except Exception:
+                        # 枚举名跨版本可能不同，仅此时才按索引回退（与 TiaWorker 一致）
+                        values = sel_type.GetEnumValues()
+                        if values.Length < 2:
+                            print(f'   ⚠ {stage}: 无法解析 PlcSimulationAdvanced 枚举，目标未确认')
+                            return False
+                        adv = values.GetValue(1)
+                    sel_p.SetValue(target_obj, adv, None)
+                    # 回读 CurrentSelection，确认实际生效值即目标枚举；不匹配视为未确认
+                    actual = sel_p.GetValue(target_obj, None)
+                    matched = False
+                    if actual is not None:
+                        try:
+                            matched = str(actual) == str(adv)
+                        except Exception:
+                            matched = False
+                        if not matched:
+                            try:
+                                matched = int(actual) == int(adv)
+                            except Exception:
+                                matched = False
+                    if not matched:
+                        print(f'   ⚠ {stage}: 下载目标回读不匹配（期望 {adv}，实际 {actual}），目标未确认')
+                        return False
+                    _target_confirm['plcsim_advanced'] = True
+                    return True
+                except Exception as e:
+                    print(f'   ⚠ {stage}: 设置下载目标为 PLCSIM Advanced 失败: {e}')
+                    return False
+
+            def on_pre(c):
+                _set_plcsim_advanced(c, 'on_pre')
 
             def on_post(c):
-                try:
-                    p = c.GetType().GetProperty('TargetForSoftware')
-                    if p:
-                        target_obj = p.GetValue(c, None)
-                        if target_obj:
-                            sel_p = target_obj.GetType().GetProperty('CurrentSelection')
-                            if sel_p:
-                                sel_type = sel_p.PropertyType
-                                try:
-                                    adv = sel_type.GetEnumValues().GetValue(1)
-                                    sel_p.SetValue(target_obj, adv, None)
-                                except:
-                                    pass
-                except: pass
+                _set_plcsim_advanced(c, 'on_post')
 
             print('📥 正在下载到 PLCSIM...')
             result = dp.Download(
@@ -310,6 +347,9 @@ def _try_download_via_python(compile_first: bool = False, target_ip: str = "") -
             success = result.State == DownloadResultState.Success
             print(f'   状态: {result.State}, 错误: {result.ErrorCount}')
             if success:
+                if not _target_confirm['plcsim_advanced']:
+                    print('   ❌ 未能确认下载目标为 PLCSIM Advanced，拒绝视为成功（fail-closed）')
+                    return 1
                 print('✅ 下载成功！')
                 project.Save()
                 print()
@@ -331,6 +371,11 @@ def download_via_ui(compile_first: bool = False) -> int:
 
     _verified_plcsim_target()
     dl_script = _Path(__file__).parent / 'dl_plcsim_gui.py'
+    if not dl_script.exists():
+        dl_script = _Path(__file__).parent / 'archived' / 'dl_plcsim_gui.py'
+    if not dl_script.exists():
+        print('   ❌ UI Automation 后备脚本 dl_plcsim_gui.py 不存在，无法执行 UI 下载')
+        return 1
     project_name = os.path.basename(TIA_PROJECT)
 
     print(f'   启动 UI Automation 下载...')
@@ -529,7 +574,8 @@ def _try_download_via_tiaworker(compile_first: bool = False, target_ip: str = ""
     try:
         from plcsim_api import _ensure_user_interface
         _ensure_user_interface()
-        _time.sleep(3)  # 给 GUI 窗口留出注册时间
+        import time
+        time.sleep(3)  # 给 GUI 窗口留出注册时间
     except Exception as e:
         print(f'   ⚠ PLCSIM GUI 启动检查异常（继续）: {e}')
 

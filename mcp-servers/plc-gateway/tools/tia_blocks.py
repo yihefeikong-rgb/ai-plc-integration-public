@@ -40,25 +40,11 @@ def _safe_text(elem: ET.Element | None, default: str = "") -> str:
     return elem.text.strip() if elem is not None and elem.text else default
 
 
-def _find(elem: ET.Element, path: str) -> ET.Element | None:
-    """命名空间感知的 find"""
-    return elem.find(path, _NS)
-
-
-# XML 命名空间映射
-_NS = {
-    "": "http://www.siemens.com/automation/Openness/SW/Motion/Networks/v1",
-    "sw": "http://www.siemens.com/automation/Openness/SW/Motion/Networks/v1",
-    "eng": "http://www.siemens.com/automation/Openness/SW/Engineering/v1",
-    "xml": "http://www.w3.org/XML/1998/namespace",
-}
-
-
-def _ns(tag: str) -> str:
-    """添加默认命名空间前缀"""
-    if "{" in tag:
+def _ns(tag: str, ns_uri: str = "") -> str:
+    """为标签添加命名空间前缀；无命名空间（本仓库 fixtures/tia_v21 样例）时保持无前缀"""
+    if "{" in tag or not ns_uri:
         return tag
-    return f"{{http://www.siemens.com/automation/Openness/SW/Motion/Networks/v1}}{tag}"
+    return f"{{{ns_uri}}}{tag}"
 
 
 def _parse_simaticml_networks(xml_str: str) -> list[dict]:
@@ -73,9 +59,15 @@ def _parse_simaticml_networks(xml_str: str) -> list[dict]:
     except ET.ParseError as e:
         return [{"error": f"XML 解析失败: {e}"}]
 
+    # 探测命名空间：根元素带命名空间时整树共享该默认命名空间，
+    # 无命名空间（tests/fixtures/tia_v21/TestFC.xml 样例）则使用无前缀标签查找。
+    ns_uri = ""
+    if root.tag.startswith("{"):
+        ns_uri = root.tag.split("}", 1)[0][1:]
+
     # 查找所有 Network
-    for i, sw_block in enumerate(root.iter(_ns("SW.Blocks.PlcBlock"))):
-        for network in sw_block.iter(_ns("Network")):
+    for sw_block in root.iter(_ns("SW.Blocks.PlcBlock", ns_uri)):
+        for network in sw_block.iter(_ns("Network", ns_uri)):
             net = {
                 "index": len(networks),
                 "title": "",
@@ -85,14 +77,14 @@ def _parse_simaticml_networks(xml_str: str) -> list[dict]:
                 "calls": [],
             }
             # 标题
-            title_elem = network.find("NetworkTitle")
+            title_elem = network.find(_ns("NetworkTitle", ns_uri))
             if title_elem is not None:
-                net["title"] = _safe_text(title_elem.find("Title"))
+                net["title"] = _safe_text(title_elem.find(_ns("Title", ns_uri)))
 
             # 注释
-            comment_elem = network.find("Comment")
+            comment_elem = network.find(_ns("Comment", ns_uri))
             if comment_elem is not None:
-                net["comment"] = _safe_text(comment_elem.find("Title"))
+                net["comment"] = _safe_text(comment_elem.find(_ns("Title", ns_uri)))
 
             # 解析指令（根据 LAD/FBD/SCL 不同结构）
             for member in network:
@@ -105,19 +97,19 @@ def _parse_simaticml_networks(xml_str: str) -> list[dict]:
                     "unsupported": False,
                 }
                 # 尝试提取操作数
-                operands = _extract_operands(member)
+                operands = _extract_operands(member, ns_uri)
                 if operands:
                     instr["operands"] = operands
                     net["operands"].extend(operands)
 
                 # 尝试提取块调用
                 if tag in ("Call", "CallInfo"):
-                    call_name = _safe_text(member.find("Name"))
+                    call_name = _safe_text(member.find(_ns("Name", ns_uri)))
                     if call_name:
                         instr["call_name"] = call_name
                         net["calls"].append(call_name)
                     # 提取参数
-                    params = _extract_call_params(member)
+                    params = _extract_call_params(member, ns_uri)
                     if params:
                         instr["parameters"] = params
 
@@ -134,32 +126,32 @@ def _parse_simaticml_networks(xml_str: str) -> list[dict]:
     return networks
 
 
-def _extract_operands(elem: ET.Element) -> list[dict]:
+def _extract_operands(elem: ET.Element, ns_uri: str = "") -> list[dict]:
     """从 XML 元素中提取操作数"""
     operands = []
     for operand in elem.iter():
         tag = operand.tag.split("}")[-1] if "}" in operand.tag else operand.tag
         if tag in ("Operand", "Address", "Variable"):
             op = {
-                "name": _safe_text(operand.find("Name") or operand),
-                "address": _safe_text(operand.find("Address")),
-                "type": _safe_text(operand.find("Type")),
+                "name": _safe_text(operand.find(_ns("Name", ns_uri)) or operand),
+                "address": _safe_text(operand.find(_ns("Address", ns_uri))),
+                "type": _safe_text(operand.find(_ns("Type", ns_uri))),
             }
             if op["name"] or op["address"]:
                 operands.append(op)
     return operands
 
 
-def _extract_call_params(elem: ET.Element) -> list[dict]:
+def _extract_call_params(elem: ET.Element, ns_uri: str = "") -> list[dict]:
     """从调用元素中提取参数"""
     params = []
     for param in elem.iter():
         tag = param.tag.split("}")[-1] if "}" in param.tag else param.tag
         if tag == "Parameter":
             params.append({
-                "name": _safe_text(param.find("Name")),
-                "value": _safe_text(param.find("Value")),
-                "address": _safe_text(param.find("Address")),
+                "name": _safe_text(param.find(_ns("Name", ns_uri))),
+                "value": _safe_text(param.find(_ns("Value", ns_uri))),
+                "address": _safe_text(param.find(_ns("Address", ns_uri))),
             })
     return params
 
@@ -255,6 +247,13 @@ async def tia_describe_block_logic(provider: TiaProvider, block_name: str) -> di
     # 解析 XML
     networks = _parse_simaticml_networks(xml_str)
 
+    # XML 解析失败时 fail-closed，不得把失败当作成功上报
+    if networks and "error" in networks[0]:
+        return ProviderResult(
+            ok=False, operation="tia.block.describe",
+            error=f"块逻辑解析失败: {networks[0]['error']}",
+        ).to_dict()
+
     # 生成 ASCII-LAD
     ascii_lad = _generate_ascii_lad(networks)
 
@@ -294,6 +293,14 @@ async def tia_get_call_graph(provider: TiaProvider, block_name: str) -> dict:
         ).to_dict()
 
     networks = _parse_simaticml_networks(xml_str)
+
+    # XML 解析失败时 fail-closed，不得把失败当作成功上报
+    if networks and "error" in networks[0]:
+        return ProviderResult(
+            ok=False, operation="tia.block.call_graph",
+            error=f"调用关系解析失败: {networks[0]['error']}",
+        ).to_dict()
+
     all_calls = set()
     callers = {}
     for net in networks:

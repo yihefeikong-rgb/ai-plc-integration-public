@@ -13,6 +13,7 @@ import DiagnoseInspector from './DiagnoseInspector'
 import OrchestratorInspector from './OrchestratorInspector'
 import VariablesInspector from './VariablesInspector'
 import SettingsInspector from './SettingsInspector'
+import ConfirmationsInspector from './ConfirmationsInspector'
 
 const INSPECTOR_MAP = {
   welcome: { component: WelcomeInspector, isCustom: true },
@@ -24,6 +25,7 @@ const INSPECTOR_MAP = {
   orchestrator: { component: OrchestratorInspector, isCustom: true },
   variables: { component: VariablesInspector, isCustom: true },
   settings: { component: SettingsInspector, isCustom: true },
+  confirmations: { component: ConfirmationsInspector, isCustom: true },
   robot: { icon: Cpu },
 }
 

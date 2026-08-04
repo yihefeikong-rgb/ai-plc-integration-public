@@ -11,14 +11,21 @@ Phase 2 端到端验证脚本 — 检查 "采集→分析→决策→写入→�
 """
 import sys
 import json
+import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "edge-gateway"))
 sys.path.insert(0, str(PROJECT_ROOT / "edge-gateway" / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "mcp-servers" / "plc-mcp-bridge"))
 
 from mcp_common.control_target import get_control_target
+
+# 审计验证使用独立临时链：本脚本绝不写真实 logs/audit.log，
+# 避免伪造写事件污染 HMAC 审计链的完整性验证
+_VERIFY_AUDIT_DIR = Path(tempfile.mkdtemp(prefix="verify_phase2_audit_"))
+_VERIFY_AUDIT_LOG = str(_VERIFY_AUDIT_DIR / "audit.log")
 
 PASS = 0
 FAIL = 0
@@ -64,9 +71,9 @@ def test_safety():
     r = v.validate("DB1.MOTOR_RUN", True)
     check("电机标签需确认", r.needs_confirmation)
 
-    # 审计日志
+    # 审计日志（写入临时链验证完整性，绝不写真实 logs/audit.log）
     from mcp_common.audit import get_audit_logger
-    logger = get_audit_logger()
+    logger = get_audit_logger(_VERIFY_AUDIT_LOG)
     logger.log("write", "MW10", "42", operator="verify", detail="Phase2验证")
     check("审计日志写入", True)
 
@@ -84,9 +91,13 @@ def test_safety():
 def test_s7(need_real: bool = False):
     print("\n━━━ [2/4] S7 适配器 ━━━")
 
-    from s7_adapter import S7Adapter
+    try:
+        from s7_adapter import S7Adapter
 
-    adapter = S7Adapter()
+        adapter = S7Adapter()
+    except Exception as e:
+        check("S7Adapter 实例化", False, str(e))
+        return
 
     if not need_real:
         check("S7Adapter 实例化", True)
@@ -122,9 +133,18 @@ def test_s7(need_real: bool = False):
 def test_gateway():
     print("\n━━━ [3/4] EdgeGateway ━━━")
 
-    from app import EdgeGateway
+    # 确保写回路径的审计也走临时链，不污染真实 logs/audit.log
+    from mcp_common.audit import get_audit_logger
+    get_audit_logger(_VERIFY_AUDIT_LOG)
 
-    gw = EdgeGateway()
+    try:
+        from app import EdgeGateway
+
+        gw = EdgeGateway()
+    except Exception as e:
+        check("EdgeGateway 实例化", False, str(e))
+        return
+
     check("EdgeGateway 实例化", True)
     check(f"标签配置数 > 0", len(gw.tag_config) > 0, str(len(gw.tag_config)))
 
@@ -146,20 +166,44 @@ def test_gateway():
         changed2 = [d for d in data if gw._has_significant_change(d["tag"], d["value"])]
         check("二次调用无变化", len(changed2) == 0)
 
-        # 写回测试（不依赖真实 PLC）
+        # 写回测试（不依赖真实 PLC）：驱动真实写回路径 _safe_write，
+        # 断言 fail-closed 行为——白名单/互锁/确认条件不满足时不得触发写入
         write_called = []
 
         def mock_write(tag: str, val):
             write_called.append((tag, val))
             return f"写入 {tag}={val}"
 
-        # 构造一个简单的 AI 决策场景
-        # 注意：这里不调真实 AI，只验证写回路径
-        with_decision = False  # 不调 AI
-        check("写回路径可调用", True)
+        available = [t["tag"] for t in gw.tag_config]
+        try:
+            # 1) 非白名单目标必须被拒绝
+            await gw._safe_write(
+                {"action": "write", "target": "DB99.NOT_A_TAG", "value": 1,
+                 "reason": "verify_phase2"},
+                available, data, read_func=mock_read, write_func=mock_write)
+
+            # 2) 全部已配置标签（含已映射 M0.1/MW14）在互锁/确认条件
+            #    无法满足时也必须 fail-closed 拒绝
+            for target in available:
+                await gw._safe_write(
+                    {"action": "write", "target": target, "value": 1,
+                     "reason": "verify_phase2"},
+                    available, data, read_func=mock_read,
+                    write_func=mock_write)
+
+            check("写回路径可调用", True)
+            check("写回路径 fail-closed：未满足条件不放行",
+                  len(write_called) == 0, str(write_called))
+        except Exception as e:
+            check("写回路径可调用", False, str(e))
+            check("写回路径 fail-closed：未满足条件不放行",
+                  False, str(e))
 
     import asyncio
-    asyncio.run(_test())
+    try:
+        asyncio.run(_test())
+    except Exception as e:
+        check("EdgeGateway mock 运行", False, str(e))
 
 
 # ═══════════════════════════════════════
@@ -185,13 +229,25 @@ if __name__ == "__main__":
     run_all = "--all" in args or not any(a in args for a in ("safety", "s7", "gateway", "mcp"))
 
     if run_all or "safety" in args:
-        test_safety()
+        try:
+            test_safety()
+        except Exception as e:
+            check("test_safety 异常", False, str(e))
     if run_all or "s7" in args:
-        test_s7(need_real="--all" in args)
+        try:
+            test_s7(need_real="--all" in args)
+        except Exception as e:
+            check("test_s7 异常", False, str(e))
     if run_all or "gateway" in args:
-        test_gateway()
+        try:
+            test_gateway()
+        except Exception as e:
+            check("test_gateway 异常", False, str(e))
     if run_all or "mcp" in args:
-        test_mcp_tools()
+        try:
+            test_mcp_tools()
+        except Exception as e:
+            check("test_mcp_tools 异常", False, str(e))
 
     print(f"\n{'='*40}")
     print(f"结果: {PASS} 通过, {FAIL} 失败 / {PASS + FAIL} 总")

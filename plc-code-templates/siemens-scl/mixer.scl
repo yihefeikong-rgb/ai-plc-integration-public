@@ -6,6 +6,7 @@ AUTHOR : 'AI_Generated'
 VAR_INPUT
     bStart : Bool;           // 启动循环
     bStop : Bool;            // 停止
+    bReset : Bool;           // 故障复位（需操作员确认）
     bEmergencyStop : Bool;   // 急停
     bHighLevel : Bool;       // 高液位（满）
     bLowLevel : Bool;        // 低液位（空）
@@ -38,8 +39,8 @@ BEGIN
         RETURN;
     END_IF;
 
-    // ── 故障复位 ──
-    IF bFault AND NOT bOverload AND bEmergencyStop THEN
+    // ── 故障复位（需操作员确认，故障源已消除才允许） ──
+    IF bFault AND bReset AND NOT bOverload AND bEmergencyStop THEN
         bFault := FALSE;
     END_IF;
 

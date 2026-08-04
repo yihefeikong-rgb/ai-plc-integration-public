@@ -67,6 +67,8 @@ def run_tiaworker(command: str, payload: dict, timeout: int = 120) -> dict:
         return {"status": "error", "error": "timeout"}
     except json.JSONDecodeError:
         return {"status": "error", "error": f"Invalid JSON: {output[:200]}"}
+    except OSError as exc:
+        return {"status": "error", "error": f"TiaWorker 启动失败: {exc}"}
     finally:
         try: os.unlink(tmp_path)
         except: pass
@@ -141,15 +143,19 @@ def step4_download():
     try:
         result = subprocess.run(
             ["D:/Python3/python.exe", str(TIA_MCP_DIR / "download_to_plcsim.py"),
-             "--tiaworker", "--compile-first"],
+             "--tiaworker"],
             capture_output=True, text=True, timeout=300,
             encoding='utf-8', errors='replace',
         )
         output = (result.stdout + result.stderr)[-500:]
         log(f"下载结果: {output}", "info")
-        
-        # 检查是否成功
-        if "✅" in output or "success" in output.lower() or result.returncode == 0:
+
+        # 检查是否成功（fail-closed）：必须以设备级成功回执为准。
+        # download_to_plcsim.py --tiaworker 仅在 is_confirmed_device_download 通过
+        # （ok is True 且 result.success / deviceState == "downloaded" / operationId 有效）
+        # 时才打印 "TiaWorker 下载成功！" 并返回 0。
+        # returncode==0 单独不能证明下载成功（脚本内部可能失败但仍以 0 退出）。
+        if result.returncode == 0 and "TiaWorker 下载成功" in output:
             log("下载成功！", "ok")
             return True
         else:
@@ -181,9 +187,17 @@ def step5_fio():
 def step6_robot():
     sep("步骤 7/7: 启动 Robot MCP Server")
     robot_server = ROBOT_MCP_DIR / "server.py"
+    auth_token = os.environ.get("MCP_AUTH_TOKEN", "")
+    if not auth_token:
+        log("未配置 MCP_AUTH_TOKEN，拒绝启动 Robot MCP Server（认证 fail-closed）", "error")
+        log("请先设置 MCP_AUTH_TOKEN 环境变量（须与 MCP 客户端一致）后重试", "info")
+        return False
+    env = dict(os.environ)
+    env["MCP_AUTH_TOKEN"] = auth_token
     proc = subprocess.Popen(
         ["D:/Python3/python.exe", str(robot_server), "--ip", PLC_IP],
         cwd=str(ROBOT_MCP_DIR),
+        env=env,
     )
     time.sleep(2)
     if proc.poll() is None:
@@ -223,21 +237,34 @@ def main():
         log(f"然后: {sys.executable} {__file__}", "info")
         return 1
 
-    step1_plcsim()
+    if not step1_plcsim():
+        log("PLCSIM 准备失败，终止部署", "error")
+        return 1
 
     if not args.skip_tia:
-        step1_create_tags()
-        if step2_import_scl():
-            step3_compile()
-        else:
-            log("SCL 导入失败，仍尝试下载...", "warn")
-        step4_download()
+        if not step1_create_tags():
+            log("标签创建失败，终止部署", "error")
+            return 1
+        if not step2_import_scl():
+            log("SCL 导入失败，终止部署", "error")
+            return 1
+        if not step3_compile():
+            log("编译失败，终止部署", "error")
+            return 1
+        if not step4_download():
+            log("下载失败，终止部署", "error")
+            return 1
     else:
         log("跳过 TIA 步骤", "warn")
 
-    step5_fio()
-    step6_robot()
+    if not step5_fio():
+        log("Factory I/O 启动失败，终止部署", "error")
+        return 1
+    if not step6_robot():
+        log("Robot MCP Server 启动失败，终止部署", "error")
+        return 1
     log("部署完成！", "ok")
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

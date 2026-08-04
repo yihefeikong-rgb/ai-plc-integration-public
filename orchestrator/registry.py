@@ -130,7 +130,14 @@ class Registry:
         full_name = f"{server_name}.{tool.name}"
         self._tools[full_name] = tool
         if server_name in self._servers:
-            self._servers[server_name].tools.append(tool)
+            server_tools = self._servers[server_name].tools
+            # 去重：同名工具原位替换，避免重复注册累积重复项
+            for i, existing in enumerate(server_tools):
+                if existing.name == tool.name:
+                    server_tools[i] = tool
+                    break
+            else:
+                server_tools.append(tool)
 
     def get_tool(self, full_name: str) -> ToolInfo | None:
         """按完整名称查找工具，如 'tia-mcp.compile_project'"""

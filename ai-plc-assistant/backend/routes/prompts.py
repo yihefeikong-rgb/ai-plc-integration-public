@@ -1,7 +1,9 @@
 """Prompt 模板管理 — 分类CRUD，JSON持久化"""
 
+import copy
 import json
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional
@@ -56,20 +58,68 @@ class TemplateUpdate(BaseModel):
 
 # ---- 持久化 ----
 
+# 内存缓存：key=(mtime_ns, size)，避免每个 GET 请求全量读盘并解析
+_CACHE = {}
+
+
 def _load_all() -> list[dict]:
     if not os.path.exists(PROMPTS_FILE):
-        os.makedirs(DATA_DIR, exist_ok=True)
         templates = _default_templates()
-        with open(PROMPTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(templates, f, ensure_ascii=False, indent=2)
-    with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        _save_all(templates)
+        return templates
+    try:
+        st = os.stat(PROMPTS_FILE)
+    except OSError:
+        raise HTTPException(status_code=500, detail="读取模板数据失败：无法访问模板文件")
+    cache_key = (st.st_mtime_ns, st.st_size)
+    if _CACHE.get("key") == cache_key:
+        return copy.deepcopy(_CACHE["data"])
+    try:
+        with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        return _recover_corrupted()
+    except OSError:
+        raise HTTPException(status_code=500, detail="读取模板数据失败")
+    if not isinstance(data, list) or not all(isinstance(t, dict) for t in data):
+        return _recover_corrupted()
+    _CACHE["key"] = cache_key
+    _CACHE["data"] = data
+    return copy.deepcopy(data)
 
 
 def _save_all(templates: list[dict]):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(PROMPTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(templates, f, ensure_ascii=False, indent=2)
+    # 先失效缓存：写入失败时缓存也不得持有未落盘的改动
+    _CACHE.clear()
+    temp_path = None
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        # 原子写：同目录临时文件 + fsync + os.replace，避免写一半损坏 prompts.json
+        fd, temp_path = tempfile.mkstemp(prefix=".prompts-", suffix=".tmp", dir=DATA_DIR)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(templates, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, PROMPTS_FILE)
+    except Exception as exc:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+        raise HTTPException(status_code=500, detail="保存模板数据失败") from exc
+
+
+def _recover_corrupted() -> list[dict]:
+    """恢复路径：prompts.json 损坏时先备份原文件，再回退默认模板，避免所有端点持续 500。"""
+    backup = f"{PROMPTS_FILE}.corrupt-{int(time.time())}"
+    try:
+        os.replace(PROMPTS_FILE, backup)
+    except OSError:
+        raise HTTPException(status_code=500, detail="模板数据文件损坏且无法备份，已拒绝覆盖")
+    templates = _default_templates()
+    _save_all(templates)
+    return templates
 
 
 # ---- 默认模板 ----

@@ -59,6 +59,7 @@ VAR
     rCoolKd : Real;
     rCoolIntegral : Real;
     rCoolPrevErr : Real;
+    rCoolErr : Real;                     // 制冷误差中间量（rReturnAirTemp - rCoolSetpoint）
 
     // 温度PID参数（制热）
     rHeatKp : Real;
@@ -66,6 +67,7 @@ VAR
     rHeatKd : Real;
     rHeatIntegral : Real;
     rHeatPrevErr : Real;
+    rHeatErr : Real;                     // 制热误差中间量（rHeatSetpoint - rReturnAirTemp）
 
     // 防冻保护
     tonFreezeDelay : TON;                // 防冻确认延时
@@ -118,9 +120,13 @@ BEGIN
         bFreezeAlarm := TRUE;
     END_IF;
 
-    // 防冻恢复
+    // 防冻恢复（带滞回：温度回到 8°C 以上且防冻开关复位后才退出防冻模式）
     IF rFreezeProtectTemp > 8.0 AND NOT bFreezeStat THEN
         bFreezeAlarm := FALSE;
+        // 退出防冻模式：先回停机，由模式选择逻辑按当前工况接管
+        IF eMode = 4 THEN
+            eMode := 0;
+        END_IF;
     END_IF;
 
     // ============================================
@@ -144,6 +150,8 @@ BEGIN
                 IF tonModeChange.Q THEN
                     eMode := 0;  // OFF
                 END_IF;
+            ELSE
+                tonModeChange(IN := FALSE);
             END_IF;
         ELSE
             // 根据回风温度选择模式（带滞回区）
@@ -151,14 +159,16 @@ BEGIN
                 IF eMode <> 1 THEN
                     tonModeChange(IN := TRUE, PT := T#30s);
                     IF tonModeChange.Q THEN eMode := 1; END_IF;
+                ELSE
+                    tonModeChange(IN := FALSE);
                 END_IF;
-                tonModeChange(IN := FALSE);
             ELSIF rReturnAirTemp < (rHeatSetpoint - 1.0) THEN
                 IF eMode <> 2 THEN
                     tonModeChange(IN := TRUE, PT := T#30s);
                     IF tonModeChange.Q THEN eMode := 2; END_IF;
+                ELSE
+                    tonModeChange(IN := FALSE);
                 END_IF;
-                tonModeChange(IN := FALSE);
             ELSE
                 // 滞回区：维持当前模式
                 tonModeChange(IN := FALSE);
@@ -213,16 +223,17 @@ BEGIN
 
             // PID 制冷控制：通过冷水阀调节送风温度
             // 误差 = 回风温度 - 设定值（正偏差要制冷）
-            rCoolIntegral := rCoolIntegral + ((rReturnAirTemp - rCoolSetpoint) * rCoolKi * 1.0);
+            rCoolErr := rReturnAirTemp - rCoolSetpoint;
+            rCoolIntegral := rCoolIntegral + (rCoolErr * rCoolKi * 1.0);
             // 积分限幅
             IF rCoolIntegral > 100.0 THEN rCoolIntegral := 100.0; END_IF;
             IF rCoolIntegral < -100.0 THEN rCoolIntegral := -100.0; END_IF;
 
             // PID输出
-            bChilledWaterValve := ((rReturnAirTemp - rCoolSetpoint) * rCoolKp)
+            bChilledWaterValve := (rCoolErr * rCoolKp)
                                  + rCoolIntegral
-                                 + ((rReturnAirTemp - rCoolPrevErr) * rCoolKd);
-            rCoolPrevErr := rReturnAirTemp - rCoolSetpoint;
+                                 + ((rCoolErr - rCoolPrevErr) * rCoolKd);
+            rCoolPrevErr := rCoolErr;
 
             // 输出限幅
             IF bChilledWaterValve > 100.0 THEN bChilledWaterValve := 100.0; END_IF;
@@ -247,14 +258,15 @@ BEGIN
             bHeatMode := TRUE;
 
             // PID 制热控制：通过热水阀调节
-            rHeatIntegral := rHeatIntegral + ((rHeatSetpoint - rReturnAirTemp) * rHeatKi * 1.0);
+            rHeatErr := rHeatSetpoint - rReturnAirTemp;
+            rHeatIntegral := rHeatIntegral + (rHeatErr * rHeatKi * 1.0);
             IF rHeatIntegral > 100.0 THEN rHeatIntegral := 100.0; END_IF;
             IF rHeatIntegral < -100.0 THEN rHeatIntegral := -100.0; END_IF;
 
-            bHotWaterValve := ((rHeatSetpoint - rReturnAirTemp) * rHeatKp)
+            bHotWaterValve := (rHeatErr * rHeatKp)
                              + rHeatIntegral
-                             + ((rHeatPrevErr - (rHeatSetpoint - rReturnAirTemp)) * rHeatKd);
-            rHeatPrevErr := rHeatSetpoint - rReturnAirTemp;
+                             + ((rHeatPrevErr - rHeatErr) * rHeatKd);
+            rHeatPrevErr := rHeatErr;
 
             IF bHotWaterValve > 100.0 THEN bHotWaterValve := 100.0; END_IF;
             IF bHotWaterValve < 0.0 THEN bHotWaterValve := 0.0; END_IF;

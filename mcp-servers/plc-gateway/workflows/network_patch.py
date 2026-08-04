@@ -31,13 +31,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from plc_gateway.contracts.preview_apply import ApplyFailureState, get_preview_manager
 from plc_gateway.providers.base import ProviderResult, TiaProvider
+
+_logger = logging.getLogger(__name__)
 
 # 支持的初始操作（逐步扩展）
 _SUPPORTED_OPERATIONS = frozenset([
@@ -52,12 +56,37 @@ _HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 # ── Patch Schema 验证 ──
 
 
+_SCHEMA_CACHE: dict | None = None
+
+
 def _load_schema() -> dict:
-    """加载 JSON Schema"""
+    """加载 JSON Schema（带缓存，避免每次校验重复读盘）"""
+    global _SCHEMA_CACHE
+    if _SCHEMA_CACHE is not None:
+        return _SCHEMA_CACHE
     schema_path = Path(__file__).parent.parent / "contracts" / "network_patch.schema.json"
     if schema_path.exists():
-        return json.loads(schema_path.read_text(encoding="utf-8"))
-    return {}
+        _SCHEMA_CACHE = json.loads(schema_path.read_text(encoding="utf-8"))
+    else:
+        _SCHEMA_CACHE = {}
+    return _SCHEMA_CACHE
+
+
+def _schema_block_pattern() -> re.Pattern | None:
+    """从 network_patch.schema.json 提取 block 名称格式正则
+
+    Schema 缺失或 pattern 无效时返回 None（此时不做额外格式校验，
+    但仍保留基础字段校验与 provider 白名单，保持 fail-closed）。
+    """
+    block = _load_schema().get("properties", {}).get("block", {})
+    pattern = block.get("pattern", "")
+    if not pattern:
+        return None
+    try:
+        return re.compile(pattern)
+    except re.error:
+        _logger.warning("network_patch.schema.json 的 block.pattern 不是有效正则: %s", pattern)
+        return None
 
 
 def validate_patch(patch: dict) -> list[str]:
@@ -72,6 +101,10 @@ def validate_patch(patch: dict) -> list[str]:
         errors.append("缺少必填字段: block")
     elif not isinstance(patch["block"], str) or not patch["block"].strip():
         errors.append("block 必须是有效的字符串")
+    else:
+        block_pattern = _schema_block_pattern()
+        if block_pattern is not None and not block_pattern.fullmatch(patch["block"]):
+            errors.append(f"block 必须匹配格式 {block_pattern.pattern}（来自 network_patch.schema.json）")
 
     if "base_hash" not in patch:
         errors.append("缺少必填字段: base_hash")
@@ -207,8 +240,12 @@ def _hash_content(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _extract_networks_from_xml(xml_str: str) -> list[dict]:
-    """从 XML 中提取网络信息"""
+def _extract_networks_from_xml(xml_str: str) -> list[dict] | None:
+    """从 XML 中提取网络信息
+
+    Returns:
+        网络列表；XML 解析失败时记录日志并返回 None（调用方必须 fail-closed）。
+    """
     import xml.etree.ElementTree as ET
     networks = []
     try:
@@ -232,8 +269,9 @@ def _extract_networks_from_xml(xml_str: str) -> list[dict]:
                 "title": title,
                 "comment": comment,
             })
-    except ET.ParseError:
-        pass
+    except ET.ParseError as e:
+        _logger.error("解析块 XML 失败（返回 None，调用方应拒绝继续）: %s", e)
+        return None
     return networks
 
 
@@ -313,6 +351,19 @@ async def tia_preview_block_patch(
             error=f"Patch 验证失败: {'; '.join(validation_errors)}",
         ).to_dict()
 
+    # 1.1 块名格式与目标一致性校验（防止预览 A 块而操作 B 块）
+    block_pattern = _schema_block_pattern()
+    if block_pattern is not None and not block_pattern.fullmatch(block_name):
+        return ProviderResult(
+            ok=False, operation="tia.block.preview_patch",
+            error=f"block_name 必须匹配格式 {block_pattern.pattern}（来自 network_patch.schema.json）",
+        ).to_dict()
+    if patch.get("block", "") != block_name:
+        return ProviderResult(
+            ok=False, operation="tia.block.preview_patch",
+            error="patch.block 与 block_name 不一致，拒绝预览（预览目标必须与操作目标一致）",
+        ).to_dict()
+
     # 2. 获取当前块 XML
     xml_result = provider.get_block_xml(block_name)
     if not xml_result.ok:
@@ -321,8 +372,13 @@ async def tia_preview_block_patch(
     xml_str = ""
     if isinstance(xml_result.result, dict):
         xml_str = xml_result.result.get("xml", "") or xml_result.result.get("content", "")
+    if not xml_str:
+        return ProviderResult(
+            ok=False, operation="tia.block.preview_patch",
+            error="无法获取块 XML，拒绝预览",
+        ).to_dict()
 
-    current_hash = _hash_content(xml_str) if xml_str else ""
+    current_hash = _hash_content(xml_str)
 
     # 3. 验证 base_hash
     patch_base = patch.get("base_hash", "")
@@ -334,7 +390,12 @@ async def tia_preview_block_patch(
         ).to_dict()
 
     # 4. 提取当前网络信息
-    networks = _extract_networks_from_xml(xml_str) if xml_str else []
+    networks = _extract_networks_from_xml(xml_str)
+    if networks is None:
+        return ProviderResult(
+            ok=False, operation="tia.block.preview_patch",
+            error="块 XML 解析失败，拒绝预览（详见日志）",
+        ).to_dict()
 
     # 5. 验证 network_index 是否有效
     for op in patch.get("operations", []):
@@ -394,24 +455,120 @@ async def tia_apply_block_patch(
     provider: TiaProvider,
     block_name: str,
     patch: dict,
+    confirmation_token: str = "",
+    project_path: str = "",
+    target_hash: str = "",
+    device_id: str = "",
 ) -> dict:
     """应用块 Patch
+
+    安全要求（fail-closed）：
+    - 必须先预览：预览阶段强制校验 patch.block 与 block_name 一致、
+      base_hash 匹配与 network_index 越界；
+    - 必须提供一次性确认令牌：由 PreviewManager 签发（HMAC 签名并绑定
+      项目/目标 Hash/设备），此处消费并写入审计链；缺失、未签名或校验
+      失败一律拒绝，不允许绕过（GATEWAY_SAFETY_ENABLED=0 时令牌无签名，
+      同样被拒，保持关闭安全链也不放行写入）；
+    - 在一次性消费确认令牌之前重新读取块并核对 Hash，防止预览后到执行前
+      的 TOCTOU 漂移；块漂移时拒绝执行且不消费令牌，避免确认被无谓烧毁。
 
     Args:
         block_name: 块名称
         patch: 结构化 Patch 字典
+        confirmation_token: 人工确认后由 PreviewManager 签发的确认令牌
+        project_path: 项目路径（确认令牌绑定项，可选）
+        target_hash: 预览时的块 Hash（确认令牌绑定项，可选，默认取本次预览值）
+        device_id: 设备 ID（确认令牌绑定项，可选）
     """
+    # 0. 确认令牌强制（registry L2 元数据 requires_confirmation=True）
+    if not confirmation_token:
+        return ProviderResult(
+            ok=False, operation="tia.block.apply_patch",
+            error="操作必须人工确认（缺少确认令牌）",
+        ).to_dict()
+
+    # 1. 预览（严格验证，含 block 一致性、base_hash 与 network_index）
     result = await tia_preview_block_patch(provider, block_name, patch)
     if not result.get("ok"):
         return result
 
+    result_data = result.get("result", {}) or {}
+    current_hash = result_data.get("current_hash", "")
+
+    mgr = get_preview_manager()
+
+    # 2. TOCTOU 防护：在一次性消费确认令牌之前重新读取块，Hash 必须与预览一致。
+    #    消费令牌是不可逆的一次性操作，必须等复读确认通过后再执行；否则块在
+    #    预览后漂移时确认令牌会被无谓烧毁，审计还会留下缺 APPLY_STARTED 的
+    #    TOKEN_CONSUMED→APPLY_FAILED 序列。漂移时令牌保持未消费（可重新预览
+    #    确认，或在块状态恢复后复用原确认）；此处仅用 validate_token 取得令牌
+    #    引用用于审计记录，不标记 used。
+    xml_result = provider.get_block_xml(block_name)
+    if not xml_result.ok:
+        return xml_result.to_dict()
+    xml_str = ""
+    if isinstance(xml_result.result, dict):
+        xml_str = xml_result.result.get("xml", "") or xml_result.result.get("content", "")
+    if not xml_str or _hash_content(xml_str) != current_hash:
+        drift_token = mgr.validate_token(
+            confirmation_token,
+            project_path,
+            target_hash or current_hash,
+            device_id,
+        )
+        if drift_token is not None:
+            mgr.apply_failed(drift_token, "块内容在预览后改变，拒绝执行",
+                             ApplyFailureState.RECONCILE_REQUIRED)
+        return ProviderResult(
+            ok=False, operation="tia.block.apply_patch",
+            error="块内容在预览后改变，拒绝执行（请重新预览并确认）",
+            reconcile_required=True,
+        ).to_dict()
+
+    # 3. 一次性消费确认令牌并校验签名（fail-closed，消费即写入审计链）
+    token = mgr.consume_token(
+        confirmation_token,
+        project_path,
+        target_hash or current_hash,
+        device_id,
+    )
+    if token is None:
+        return ProviderResult(
+            ok=False, operation="tia.block.apply_patch",
+            error="确认令牌无效、已使用、已过期或与项目/目标/设备绑定不符",
+            reconcile_required=True,
+        ).to_dict()
+    if not token.signature:
+        return ProviderResult(
+            ok=False, operation="tia.block.apply_patch",
+            error="确认令牌未签名（HMAC 认证未生效），拒绝应用",
+            reconcile_required=True,
+        ).to_dict()
+
+    # 4. 执行应用（记录审计链）
+    mgr.apply_started(token)
     try:
         provider_result = provider.apply_patch(patch)
-        return provider_result.to_dict()
     except NotImplementedError:
+        mgr.apply_failed(token, f"Provider '{provider.name}' 不支持网络级修改")
         return ProviderResult(
             ok=False, operation="tia.block.apply_patch",
             error=f"Provider '{provider.name}' 不支持网络级修改。"
                   f"此功能需要 TiaCommander 或 TiaWorker 的扩展支持。",
             reconcile_required=True,
         ).to_dict()
+    except Exception as e:
+        mgr.apply_failed(token, f"执行异常: {e}")
+        return ProviderResult(
+            ok=False, operation="tia.block.apply_patch",
+            error=f"执行异常: {e}",
+            reconcile_required=True,
+        ).to_dict()
+
+    if not provider_result.ok:
+        detail = provider_result.error.message if provider_result.error else "应用失败"
+        mgr.apply_failed(token, detail)
+        return provider_result.to_dict()
+
+    mgr.apply_succeeded(token, f"已应用 {len(patch.get('operations', []))} 个网络操作")
+    return provider_result.to_dict()

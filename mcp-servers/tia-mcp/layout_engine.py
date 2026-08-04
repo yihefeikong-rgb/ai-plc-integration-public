@@ -133,14 +133,14 @@ class LayoutEngine:
         total_rows = 1 + extra_rows  # 主路径 + 分支行
 
         net_canvas_width = LEFT_RAIL_MARGIN + total_cols * COLUMN_WIDTH + RIGHT_RAIL_MARGIN
-        net_canvas_height = total_rows * ROW_HEIGHT + extra_rows * BRANCH_ROW_GAP
+        net_canvas_height = TOP_MARGIN + total_rows * ROW_HEIGHT + extra_rows * BRANCH_ROW_GAP + BOTTOM_MARGIN
 
         # 构建行
         rows = []
         render_branches = []
 
         # 主路径行 (row 0)
-        main_row_y = ROW_HEIGHT / 2  # 相对于 network 顶部
+        main_row_y = TOP_MARGIN + ROW_HEIGHT / 2  # 相对于 network 顶部（含 TOP_MARGIN 标题区）
         main_elements = []
         for (et, elem, element_col) in main_path:
             x = LEFT_RAIL_MARGIN + element_col * COLUMN_WIDTH + COLUMN_WIDTH / 2
@@ -149,10 +149,11 @@ class LayoutEngine:
         rows.append(RenderRow(row_index=0, y_center=main_row_y, elements=main_elements))
 
         # 分支行 (row 1+) — 修复分支叠加 bug：正确累加 BRANCH_ROW_GAP
-        branch_row_offset = 0  # 累计偏移
-        for br_idx, branch_data in enumerate(branches):
-            for path_idx, path_items in enumerate(branch_data["paths"]):
-                branch_row_index = 1 + br_idx + path_idx
+        branch_row_offset = 0  # 全局分支行计数（跨所有 Branch 递增）
+        for _, branch_data in enumerate(branches):
+            for _, path_items in enumerate(branch_data["paths"]):
+                # 全局唯一行号：主路径=0，所有分支路径按出现顺序 1,2,3,...
+                branch_row_index = 1 + branch_row_offset
                 # 修复：每个分支行累加 ROW_HEIGHT + BRANCH_ROW_GAP
                 branch_y = TOP_MARGIN + (branch_row_offset + 1) * ROW_HEIGHT + branch_row_offset * BRANCH_ROW_GAP + ROW_HEIGHT / 2
                 branch_row_offset += 1

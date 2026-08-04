@@ -142,14 +142,17 @@ PROJECT_COMPILE = ToolMetadata(
 PROJECT_SAVE = ToolMetadata(
     name="tia.project.save", category=ToolCategory.TIA_PROJECT,
     risk_level=RiskLevel.L2_TIA_EDIT, mutating=True,
-    requires_preview=True, description="保存 TIA 项目")
+    requires_preview=True, requires_confirmation=True, requires_backup=True,
+    description="保存 TIA 项目")
 PROJECT_ARCHIVE = ToolMetadata(
     name="tia.project.archive", category=ToolCategory.TIA_PROJECT,
     risk_level=RiskLevel.L2_TIA_EDIT, mutating=True,
-    requires_backup=True, description="归档 TIA 项目")
+    requires_preview=True, requires_confirmation=True, requires_backup=True,
+    description="归档 TIA 项目")
 PROJECT_CLOSE = ToolMetadata(
     name="tia.project.close", category=ToolCategory.TIA_PROJECT,
     risk_level=RiskLevel.L2_TIA_EDIT, mutating=True,
+    requires_preview=True, requires_confirmation=True, requires_backup=True,
     description="关闭 TIA 项目")
 
 # tia.block.*
@@ -178,7 +181,8 @@ BLOCK_DELETE = ToolMetadata(
 BLOCK_COMPILE = ToolMetadata(
     name="tia.block.compile", category=ToolCategory.TIA_BLOCK,
     risk_level=RiskLevel.L2_TIA_EDIT, mutating=True,
-    requires_preview=True, description="编译块")
+    requires_preview=True, requires_confirmation=True, requires_backup=True,
+    description="编译块")
 BLOCK_CREATE_LADDER = ToolMetadata(
     name="tia.block.create_ladder", category=ToolCategory.TIA_BLOCK,
     risk_level=RiskLevel.L2_TIA_EDIT, mutating=True,

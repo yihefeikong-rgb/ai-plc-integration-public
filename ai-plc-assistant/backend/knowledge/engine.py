@@ -93,6 +93,10 @@ class KnowledgeEngine:
         self._client = None
         self._collection = None
         self._init_lock = threading.Lock()
+        # 文档注册表缓存：避免 list_documents/get_stats 每次请求全量扫描集合。
+        # 首次使用时从集合构建一次，由 index_file/delete_document/clear 维护。
+        self._docs_cache: Optional[dict] = None
+        self._docs_lock = threading.Lock()
 
     def initialize(self):
         """初始化 ChromaDB 客户端和集合"""
@@ -190,6 +194,15 @@ class KnowledgeEngine:
             metadatas=metadatas,
         )
 
+        # 集合写入成功后增量维护文档注册表缓存
+        with self._docs_lock:
+            if self._docs_cache is not None:
+                self._docs_cache[doc_id] = {
+                    "document_id": doc_id,
+                    "filename": metadata["filename"],
+                    "chunk_count": len(chunks),
+                }
+
         return {
             "document_id": doc_id,
             "chunk_count": len(chunks),
@@ -198,27 +211,46 @@ class KnowledgeEngine:
 
     def delete_document(self, document_id: str) -> bool:
         """按 document_id 删除所有相关块"""
-        # ChromaDB 没有按元数据批量删除的API
-        # 需要先查出所有匹配的 id，然后按 id 删除
-        all_ids = self.collection.get(limit=10_000_000)["ids"]
-        to_delete = [i for i in all_ids if i.startswith(f"{document_id}_")]
-        if to_delete:
-            self.collection.delete(ids=to_delete)
+        with self._docs_lock:
+            # ChromaDB (>=0.5.5) 支持按元数据 where 过滤批量删除，
+            # 无需把整个集合 ids/metadatas 全量载入内存做前缀过滤。
+            matched = self.collection.get(
+                where={"document_id": document_id},
+                include=["metadatas"],
+            )
+            if not matched["ids"]:
+                return False
+            self.collection.delete(where={"document_id": document_id})
+            # 集合已变更，失效注册表缓存；下次列表从集合真实状态重建（fail-closed）。
+            self._docs_cache = None
             return True
-        return False
+
+    def _docs_snapshot(self) -> dict:
+        """去重后的文档注册表；仅首次调用（或缓存失效后）做一次元数据扫描。
+
+        只拉取元数据（不包含块文本），且只扫描一次并缓存，避免
+        /documents、/status 等只读请求每次都全量扫描整个集合。
+        """
+        with self._docs_lock:
+            if self._docs_cache is None:
+                all_meta = self.collection.get(include=["metadatas"])["metadatas"]
+                docs = {}
+                for m in all_meta:
+                    if not m:
+                        continue
+                    doc_id = m["document_id"]
+                    if doc_id not in docs:
+                        docs[doc_id] = {
+                            "document_id": doc_id,
+                            "filename": m["filename"],
+                            "chunk_count": m["total_chunks"],
+                        }
+                self._docs_cache = docs
+            return self._docs_cache
 
     def list_documents(self) -> List[dict]:
         """列出所有已索引的去重文档列表"""
-        all_meta = self.collection.get(limit=10_000_000)["metadatas"]
-        seen = {}
-        for m in all_meta:
-            if m and m["document_id"] not in seen:
-                seen[m["document_id"]] = {
-                    "document_id": m["document_id"],
-                    "filename": m["filename"],
-                    "chunk_count": m["total_chunks"],
-                }
-        return list(seen.values())
+        return list(self._docs_snapshot().values())
 
     def get_stats(self) -> dict:
         """获取知识库统计"""
@@ -237,6 +269,8 @@ class KnowledgeEngine:
         except ValueError:
             pass
         self._collection = self.client.get_or_create_collection(name="plc_knowledge")
+        with self._docs_lock:
+            self._docs_cache = {}
 
     # ---- Search ----
 

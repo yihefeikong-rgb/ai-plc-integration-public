@@ -46,7 +46,7 @@ export function ExportResultMessage({ content }) {
   const mime = data.mime || 'text/plain'
   const handleDownload = () => {
     if (url) {
-      window.open(url, '_blank')
+      window.open(url, '_blank', 'noopener,noreferrer')
     } else if (fileContent) {
       downloadFile(fileContent, filename, mime)
     }

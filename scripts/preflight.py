@@ -22,6 +22,7 @@ import socket
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -87,29 +88,31 @@ def check_tia_portal() -> CheckResult:
     """检查 TIA Portal 进程是否在运行。"""
     r = CheckResult("TIA Portal 运行状态")
     try:
-        # TIA Portal 主进程名为 Siemens.Automation.Portal.exe 或 V18/V21 变体
-        cmd = 'tasklist /FI "IMAGENAME eq Siemens.Automation.Portal.exe" 2>nul'
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-        if "Siemens.Automation.Portal.exe" in proc.stdout:
+        # 单次列出全部进程（列表参数，不经 shell），再用 Python 匹配 TIA Portal 进程名。
+        # 此前 3 次 tasklist 子进程（精确过滤 + 模糊搜索）存在重复覆盖，且 shell=True 引入多余解析面。
+        proc = subprocess.run(["tasklist"], capture_output=True, text=True, timeout=10)
+        lines = proc.stdout.splitlines()
+
+        # 精确匹配主进程名（Siemens.Automation.Portal.exe / TiaPortal.exe）
+        exact = [
+            ln for ln in lines
+            if "siemens.automation.portal.exe" in ln.lower() or "tiaportal.exe" in ln.lower()
+        ]
+        if exact:
             r.passed = True
             r.detail = "TIA Portal 进程已运行"
         else:
-            # 试试带版本号
-            cmd2 = 'tasklist /FI "IMAGENAME eq TiaPortal.exe" 2>nul'
-            proc2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, timeout=10)
-            if "TiaPortal.exe" in proc2.stdout:
+            # 模糊搜索，覆盖带版本号或其他变体
+            fuzzy = [
+                ln for ln in lines
+                if "tiaportal" in ln.lower() or "siemens.automation.portal" in ln.lower()
+            ]
+            if fuzzy:
                 r.passed = True
-                r.detail = "TIA Portal 进程已运行 (TiaPortal.exe)"
+                r.detail = f"找到 TIA 相关进程: {fuzzy[0].strip()[:60]}"
             else:
-                # 模糊搜索
-                cmd3 = 'tasklist 2>nul | findstr /I "TiaPortal Siemens.Automation.Portal"'
-                proc3 = subprocess.run(cmd3, shell=True, capture_output=True, text=True, timeout=10)
-                if proc3.stdout.strip():
-                    r.passed = True
-                    r.detail = f"找到 TIA 相关进程: {proc3.stdout.strip()[:60]}"
-                else:
-                    r.detail = "未检测到 TIA Portal 进程"
-                    r.suggestion = "打开 TIA Portal (以管理员权限运行)，确保项目已打开"
+                r.detail = "未检测到 TIA Portal 进程"
+                r.suggestion = "打开 TIA Portal (以管理员权限运行)，确保项目已打开"
     except Exception as e:
         r.detail = f"检查失败: {e}"
         r.suggestion = "TIA Portal V18/V21 需要安装并运行"
@@ -183,8 +186,11 @@ def check_deepseek_api_key() -> CheckResult:
                 r.passed = True
                 r.detail = "已从 config.yaml 加载"
                 return r
-    except Exception:
-        pass
+    except Exception as e:
+        # 不再静默吞错：yaml 损坏/权限错误等必须如实上报，避免误报“未配置 API Key”
+        r.detail = f"config.yaml 检查失败: {e}"
+        r.suggestion = "确认 mcp-servers/tia-mcp/config.yaml 存在且 YAML 格式正确，或改用环境变量 DEEPSEEK_API_KEY"
+        return r
 
     r.detail = "未配置 API Key"
     r.suggestion = "设置环境变量: set DEEPSEEK_API_KEY=sk-xxx"
@@ -243,23 +249,44 @@ def check_factory_io() -> CheckResult:
     return r
 
 
+def _probe_port(port: int) -> tuple[bool, str]:
+    """并行探测单个端口。
+
+    Returns:
+        (是否被占用, 错误消息)。空闲且无异常时 error 为空字符串；
+        探测异常时如实返回错误消息，不静默吞掉。
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    try:
+        result = sock.connect_ex(("127.0.0.1", port))
+        return result == 0, ""
+    except Exception as e:
+        return False, f"端口 {port} 探测异常: {e}"
+    finally:
+        sock.close()
+
+
 def check_ports() -> CheckResult:
     """检查 8000-8005 端口是否被占用。"""
     r = CheckResult("端口 8000-8005")
     ports = [8000, 8001, 8002, 8003, 8004, 8005]
-    occupied = []
+    occupied: list[str] = []
+    errors: list[str] = []
 
-    for port in ports:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        try:
-            result = sock.connect_ex(("127.0.0.1", port))
-            if result == 0:
+    # 各端口探测之间无状态依赖，并行探测避免最坏 ~6s 串行阻塞
+    with ThreadPoolExecutor(max_workers=len(ports)) as pool:
+        for port, (is_occupied, err) in zip(ports, pool.map(_probe_port, ports)):
+            if err:
+                errors.append(err)
+            elif is_occupied:
                 occupied.append(str(port))
-        except Exception:
-            pass
-        finally:
-            sock.close()
+
+    if errors:
+        # fail-closed：端口状态无法确定时不得误报“全部空闲”
+        r.detail = "; ".join(errors)
+        r.suggestion = "端口探测失败，请检查本机网络/防火墙配置"
+        return r
 
     if not occupied:
         r.passed = True

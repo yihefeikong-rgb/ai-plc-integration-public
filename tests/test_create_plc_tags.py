@@ -16,17 +16,32 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "mcp-servers" / "tia-mcp"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Mock Windows 特有模块（这些是跨平台兼容所需，不影响其他测试）
-sys.modules["clr"] = MagicMock()
-sys.modules["Siemens"] = MagicMock()
-sys.modules["Siemens.Engineering"] = MagicMock()
-sys.modules["System"] = MagicMock()
-sys.modules["System.IO"] = MagicMock()
+# Mock Windows 特有模块（这些是跨平台兼容所需，不影响其他测试）。
+# 导入 create_plc_tags 后立即恢复 sys.modules，避免 MagicMock 泄漏到整个
+# pytest 会话：后续需要真实 pythonnet clr 的测试会静默拿到 mock。
+_SYS_MODULES_MOCKS = {
+    "clr": MagicMock(),
+    "Siemens": MagicMock(),
+    "Siemens.Engineering": MagicMock(),
+    "System": MagicMock(),
+    "System.IO": MagicMock(),
+}
+_saved_modules = {name: sys.modules.get(name) for name in _SYS_MODULES_MOCKS}
+for _name, _mock in _SYS_MODULES_MOCKS.items():
+    sys.modules[_name] = _mock
 
 # 不 mock config_loader 和 tia_session，使用真实模块
 # create_plc_tags.py 导入 config_loader 是安全的（只读 cfg）
 
-from create_plc_tags import _generate_tag_xml, create_tags
+try:
+    from create_plc_tags import _generate_tag_xml, create_tags
+finally:
+    # 恢复 sys.modules：原本不存在则删除，原本存在则还原为原模块（fail-closed）
+    for _name, _prev in _saved_modules.items():
+        if _prev is None:
+            sys.modules.pop(_name, None)
+        else:
+            sys.modules[_name] = _prev
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -154,7 +169,7 @@ class TestCreateTags:
         mock_api.assert_called_once()
 
     def test_fallback_to_xml_on_api_failure(self):
-        """API 完全失败时降级到 XML Import"""
+        """API 完全失败时不再自动降级：XML 覆盖导入会清空已有标签，fail-closed 中止要求人工确认"""
         with patch("create_plc_tags.create_tags_via_api") as mock_api, \
              patch("create_plc_tags.create_tags_via_xml") as mock_xml:
             mock_api.return_value = {
@@ -165,9 +180,9 @@ class TestCreateTags:
             }
             result = create_tags("C:\\test\\project.ap21", SAMPLE_TAGS, "TestTable")
 
-        assert result["status"] == "ok"
-        assert result["created"] == 3
-        mock_xml.assert_called_once()
+        assert result["status"] == "error"
+        assert "数据丢失风险" in result["error"]
+        mock_xml.assert_not_called()
 
     def test_returns_api_error(self):
         """API 返回 error 状态时原样返回"""

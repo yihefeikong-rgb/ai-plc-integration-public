@@ -368,13 +368,11 @@ def test_output_properly_with_arrow():
     """Output 形参 使用 => 不报错"""
     code = """
 BEGIN
-    "MyFC"(Input1 := #val, Output1 => #result);
+    "MyFC"(Input1 := #val, DONE => #done);
 END_FUNCTION_BLOCK
 """
-    # 注意：OUTPUT_WITH_COLON_EQ 只检查已知 Output 参数名
-    # OUTPUT1 不在已知列表中，不会误报
-    # 但这里验证已知 Output 参数列使用 := 是被检测的
-    pass  # 此测试验证不误报：无已知 output 参数时零误报
+    errors = _find_rule(lint_scl(code), "OUTPUT_WITH_COLON_EQ")
+    assert len(errors) == 0, "Output 形参使用 => 不应触发 OUTPUT_WITH_COLON_EQ"
 
 
 def test_done_with_colon_eq_in_call():

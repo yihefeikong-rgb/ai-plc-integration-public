@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 from unittest.mock import patch
+
+
+# 核心契约工具：注册表是模块级单例（mcp-servers/plc-gateway/registry.py 的
+# get_registry()），工具集会随开发或跨测试累积而增减，因此不硬编码总数，
+# 只断言这些关键工具必须注册。
+_CORE_TOOL_NAMES = {
+    "tia.project.list",
+    "tia.block.list",
+    "tia.block.get_xml",
+    "tia.hardware.list",
+    "plc.runtime.read",
+    "s7.read",
+    "gateway.get_info",
+    "gateway.list_providers",
+    "gateway.list_capabilities",
+}
 
 
 def test_config_defaults():
@@ -16,10 +31,10 @@ def test_config_defaults():
     assert cfg.default_read_provider == "tiaworker"
 
 
-def test_config_from_unified_target():
-    os.environ["GATEWAY_TIACOMMANDER_ENABLED"] = "1"
-    os.environ["GATEWAY_SAFETY_ENABLED"] = "0"
-    os.environ["GATEWAY_DEBUG"] = "1"
+def test_config_from_unified_target(monkeypatch):
+    monkeypatch.setenv("GATEWAY_TIACOMMANDER_ENABLED", "1")
+    monkeypatch.setenv("GATEWAY_SAFETY_ENABLED", "0")
+    monkeypatch.setenv("GATEWAY_DEBUG", "1")
 
     from plc_gateway.config import GatewayConfig
     target = SimpleNamespace(
@@ -35,10 +50,8 @@ def test_config_from_unified_target():
     assert cfg.tiacommander_enabled is True
     assert cfg.safety_enabled is False
     assert cfg.debug is True
-
-    for k in ["GATEWAY_TIACOMMANDER_ENABLED", "GATEWAY_SAFETY_ENABLED",
-              "GATEWAY_DEBUG"]:
-        os.environ.pop(k, None)
+    # monkeypatch 在测试结束后自动还原上述环境变量；即使断言失败，
+    # 也不会把 GATEWAY_SAFETY_ENABLED=0 等配置泄漏给同一会话的后续测试。
 
 
 def test_config_to_dict():
@@ -80,7 +93,9 @@ def test_bootstrap_registers_tools():
 
     cfg = GatewayConfig(debug=True)
     ctx = bootstrap_gateway(cfg)
-    assert len(ctx.registry) == 34, f"预期 34 个工具，实际 {len(ctx.registry)}"
+    names = {t.name for t in ctx.registry.all_tools()}
+    assert _CORE_TOOL_NAMES.issubset(names), f"缺少核心工具: {sorted(_CORE_TOOL_NAMES - names)}"
+    assert len(names) == len(ctx.registry), "注册表存在重复工具名"
 
 
 def test_bootstrap_context_to_dict():
@@ -95,7 +110,8 @@ def test_bootstrap_context_to_dict():
     assert "providers" in d
     assert "tools_count" in d
     assert "safety_enabled" in d
-    assert d["tools_count"] == 34
+    assert d["tools_count"] == len(ctx.registry)
+    assert d["tools_count"] >= len(_CORE_TOOL_NAMES)
 
 
 def test_bootstrap_provider_info():

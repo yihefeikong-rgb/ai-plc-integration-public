@@ -63,6 +63,8 @@ async def test_authenticated_human_session_issues_bound_confirmation_token(monke
     )
     monkeypatch.setattr(route, "get_safety_gate", lambda: gate, raising=False)
     monkeypatch.setattr(route, "confirmation_service", service, raising=False)
+    # S7 写入方身份由共享认证令牌派生（与 tools_s7._authenticated_actor 一致）
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "test-shared-token")
 
     result = await route.issue_confirmation(route.ConfirmationRequest(
         operator="ai-agent",
@@ -72,13 +74,121 @@ async def test_authenticated_human_session_issues_bound_confirmation_token(monke
     ), "local-session:test")
 
     assert result["audit_id"] == "audit-123"
+    # 消费端与签发端一致：用共享令牌派生 s7 写入方主体（不信任自报 operator）
+    from mcp_common.audit import authenticated_actor
+    consume_operator = authenticated_actor("test-shared-token", "s7")
     service.consume(
         result["confirmation_token"],
-        operator="ai-agent",
+        operator=consume_operator,
         target="DB1.MOTOR_RUN",
         value=1,
         device_id="s7:test-host:0:1",
     )
+
+
+@pytest.mark.asyncio
+async def test_workflow_confirmation_issued_and_consumed(monkeypatch, tmp_path):
+    """人工签发的工作流级确认令牌必须能被编排层真实消费（一次性、绑定工作流名）。"""
+    backend_dir = Path(__file__).parents[1]
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
+    from routes import orchestrator as route
+    from safety.confirmation import ConfirmationService, ConfirmationError
+
+    service = ConfirmationService(
+        secret="test-confirmation-secret",
+        store_path=tmp_path / "wf-confirmations.sqlite3",
+    )
+    monkeypatch.setattr(route, "confirmation_service", service, raising=False)
+
+    # 人工签发工作流级确认令牌
+    result = await route.issue_confirmation(route.ConfirmationRequest(
+        operator="ai-agent",
+        target="",
+        value=None,
+        device_id="",
+        ttl_seconds=60,
+        purpose="workflow",
+        workflow_name="nl_to_plcsim_pipeline",
+    ), "local-session:test")
+
+    token = result["confirmation_token"]
+    assert token
+
+    # 编排层（同一 ConfirmationService 实例）真实消费：绑定工作流名
+    service.consume(
+        token,
+        operator="wf:nl_to_plcsim_pipeline",
+        target="_wf.nl_to_plcsim_pipeline",
+        value="run",
+        device_id="workflow",
+    )
+
+    # 一次性：再次消费必须失败
+    with pytest.raises(ConfirmationError):
+        service.consume(
+            token,
+            operator="wf:nl_to_plcsim_pipeline",
+            target="_wf.nl_to_plcsim_pipeline",
+            value="run",
+            device_id="workflow",
+        )
+
+
+def test_confirmation_request_full_flow(tmp_path, monkeypatch):
+    """人工审批全流程：AI 创建请求 → 人工批准签发令牌 → AI 一次性领取 → 消费。"""
+    from safety.confirmation import ConfirmationService
+    from safety.confirmation_requests import ConfirmationRequestStore
+
+    store = ConfirmationRequestStore(
+        path=tmp_path / "requests.json",
+        service=ConfirmationService(
+            secret="test-secret", store_path=tmp_path / "confirm.sqlite3"),
+    )
+
+    # 1) AI 创建审批请求
+    record = store.create("nl_to_plcsim_pipeline", "下载电机程序", "ai-agent")
+    request_id = record["request_id"]
+    assert record["status"] == "pending"
+    assert store.list()[0]["status"] == "pending"
+
+    # 2) 人工批准 → 签发一次性工作流级令牌
+    result = store.approve(request_id, "local-session:test")
+    assert result["status"] == "approved"
+    token = result["confirmation_token"]
+    assert token
+
+    # 3) AI 凭 request_id 一次性领取（重复领取失败）
+    taken = store.take_token(request_id)
+    assert taken == token
+    assert store.take_token(request_id) is None
+
+    # 4) 领取的令牌可被编排层真实消费（一次）
+    store._service.consume(
+        taken,
+        operator="wf:nl_to_plcsim_pipeline",
+        target="_wf.nl_to_plcsim_pipeline",
+        value="run",
+        device_id="workflow",
+    )
+
+
+def test_confirmation_request_deny(tmp_path):
+    """人工拒绝后不能再批准。"""
+    from safety.confirmation import ConfirmationService
+    from safety.confirmation_requests import ConfirmationRequestStore
+
+    store = ConfirmationRequestStore(
+        path=tmp_path / "requests.json",
+        service=ConfirmationService(
+            secret="test-secret", store_path=tmp_path / "confirm.sqlite3"),
+    )
+    record = store.create("tia_multi_block_pipeline", "导入 3 个块", "ai-agent")
+    result = store.deny(record["request_id"], "local-session:test")
+    assert result["status"] == "denied"
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        store.approve(record["request_id"], "local-session:test")
 
 
 def test_client_defined_workflows_reject_dangerous_or_unknown_tools():

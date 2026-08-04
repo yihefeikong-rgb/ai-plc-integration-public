@@ -130,8 +130,9 @@ flowchart LR
 2. **One isolated target.** `mcp_common/control_target.py` accepts only the configured target; S7 IP and OPC UA endpoint drift is rejected.
 3. **Writes fail closed.** A raw S7 address must be mapped in `safety/interlock-rules.yml` to a semantic target and type. Final S7, OPC UA, Modbus, and Mitsubishi write tools must also have registered target/value parameter contracts. Unregistered tools, missing targets, type mismatches, out-of-range values, interlock failures, or static-precheck failures are rejected.
 4. **One-time human confirmation.** A required write and a fuse reset need a signed, short-lived token bound to operator, approver, target, value, device identity, and audit context. A consumed token cannot be reused. The current Modbus, Mitsubishi, and OPC UA write endpoints derive the audit actor from verified credentials rather than a caller-supplied identity.
-5. **Audit before side effect.** Control intent is recorded before mutation. A production environment should fail closed without a persistent `AUDIT_HMAC_KEY` and an authenticated actor; common secret fields are redacted from logs, and audit appends are serialized with a cross-process lock to avoid concurrent chain forks.
-6. **Software guards are not certification.** The static pre-check does not simulate real PLC scan cycles, field wiring, mechanical inertia, or safety integrity levels.
+5. **Workflow-level human confirmation (AI danger chains).** Before dangerous engineering steps (compile/download/launch), orchestration workflows (`nl_to_plcsim_pipeline`, `tia_multi_block_pipeline`) must consume a one-time workflow-level confirmation token (bound to `_wf.<workflow_name>`) at the entry. When the token is missing, the workflow creates a human approval request; a human approves it on the "Human Approval" panel, which issues a 5-minute one-time token, and the user retries with the `request_id`. A placeholder string is no longer sufficient.
+6. **Audit before side effect.** Control intent is recorded before mutation. A production environment should fail closed without a persistent `AUDIT_HMAC_KEY` and an authenticated actor; common secret fields are redacted from logs, and audit appends are serialized with a cross-process lock to avoid concurrent chain forks.
+7. **Software guards are not certification.** The static pre-check does not simulate real PLC scan cycles, field wiring, mechanical inertia, or safety integrity levels.
 
 ### Local control API
 
@@ -161,6 +162,11 @@ Minimal local variables (illustrative only; use independently generated values):
 DEEPSEEK_API_KEY=...
 LOCAL_API_TOKEN=long-random-local-token
 SAFETY_CONFIRMATION_SECRET=long-random-confirmation-secret
+# Workflow-level human confirmation (shared by backend and orchestrator):
+SAFETY_CONFIRMATION_STORE=...           # consumed-token sqlite path (optional)
+CONFIRMATION_REQUESTS_FILE=...          # approval-request queue JSON path (optional, default data/confirmation_requests.json)
+# Confirmation happens at the orchestration layer; the tool layer explicitly trusts it:
+TIA_MCP_ALLOW_UNCONFIRMED_ENGINEERING=1
 # Production control environments also require:
 AUDIT_HMAC_KEY=long-random-audit-key
 ```

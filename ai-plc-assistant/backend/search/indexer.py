@@ -19,6 +19,10 @@ class SearchIndex:
         self.db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
         self._init_lock = threading.Lock()
+        # 写互斥：共享连接（check_same_thread=False）会被事件循环查询与多个
+        # asyncio.to_thread 索引 worker 并发使用；entries/entries_fts 两条 INSERT
+        # 必须成对原子执行，否则 last_insert_rowid() 可能关联到其他线程刚插入的行。
+        self._write_lock = threading.RLock()
 
     def initialize(self):
         """初始化数据库和 FTS5 表"""
@@ -95,7 +99,8 @@ class SearchIndex:
                 self._insert_entry(file_info["path"], entry)
                 indexed += 1
 
-        self.conn.commit()
+        with self._write_lock:
+            self.conn.commit()
 
         return {
             "files_scanned": total,
@@ -110,31 +115,35 @@ class SearchIndex:
         for entry in entries:
             self._insert_entry(file_path, entry)
             count += 1
-        self.conn.commit()
+        with self._write_lock:
+            self.conn.commit()
         return count
 
     def _insert_entry(self, file_path: str, entry: dict):
         now = time.time()
-        self.conn.execute(
-            """INSERT INTO entries (file_path, type, name, block_name, block_type, content, line, indexed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                file_path,
-                entry.get("type", "generic"),
-                entry.get("name", ""),
-                entry.get("block_name", ""),
-                entry.get("block_type", ""),
-                entry.get("content", ""),
-                entry.get("line", 0),
-                now,
-            ),
-        )
-        # 同步更新 FTS 索引
-        self.conn.execute(
-            """INSERT INTO entries_fts (rowid, name, block_name, content)
-               VALUES (last_insert_rowid(), ?, ?, ?)""",
-            (entry.get("name", ""), entry.get("block_name", ""), entry.get("content", "")),
-        )
+        # entries 与 entries_fts 两条 INSERT 必须在同一临界区内完成，
+        # 防止并发 worker 的语句插入两者之间，导致 last_insert_rowid() 关联错行。
+        with self._write_lock:
+            self.conn.execute(
+                """INSERT INTO entries (file_path, type, name, block_name, block_type, content, line, indexed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    file_path,
+                    entry.get("type", "generic"),
+                    entry.get("name", ""),
+                    entry.get("block_name", ""),
+                    entry.get("block_type", ""),
+                    entry.get("content", ""),
+                    entry.get("line", 0),
+                    now,
+                ),
+            )
+            # 同步更新 FTS 索引
+            self.conn.execute(
+                """INSERT INTO entries_fts (rowid, name, block_name, content)
+                   VALUES (last_insert_rowid(), ?, ?, ?)""",
+                (entry.get("name", ""), entry.get("block_name", ""), entry.get("content", "")),
+            )
 
     # ---- Search ----
 
@@ -154,10 +163,13 @@ class SearchIndex:
 
         # 含中文的查询走 LIKE 搜索（FTS5 unicode61 不处理 CJK 分词）
         if re.search(r'[\u4e00-\u9fff]', query):
-            return self.search_simple(query, limit=limit)
+            return self.search_simple(query, limit=limit, offset=offset)
 
         # 构建 FTS5 查询
         fts_query = self._build_fts_query(query)
+        if not fts_query:
+            # 词条全部被过滤（如孤立 *、引号等），按无结果返回，避免生成非法 MATCH
+            return {"results": [], "total": 0, "query": query}
 
         # 搜索
         cursor = self.conn.execute(
@@ -201,6 +213,8 @@ class SearchIndex:
             return {"results": [], "total": 0, "query": query}
 
         fts_query = self._build_fts_query(query)
+        if not fts_query:
+            return {"results": [], "total": 0, "query": query}
         cursor = self.conn.execute(
             """SELECT e.id, e.file_path, e.type, e.name, e.block_name, e.block_type,
                       e.content, e.line, e.indexed_at, rank
@@ -228,7 +242,7 @@ class SearchIndex:
 
         return {"results": results, "total": len(results), "query": query}
 
-    def search_simple(self, query: str, limit: int = 20) -> dict:
+    def search_simple(self, query: str, limit: int = 20, offset: int = 0) -> dict:
         """LIKE 搜索后备 — 适用于中文等 FTS5 不支持的语言"""
         like = f"%{query}%"
         cursor = self.conn.execute(
@@ -236,8 +250,8 @@ class SearchIndex:
                       content, line, indexed_at
                FROM entries
                WHERE content LIKE ? OR name LIKE ? OR block_name LIKE ?
-               LIMIT ?""",
-            (like, like, like, limit),
+               LIMIT ? OFFSET ?""",
+            (like, like, like, limit, offset),
         )
         results = []
         for row in cursor.fetchall():
@@ -252,7 +266,12 @@ class SearchIndex:
                 "line": row[7],
                 "score": 50.0,
             })
-        return {"results": results, "total": len(results), "query": query}
+        # 单独统计总数，避免 LIMIT/OFFSET 截断导致 total 小于实际匹配数
+        total = self.conn.execute(
+            "SELECT COUNT(*) FROM entries WHERE content LIKE ? OR name LIKE ? OR block_name LIKE ?",
+            (like, like, like),
+        ).fetchone()[0]
+        return {"results": results, "total": total, "query": query}
 
     # ---- Management ----
 
@@ -276,9 +295,11 @@ class SearchIndex:
         """清空索引"""
         # entries_fts 使用 external-content 表；普通 DELETE 只会清空影子内容，
         # 不会移除倒排词项，导致 total 与实际结果不一致。
-        self.conn.execute("INSERT INTO entries_fts(entries_fts) VALUES('delete-all')")
-        self.conn.execute("DELETE FROM entries")
-        self.conn.commit()
+        # 与 _insert_entry 共用同一写锁，避免清空与在途插入互相穿插造成悬空 FTS 行。
+        with self._write_lock:
+            self.conn.execute("INSERT INTO entries_fts(entries_fts) VALUES('delete-all')")
+            self.conn.execute("DELETE FROM entries")
+            self.conn.commit()
 
     def close(self):
         """关闭连接"""
@@ -289,16 +310,22 @@ class SearchIndex:
     # ---- Helpers ----
 
     def _build_fts_query(self, query: str) -> str:
-        """构建 FTS5 查询字符串"""
+        """构建 FTS5 查询字符串
+
+        对任意输入只生成语法合法的 MATCH 语句（fail-closed）：
+        - FTS5 短语内不允许出现双引号且无法转义，内嵌引号按字面量去除；
+        - 词尾星号保留为前缀匹配（如 "abc"*），其余 *、: 等元字符不再原样透传；
+        - 不含可分词字符的词条（孤立 *、冒号、括号等）直接跳过，避免空短语语法错误。
+        """
         tokens = []
-        for t in query.split():
-            t = t.strip()
-            if not t:
+        for raw in query.split():
+            t = raw.strip().replace('"', "")
+            if not re.search(r"\w", t):
                 continue
-            if ':' in t or '*' in t:
-                tokens.append(t)
+            if t.endswith("*"):
+                tokens.append(f'"{t[:-1]}"*')
             else:
                 tokens.append(f'"{t}"')
-        return " OR ".join(tokens) if tokens else query
+        return " OR ".join(tokens)
 
 

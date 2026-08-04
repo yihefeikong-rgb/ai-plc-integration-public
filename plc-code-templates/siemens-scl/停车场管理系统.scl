@@ -194,16 +194,13 @@ BEGIN
             bEntranceGateUp := FALSE;
             bEntranceGateDn := FALSE;
 
-            // 车辆通过后（地感消失），落杆
-            IF NOT bEntranceLoop AND NOT bEntranceSafetyLight THEN
+            // 车辆通过后（地感消失且光幕清除），落杆
+            IF NOT bEntranceLoop AND bEntranceSafetyLight THEN
                 eEntryState := cENTRY_GATE_DN;
-            END_IF;
-
-            // 安全光幕触发：停止落杆，重新抬杆
-            IF NOT bEntranceSafetyLight THEN
+            // 地感仍有车或光幕仍有遮挡：保持抬杆（防砸）
+            ELSE
                 bEntranceGateUp := TRUE;
                 bEntranceGateDn := FALSE;
-                eEntryState := cENTRY_VEHICLE_IN;
             END_IF;
 
         cENTRY_GATE_DN:  // 落杆
@@ -272,13 +269,13 @@ BEGIN
             bExitGateUp := FALSE;
             bExitGateDn := FALSE;
 
-            IF NOT bExitLoop THEN
+            // 车辆完全离开（地感与光幕均清除）后落杆
+            IF NOT bExitLoop AND bExitSafetyLight THEN
                 eExitState := cEXIT_GATE_DN;
-            END_IF;
-
-            IF NOT bExitSafetyLight THEN
+            // 地感仍有车或光幕仍有遮挡：保持抬杆（防砸）
+            ELSE
                 bExitGateUp := TRUE;
-                eExitState := cEXIT_VEHICLE_OUT;
+                bExitGateDn := FALSE;
             END_IF;
 
         cEXIT_GATE_DN:

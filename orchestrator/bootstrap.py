@@ -60,8 +60,10 @@ async def bootstrap(
     result = BootstrapResult()
     registry = get_registry()
 
-    # 逐个连接服务器并注册工具
-    for info in server_list:
+    # 并发连接服务器并注册工具。
+    # 各服务器连接相互独立，用 gather 并行收敛到单台最长时间；
+    # 失败语义与逐个连接时一致（fail-closed：超时清理残留子进程）。
+    async def _connect_server(info: Any) -> None:
         try:
             await asyncio.wait_for(pool.connect_server(info), timeout=10.0)
             adapter = pool.get_adapter(info.name)
@@ -86,16 +88,19 @@ async def bootstrap(
             _logger.warning(f"服务器 {info.name} 连接失败: {e}")
             result.failed.append((info.name, str(e)))
 
+    await asyncio.gather(*(_connect_server(info) for info in server_list))
+
     # 注册所有工作流
     register_all_workflows(engine)
     _logger.info(
         f"启动引导完成: {len(result.connected)} 连接, {len(result.failed)} 失败"
     )
 
-    # 连接阴影模式服务器（仅记录，不影响主流程）
+    # 并发连接阴影模式服务器（仅记录，不影响主流程）
     if SHADOW_SERVERS:
         _logger.info(f"阴影模式服务器: {[s.name for s in SHADOW_SERVERS]}")
-        for info in SHADOW_SERVERS:
+
+        async def _connect_shadow_server(info: Any) -> None:
             try:
                 await asyncio.wait_for(pool.connect_server(info), timeout=10.0)
                 adapter = pool.get_adapter(info.name)
@@ -108,6 +113,8 @@ async def bootstrap(
                 _logger.info(f"阴影服务器 {info.name} 已连接")
             except Exception as e:
                 _logger.warning(f"阴影服务器 {info.name} 连接失败: {e}")
+
+        await asyncio.gather(*(_connect_shadow_server(info) for info in SHADOW_SERVERS))
 
     return result
 

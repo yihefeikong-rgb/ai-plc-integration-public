@@ -1,5 +1,7 @@
 """知识库 API 路由 — 导入 / 搜索 / 管理"""
 
+import asyncio
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -11,6 +13,8 @@ from knowledge.engine import KnowledgeEngine
 from security import require_local_session
 
 router = APIRouter()
+
+_logger = logging.getLogger(__name__)
 
 # 存储引擎实例（由 main.py 初始化时注入）
 engine: KnowledgeEngine = None  # type: ignore
@@ -76,7 +80,10 @@ async def import_document(
 
         # 索引（传入原始文件名，避免显示 tmp_xxx）
         original_name = Path(file.filename or "").name
-        result = engine.index_file(tmp_path, original_filename=original_name)
+        # 解析/嵌入/写入为 CPU 密集同步操作，放入线程池执行，避免阻塞事件循环
+        result = await asyncio.to_thread(
+            engine.index_file, tmp_path, original_filename=original_name
+        )
         return {
             "document_id": result["document_id"],
             "filename": result["filename"],
@@ -86,6 +93,8 @@ async def import_document(
     except HTTPException:
         raise
     except Exception:
+        # 客户端保持泛化 500（不泄露内部细节），根因与堆栈写入日志
+        _logger.exception("导入文档失败")
         raise HTTPException(status_code=500, detail="导入失败")
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -192,7 +201,8 @@ async def list_code_templates(_actor: str = Depends(require_local_session)):
 async def get_code_template(name: str, _actor: str = Depends(require_local_session)):
     """获取单个 SCL 代码模板内容"""
     import re as _re
-    if ".." in name or "/" in name or "\\" in name:
+    # 拒绝目录穿越与 Windows 盘符相对路径（如 "C:foo"，会丢弃模板目录左操作数）
+    if ".." in name or "/" in name or "\\" in name or ":" in name:
         raise HTTPException(status_code=400, detail="无效的模板名称")
     templates_dir = Path(__file__).parent.parent.parent.parent / "plc-code-templates" / "siemens-scl"
     for ext in (".scl", ".md"):
@@ -258,7 +268,8 @@ async def list_ladder_templates(_actor: str = Depends(require_local_session)):
                     "networks": [n.get("title", "") for n in networks],
                 })
             except Exception:
-                pass
+                # 单个模板损坏不应中断列表，但必须记录根因而非静默吞掉
+                _logger.warning("梯形图模板 JSON 解析失败，跳过该文件: %s", f.name, exc_info=True)
     return {"templates": files}
 
 
@@ -266,7 +277,8 @@ async def list_ladder_templates(_actor: str = Depends(require_local_session)):
 async def get_ladder_template(name: str, _actor: str = Depends(require_local_session)):
     """获取单个梯形图模板完整 JSON + 文本化展示"""
     import json as _json
-    if ".." in name or "/" in name or "\\" in name:
+    # 拒绝目录穿越与 Windows 盘符相对路径（如 "C:foo"，会丢弃模板目录左操作数）
+    if ".." in name or "/" in name or "\\" in name or ":" in name:
         raise HTTPException(status_code=400, detail="无效的模板名称")
     templates_dir = Path(__file__).parent.parent.parent.parent / "mcp-servers" / "tia-mcp" / "templates"
     f = templates_dir / f"{name}.json"

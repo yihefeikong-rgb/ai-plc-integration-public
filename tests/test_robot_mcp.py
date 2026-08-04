@@ -37,9 +37,17 @@ def client():
     import asyncio
     c = OPCClient(url=OPCUA_ENDPOINT)
     loop = asyncio.new_event_loop()
-    loop.run_until_complete(c.connect())
-    yield c
-    loop.run_until_complete(c.disconnect())
+    connected = False
+    try:
+        loop.run_until_complete(c.connect())
+        connected = True
+        yield c
+    finally:
+        try:
+            if connected:
+                loop.run_until_complete(c.disconnect())
+        finally:
+            loop.close()
 
 
 def test_import():
@@ -55,10 +63,12 @@ async def test_opcua_connection():
     try:
         client = OPCClient(url=OPCUA_ENDPOINT)
         await client.connect()
-        assert client.uaclient is not None
-        await client.disconnect()
     except Exception as e:
         pytest.skip(f"OPC UA 连接失败（PLCSIM 可能未运行）: {e}")
+    try:
+        assert client.uaclient is not None
+    finally:
+        await client.disconnect()
 
 
 @pytest.mark.skipif(not HAS_ASYNCUA, reason="asyncua not installed")

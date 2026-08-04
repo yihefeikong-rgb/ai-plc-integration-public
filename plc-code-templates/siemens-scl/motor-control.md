@@ -1,7 +1,7 @@
 # 电机控制 — SCL 生成模板
 
 ## 功能描述
-三相异步电机的正反转控制，带急停、过载保护、电流监视。
+三相异步电机的正反转控制，带急停、过载保护、电流监视、故障复位。
 
 ## SCL 代码模板
 
@@ -16,6 +16,7 @@ VAR_INPUT
   iStop : BOOL;            // 停止按钮
   iEStop : BOOL;           // 急停（常闭）
   iOverload : BOOL;        // 过载保护（常闭）
+  bReset : BOOL;           // 故障复位按钮
   iFwdLimit : BOOL;        // 正转限位
   iRevLimit : BOOL;        // 反转限位
   iSpeedSetpoint : REAL;   // 速度设定值 (0-3000 rpm)
@@ -89,6 +90,14 @@ BEGIN
     oRunFwd := FALSE;
     oRunRev := FALSE;
     oFault := TRUE;
+  END_IF;
+
+  // === 故障复位（仅当故障原因消除后，复位才有效） ===
+  IF bReset AND iState = 3 AND iEStop AND iOverload AND rCurrentActual <= rCurrentLimit THEN
+    iState := 0;  // STOP
+    oRunFwd := FALSE;
+    oRunRev := FALSE;
+    oFault := FALSE;
   END_IF;
 
   // === 状态输出 ===

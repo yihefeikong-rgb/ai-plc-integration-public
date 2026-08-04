@@ -9,7 +9,7 @@ S7 协议适配器 — 通过 python-snap7 读写西门子 PLC（PLCSIM / 真机
     adapter = S7Adapter()
     adapter.connect()
     val = adapter.read_merker(0, 0)       # M0.0 bool
-    val = adapter.read_byte(0, 0)         # MB0 int
+    val = adapter.read_merker_byte(0)     # MB0 int（M 区字节，走 mb_read）
     val = adapter.read_float(0, 0)        # MD0 float
     adapter.write_byte(0, 0, 42)
     adapter.disconnect()
@@ -18,6 +18,7 @@ import logging
 import math
 import re
 import sys
+import threading
 from pathlib import Path
 from typing import Optional, Any
 
@@ -44,6 +45,7 @@ class S7Adapter:
         self._client = None
         self._connected = False
         self._connection_id = ""
+        self._lock = threading.RLock()
 
     def connect(self, ip: str = "", rack: int = 0, slot: int = 1) -> str:
         """连接到 PLC
@@ -65,32 +67,36 @@ class S7Adapter:
             return f"🚫 连接被拒绝: {exc}"
         ip = target.plc_ip
 
-        if self._connected:
-            return f"⚠ 已连接到 {ip}，请先断开"
+        with self._lock:
+            if self._connected:
+                return f"⚠ 已连接到 {ip}，请先断开"
 
-        try:
-            self._client = snap7.client.Client()
-            self._client.connect(ip, rack, slot)
-            self._connected = True
-            self._connection_id = f"s7:{ip}:{rack}:{slot}"
-            return f"✅ 已连接到 S7 PLC ({ip}, Rack={rack}, Slot={slot})"
-        except Exception as e:
-            self._client = None
-            return f"❌ 连接失败: {e}"
+            try:
+                self._client = snap7.client.Client()
+                self._client.connect(ip, rack, slot)
+                self._connected = True
+                self._connection_id = f"s7:{ip}:{rack}:{slot}"
+                return f"✅ 已连接到 S7 PLC ({ip}, Rack={rack}, Slot={slot})"
+            except Exception as e:
+                self._client = None
+                return f"❌ 连接失败: {e}"
 
     def disconnect(self) -> str:
         """断开 PLC 连接"""
-        if not self._connected or self._client is None:
-            return "⚠ 未连接"
-        try:
-            self._client.disconnect()
-            self._client.destroy()
-        except Exception:
-            pass
-        self._client = None
-        self._connected = False
-        self._connection_id = ""
-        return "✅ 已断开连接"
+        with self._lock:
+            if not self._connected or self._client is None:
+                return "⚠ 未连接"
+            try:
+                self._client.disconnect()
+                self._client.destroy()
+                result = "✅ 已断开连接"
+            except Exception as exc:
+                logger.error("断开 S7 连接失败: %s", exc)
+                result = f"❌ 断开失败: {exc}"
+            self._client = None
+            self._connected = False
+            self._connection_id = ""
+            return result
 
     @property
     def is_connected(self) -> bool:
@@ -114,9 +120,17 @@ class S7Adapter:
             byte: 字节地址
             bit: 位地址 (0-7)
         """
-        self._check_connected()
-        data = self._client.mb_read(byte, 1)
-        return util.get_bool(data, 0, bit)
+        with self._lock:
+            self._check_connected()
+            data = self._client.mb_read(byte, 1)
+            return util.get_bool(data, 0, bit)
+
+    def read_merker_byte(self, start: int) -> int:
+        """读取 Merker 字节 MB（1 字节，M 区）"""
+        with self._lock:
+            self._check_connected()
+            data = self._client.mb_read(start, 1)
+            return data[0]
 
     def read_byte(self, db_number: int, start: int, size: int = 1) -> int:
         """读取 DB 区字节
@@ -126,39 +140,45 @@ class S7Adapter:
             start: 起始地址
             size: 字节数（默认 1）
         """
-        self._check_connected()
-        data = self._client.db_read(db_number, start, size)
-        return data[0]
+        with self._lock:
+            self._check_connected()
+            data = self._client.db_read(db_number, start, size)
+            return data[0]
 
     def read_int(self, db_number: int, start: int) -> int:
         """读取 DB 区 int（2 字节）"""
-        self._check_connected()
-        data = self._client.db_read(db_number, start, 2)
-        return util.get_int(data, 0)
+        with self._lock:
+            self._check_connected()
+            data = self._client.db_read(db_number, start, 2)
+            return util.get_int(data, 0)
 
     def read_real(self, db_number: int, start: int) -> float:
         """读取 DB 区 real/float（4 字节）"""
-        self._check_connected()
-        data = self._client.db_read(db_number, start, 4)
-        return util.get_real(data, 0)
+        with self._lock:
+            self._check_connected()
+            data = self._client.db_read(db_number, start, 4)
+            return util.get_real(data, 0)
 
     def read_dword(self, db_number: int, start: int) -> int:
         """读取 DB 区 dword（4 字节）"""
-        self._check_connected()
-        data = self._client.db_read(db_number, start, 4)
-        return util.get_dword(data, 0)
+        with self._lock:
+            self._check_connected()
+            data = self._client.db_read(db_number, start, 4)
+            return util.get_dword(data, 0)
 
     def read_mw(self, start: int) -> int:
         """读取 Merker 字 MW（2 字节，M 区）"""
-        self._check_connected()
-        data = self._client.mb_read(start, 2)
-        return util.get_int(data, 0)
+        with self._lock:
+            self._check_connected()
+            data = self._client.mb_read(start, 2)
+            return util.get_int(data, 0)
 
     def read_md(self, start: int) -> float:
         """读取 Merker 双字 MD（4 字节，M 区）"""
-        self._check_connected()
-        data = self._client.mb_read(start, 4)
-        return util.get_real(data, 0)
+        with self._lock:
+            self._check_connected()
+            data = self._client.mb_read(start, 4)
+            return util.get_real(data, 0)
 
     # ── 写入 ──
 
@@ -171,54 +191,69 @@ class S7Adapter:
             value: True/False
         """
         value = self.parse_write_value(f"M{byte}.{bit}", value)
-        self._check_connected()
-        data = self._client.mb_read(byte, 1)
-        util.set_bool(data, 0, bit, value)
-        self._client.mb_write(byte, 1, data)
+        with self._lock:
+            self._check_connected()
+            data = self._client.mb_read(byte, 1)
+            util.set_bool(data, 0, bit, value)
+            self._client.mb_write(byte, 1, data)
         return f"✅ M{byte}.{bit} = {value}"
+
+    def write_merker_byte(self, start: int, value: int) -> str:
+        """写入 Merker 字节 MB（1 字节，M 区）"""
+        value = self.parse_write_value(f"MB{start}", value)
+        with self._lock:
+            self._check_connected()
+            data = bytearray([value & 0xFF])
+            self._client.mb_write(start, 1, data)
+        return f"✅ MB{start} = {value}"
 
     def write_byte(self, db_number: int, start: int, value: int) -> str:
         """写入 DB 区字节"""
         value = self.parse_write_value(f"DB{db_number}.MB{start}", value)
-        self._check_connected()
-        data = bytearray([value & 0xFF])
-        self._client.db_write(db_number, start, data)
+        with self._lock:
+            self._check_connected()
+            data = bytearray([value & 0xFF])
+            self._client.db_write(db_number, start, data)
         return f"✅ DB{db_number}.{start} = {value}"
 
     def write_int(self, db_number: int, start: int, value: int) -> str:
         """写入 DB 区 int（2 字节）"""
         value = self.parse_write_value(f"DB{db_number}.MW{start}", value)
-        self._check_connected()
-        data = bytearray(2)
-        util.set_int(data, 0, value)
-        self._client.db_write(db_number, start, data)
+        with self._lock:
+            self._check_connected()
+            data = bytearray(2)
+            util.set_int(data, 0, value)
+            self._client.db_write(db_number, start, data)
         return f"✅ DB{db_number}.{start} = {value} (int)"
 
     def write_real(self, db_number: int, start: int, value: float) -> str:
         """写入 DB 区 real（4 字节）"""
         value = self.parse_write_value(f"DB{db_number}.MD{start}", value)
-        self._check_connected()
-        data = bytearray(4)
-        util.set_real(data, 0, value)
-        self._client.db_write(db_number, start, data)
+        with self._lock:
+            self._check_connected()
+            data = bytearray(4)
+            util.set_real(data, 0, value)
+            self._client.db_write(db_number, start, data)
         return f"✅ DB{db_number}.{start} = {value} (real)"
 
     def write_mw(self, start: int, value: int) -> str:
         """写入 Merker 字 MW（2 字节，M 区）"""
         value = self.parse_write_value(f"MW{start}", value)
-        self._check_connected()
-        data = bytearray(2)
-        util.set_int(data, 0, value)
-        self._client.mb_write(start, 2, data)
+        with self._lock:
+            self._check_connected()
+            data = bytearray(2)
+            util.set_int(data, 0, value)
+            self._client.mb_write(start, 2, data)
         return f"✅ MW{start} = {value}"
 
     def write_md(self, start: int, value: float) -> str:
         """写入 Merker 双字 MD（4 字节，M 区）"""
         value = self.parse_write_value(f"MD{start}", value)
-        self._check_connected()
-        data = bytearray(4)
-        util.set_real(data, 0, value)
-        self._client.mb_write(start, 4, data)
+        with self._lock:
+            self._check_connected()
+            data = bytearray(4)
+            util.set_real(data, 0, value)
+            self._client.mb_write(start, 4, data)
         return f"✅ MD{start} = {value}"
 
     # ── 高级读写（按地址字符串解析） ──
@@ -359,11 +394,13 @@ class S7Adapter:
         """
         typ, db, start, extra = self._parse_addr(address)
         if typ == "M":
+            if db:
+                raise ValueError(f"不支持的地址格式: {address}（不支持 DB 前缀位地址）")
             return self.read_merker(start, extra)
         elif typ == "MB":
             if db:
                 return self.read_byte(db, start)
-            return self.read_byte(0, start)
+            return self.read_merker_byte(start)
         elif typ == "MW":
             if db:  # DB 块中的字, 如 DB1.MW10
                 return self.read_int(db, start)
@@ -388,21 +425,23 @@ class S7Adapter:
         typ, db, start, extra = self._parse_addr(address)
         if typ == "UNKNOWN":
             return f"❌ 不支持的地址格式: {address}"
-        typed_value = self.parse_write_value(address, value)
+        # 值校验由各 write_* 方法执行一次；这里不再重复 parse_write_value
         if typ == "M":
-            return self.write_merker(start, extra, typed_value)
+            if db:
+                raise ValueError(f"不支持的地址格式: {address}（不支持 DB 前缀位地址）")
+            return self.write_merker(start, extra, value)
         elif typ == "MB":
             if db:
-                return self.write_byte(db, start, typed_value)
-            return self.write_byte(0, start, typed_value)
+                return self.write_byte(db, start, value)
+            return self.write_merker_byte(start, value)
         elif typ == "MW":
             if db:
-                return self.write_int(db, start, typed_value)
-            return self.write_mw(start, typed_value)
+                return self.write_int(db, start, value)
+            return self.write_mw(start, value)
         elif typ == "MD":
             if db:
-                return self.write_real(db, start, typed_value)
-            return self.write_md(start, typed_value)
+                return self.write_real(db, start, value)
+            return self.write_md(start, value)
         return f"❌ 不支持的地址格式: {address}"
 
 

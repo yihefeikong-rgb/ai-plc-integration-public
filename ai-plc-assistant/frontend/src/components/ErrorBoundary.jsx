@@ -37,9 +37,6 @@ export default class ErrorBoundary extends Component {
             <p className="text-xs text-text-dim mb-4">
               {this.state.error?.message || '未知错误'}
             </p>
-            <pre className="text-2xs text-text-dim bg-ide-panel border border-ide-border rounded p-3 mb-4 text-left overflow-auto max-h-32">
-              {this.state.error?.stack?.split('\n').slice(0, 5).join('\n')}
-            </pre>
             <button
               onClick={this.handleRetry}
               className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-white rounded text-xs font-medium hover:bg-accent-hover transition-colors"

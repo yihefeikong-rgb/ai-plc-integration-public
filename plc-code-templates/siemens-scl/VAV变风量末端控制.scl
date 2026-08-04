@@ -68,28 +68,38 @@ VAR
     // 压力无关控制
     rPressureCompFactor : Real;          // 压力补偿系数
 
+    // 首次扫描初始化标志
+    bInitDone : Bool;                    // 首次调用初始化已完成
+
+    // 中间计算变量（避免重复计算）
+    rTempDeviation : Real;               // 温度偏差 (rRoomTemp - rCoolSetpoint)
+    rAirflowLowLimit : Real;             // 风量下限 (rAirflowMin*0.3)
+
     // 温度报警延时
     tonTempAlarm : TON;                  // 温度越限延时
 END_VAR
 
 BEGIN
     // ============================================
-    // 默认参数初始化
+    // 默认参数初始化（仅首周期执行一次，避免每扫描周期重复判断）
     // ============================================
-    IF rFlowKp = 0.0 THEN rFlowKp := 2.0; END_IF;
-    IF rFlowKi = 0.0 THEN rFlowKi := 0.3; END_IF;
-    IF rTempKp = 0.0 THEN rTempKp := 5.0; END_IF;
-    IF rTempKi = 0.0 THEN rTempKi := 0.02; END_IF;
-    IF rReheatKp = 0.0 THEN rReheatKp := 3.0; END_IF;
-    IF rReheatKi = 0.0 THEN rReheatKi := 0.1; END_IF;
-    IF rCoolSetpoint = 0.0 THEN rCoolSetpoint := 24.0; END_IF;
-    IF rHeatSetpoint = 0.0 THEN rHeatSetpoint := 21.0; END_IF;
-    IF rAirflowMin = 0.0 THEN rAirflowMin := 200.0; END_IF;
-    IF rAirflowMax = 0.0 THEN rAirflowMax := 1200.0; END_IF;
-    IF rHumiditySetpoint = 0.0 THEN rHumiditySetpoint := 55.0; END_IF;
-    IF rNightSetbackOffset = 0.0 THEN rNightSetbackOffset := 3.0; END_IF;
-    IF rSensorK = 0.0 THEN rSensorK := 1.0; END_IF;
-    IF rPressureCompFactor = 0.0 THEN rPressureCompFactor := 1.0; END_IF;
+    IF NOT bInitDone THEN
+        IF rFlowKp = 0.0 THEN rFlowKp := 2.0; END_IF;
+        IF rFlowKi = 0.0 THEN rFlowKi := 0.3; END_IF;
+        IF rTempKp = 0.0 THEN rTempKp := 5.0; END_IF;
+        IF rTempKi = 0.0 THEN rTempKi := 0.02; END_IF;
+        IF rReheatKp = 0.0 THEN rReheatKp := 3.0; END_IF;
+        IF rReheatKi = 0.0 THEN rReheatKi := 0.1; END_IF;
+        IF rCoolSetpoint = 0.0 THEN rCoolSetpoint := 24.0; END_IF;
+        IF rHeatSetpoint = 0.0 THEN rHeatSetpoint := 21.0; END_IF;
+        IF rAirflowMin = 0.0 THEN rAirflowMin := 200.0; END_IF;
+        IF rAirflowMax = 0.0 THEN rAirflowMax := 1200.0; END_IF;
+        IF rHumiditySetpoint = 0.0 THEN rHumiditySetpoint := 55.0; END_IF;
+        IF rNightSetbackOffset = 0.0 THEN rNightSetbackOffset := 3.0; END_IF;
+        IF rSensorK = 0.0 THEN rSensorK := 1.0; END_IF;
+        IF rPressureCompFactor = 0.0 THEN rPressureCompFactor := 1.0; END_IF;
+        bInitDone := TRUE;
+    END_IF;
 
     // ============================================
     // 急停处理
@@ -163,13 +173,14 @@ BEGIN
             bHeatMode := FALSE;
             bDeadband := FALSE;
 
-            rTempIntegral := rTempIntegral + ((rRoomTemp - rCoolSetpoint) * rTempKi);
+            rTempDeviation := rRoomTemp - rCoolSetpoint;
+            rTempIntegral := rTempIntegral + (rTempDeviation * rTempKi);
             IF rTempIntegral > 100.0 THEN rTempIntegral := 100.0; END_IF;
             IF rTempIntegral < 0.0 THEN rTempIntegral := 0.0; END_IF;
 
             // 温度偏差映射到风量设定（最小~最大）
             rAirflowSetpoint := rAirflowMin
-                + (((rRoomTemp - rCoolSetpoint) * rTempKp) + rTempIntegral)
+                + ((rTempDeviation * rTempKp) + rTempIntegral)
                   / 100.0 * (rAirflowMax - rAirflowMin);
 
             // 再热阀关闭
@@ -233,8 +244,9 @@ BEGIN
     // ============================================
     // 风量限幅
     // ============================================
+    rAirflowLowLimit := rAirflowMin * 0.3;  // 下限只计算一次
     IF rAirflowSetpoint > rAirflowMax THEN rAirflowSetpoint := rAirflowMax; END_IF;
-    IF rAirflowSetpoint < rAirflowMin * 0.3 THEN rAirflowSetpoint := rAirflowMin * 0.3; END_IF;
+    IF rAirflowSetpoint < rAirflowLowLimit THEN rAirflowSetpoint := rAirflowLowLimit; END_IF;
 
     // ============================================
     // 风量PID → 风阀开度（级联内环）

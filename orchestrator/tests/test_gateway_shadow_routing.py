@@ -33,7 +33,9 @@ def _blocks(*names):
 
 
 @pytest.mark.asyncio
-async def test_shadow_calls_both_and_returns_legacy_result():
+async def test_shadow_calls_both_and_returns_legacy_result(monkeypatch):
+    # 影子对比是迁移验证行为，需显式开启 PLC_GATEWAY_SHADOW_COMPARE
+    monkeypatch.setenv("PLC_GATEWAY_SHADOW_COMPARE", "1")
     legacy = _blocks("FB1")
     pool = FakePool({
         ("plc-gateway", "tia.block.list"): _blocks("FB1"),
@@ -109,6 +111,7 @@ def test_block_comparison_ignores_order_and_reports_missing_blocks():
 @pytest.mark.asyncio
 async def test_workflow_context_routes_the_real_legacy_block_list_call(monkeypatch):
     monkeypatch.setenv("PLC_GATEWAY_MODE", "shadow")
+    monkeypatch.setenv("PLC_GATEWAY_SHADOW_COMPARE", "1")
     legacy = _blocks("FB1")
     pool = FakePool({
         ("plc-gateway", "tia.block.list"): _blocks("FB1"),

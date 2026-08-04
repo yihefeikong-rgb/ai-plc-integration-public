@@ -1,11 +1,11 @@
 """
-下载流程集成测试 — mock 方式验证三条降级路径
+下载流程集成测试 — mock 隔离全部动态操作（不启动 TIA Portal / PLCSIM / UAC 提权）
 
 测试覆盖:
-  1. _ensure_admin() — 非 admin 环境返回 False
-  2. _ensure_tia_gui_running() — 可调用的逻辑
+  1. _ensure_admin() — 非 admin + UAC 取消时 fail-closed 返回 False
+  2. _ensure_tia_gui_running() — mock tasklist/UAC，验证自动启动逻辑但不真实启动
   3. download_via_ui() — UI Automation JSON 输出解析
-  4. main() — 参数解析
+  4. main() — 参数解析与策略分发（mock 全部下载/恢复动作）
   5. 三级降级策略逻辑（Python API → UI → manual）
 """
 import os
@@ -33,48 +33,92 @@ class TestEnsureAdmin:
         from download_to_plcsim import _ensure_admin
         assert callable(_ensure_admin)
 
-    def test_admin_check_returns_false_when_not_admin(self):
-        """非 admin 环境返回 False（UAC 提权返回 0 表示用户取消）"""
-        # 由于测试环境通常是 non-admin，_ensure_admin 应该返回 False 或调用 sys.exit
-        # 但我们无法在测试中真正测试提权，所以只验证函数可调用
+    def test_admin_check_returns_false_when_not_admin(self, monkeypatch):
+        """非 admin 且 UAC 被取消时 _ensure_admin 应返回 False（fail-closed）"""
         import ctypes
-        is_admin = ctypes.windll.shell32.IsUserAnAdmin()
-        # 这里只是验证函数名和可导入性
-        assert True
+        from download_to_plcsim import _ensure_admin
+
+        class _FakeShell32:
+            def IsUserAnAdmin(self):
+                return False
+
+            def ShellExecuteW(self, *args):
+                return 0  # UAC 取消（返回值 <=32）
+
+        class _FakeWindll:
+            shell32 = _FakeShell32()
+
+        # raising=False：ctypes.windll 仅 Windows 存在，非 Windows 平台同样可打桩运行
+        monkeypatch.setattr(ctypes, "windll", _FakeWindll(), raising=False)
+        # 不真实触发 UAC 提权，验证函数在"非 admin + 用户取消"时 fail-closed 返回 False
+        assert _ensure_admin() is False
 
 
 class TestTiaGuiRunning:
     """_ensure_tia_gui_running() 逻辑测试"""
 
-    def test_gui_running_check(self):
+    def test_gui_running_check(self, monkeypatch):
         """测试 GUI 运行检查逻辑（不启动 GUI，只验证 tasklist 调用）"""
-        r = subprocess.run(
-            ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe',
-             '/fo', 'csv', '/nh'],
-            capture_output=True, text=True, encoding='gbk', errors='replace',
-        )
-        # 无论 TIA Portal 是否运行，命令都应该执行成功
-        assert r.returncode == 0
-
-    def test_gui_not_running_auto_start(self):
-        """GUI 未运行时调用 _ensure_tia_gui_running() 应尝试启动"""
         from download_to_plcsim import _ensure_tia_gui_running
-        # 先检查当前状态
-        r = subprocess.run(
-            ['cmd.exe', '/c', 'tasklist', '/fi', 'IMAGENAME eq Siemens.Automation.Portal.exe',
-             '/fo', 'csv', '/nh'],
-            capture_output=True, text=True, encoding='gbk', errors='replace',
+
+        calls = []
+        running_result = subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout='"Siemens.Automation.Portal.exe","12345","Console","1","234,567 K"',
+            stderr='',
         )
-        gui_running = 'Siemens.Automation.Portal.exe' in (r.stdout or '')
-        if not gui_running:
-            # GUI 未运行 — 调用 _ensure_tia_gui_running 应启动 GUI（UAC 提权）
-            result = _ensure_tia_gui_running(timeout_sec=10)
-            # 由于超时很短，大概率返回 False，但函数应正常执行不崩溃
-            assert result in (True, False)
-        else:
-            # GUI 已在运行 — 应立即返回 True
-            result = _ensure_tia_gui_running(timeout_sec=5)
-            assert result is True
+
+        def fake_run(*args, **kwargs):
+            calls.append(args[0] if args else kwargs.get('args'))
+            return running_result
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        # tasklist 检查发现 GUI 已在运行 → 直接返回 True，不真实执行 cmd.exe / 不启动进程
+        assert _ensure_tia_gui_running(timeout_sec=0) is True
+        # 只验证 tasklist 调用携带目标进程过滤条件，模拟结果返回码为 0
+        assert calls, "应发起 tasklist 检查"
+        assert any(
+            isinstance(cmd, (list, tuple))
+            and 'Siemens.Automation.Portal.exe' in ' '.join(cmd)
+            for cmd in calls
+        )
+        assert running_result.returncode == 0
+
+    def test_gui_not_running_auto_start(self, monkeypatch):
+        """GUI 未运行时 _ensure_tia_gui_running 应尝试启动，但测试不得真实启动/UAC 提权"""
+        import ctypes
+        import time as _time
+        from download_to_plcsim import _ensure_tia_gui_running
+
+        # tasklist 恒报"未运行"，避免依赖真实环境状态
+        not_running = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout='INFO: 没有任务', stderr='')
+        shell_calls = []
+
+        class _FakeShell32:
+            def IsUserAnAdmin(self):
+                return False  # 非 admin → 走 UAC runas 分支
+
+            def ShellExecuteW(self, *args):
+                shell_calls.append(args)
+                return 0  # 只记录调用，不真实启动任何进程
+
+        class _FakeWindll:
+            shell32 = _FakeShell32()
+
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: not_running)
+        monkeypatch.setattr(os.path, "exists", lambda p: True)  # 放行 tia_bin/项目路径检查
+        # raising=False：ctypes.windll 仅 Windows 存在，非 Windows 平台同样可打桩运行
+        monkeypatch.setattr(ctypes, "windll", _FakeWindll(), raising=False)
+        monkeypatch.setattr(_time, "sleep", lambda s: None)
+
+        result = _ensure_tia_gui_running(timeout_sec=0)
+        # fail-closed：无法确认 GUI 已运行 → 返回 False
+        assert result is False
+        # 自动启动逻辑确实触发：发起了 UAC runas 启动尝试（未真实执行）
+        assert shell_calls, "应尝试通过 UAC runas 启动 TIA Portal"
+        assert any(call and len(call) > 1 and call[1] == "runas" for call in shell_calls)
 
 
 class TestDownloadViaUi:
@@ -109,51 +153,126 @@ class TestDownloadViaUi:
         assert "Timeout" in result["error"]
 
 
+@pytest.fixture
+def fake_main_env(monkeypatch, tmp_path):
+    """隔离 download_to_plcsim.main() 的全部动态副作用。
+
+    放行 admin 检查、把唯一控制目标指向临时工程文件，并把所有真实
+    下载/恢复动作替换为记录器/返回失败，确保测试零真实控制副作用。
+    """
+    from download_to_plcsim import main as dl_main
+
+    project_file = tmp_path / "demo.ap18"
+    project_file.write_text("")
+
+    class _FakeTarget:
+        project_path = str(project_file)
+
+    monkeypatch.setattr("download_to_plcsim._ensure_admin", lambda: True)
+    monkeypatch.setattr("download_to_plcsim.validate_control_target",
+                        lambda *a, **k: _FakeTarget())
+    # 默认所有策略失败（1），需要哪个路径由具体测试覆盖
+    monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker", lambda *a, **k: 1)
+    monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker_gui", lambda *a, **k: 1)
+    monkeypatch.setattr("download_to_plcsim._try_download_via_python", lambda *a, **k: 1)
+    monkeypatch.setattr("download_to_plcsim.download_via_ui", lambda *a, **k: 1)
+    monkeypatch.setattr("download_to_plcsim._golden_restore", lambda *a, **k: 1)
+    return dl_main
+
+
 class TestMainArgumentParsing:
-    """main() 命令行参数解析测试"""
+    """main() 命令行参数解析测试（真实调用 main()，mock 全部动态操作）"""
 
-    def test_compile_first_flag(self):
-        """--compile-first 标志检测（与实现在逻辑上一致：直接检查 sys.argv）"""
-        sys.argv = ['download_to_plcsim.py', '--compile-first']
-        assert '--compile-first' in sys.argv
+    def test_compile_first_flag(self, fake_main_env, monkeypatch):
+        """--compile-first 应被 main() 解析并传给默认 TiaWorker 策略"""
+        dl_main = fake_main_env
+        captured = {}
 
-    def test_ui_flag(self):
-        """--ui 标志检测"""
-        sys.argv = ['download_to_plcsim.py', '--ui']
-        assert '--ui' in sys.argv
+        def fake_tiaworker(compile_first=False, target_ip=""):
+            captured['compile_first'] = compile_first
+            captured['target_ip'] = target_ip
+            return 1
 
-    def test_ip_argument(self):
-        """--ip 参数检测"""
-        sys.argv = ['download_to_plcsim.py', '--ip', '10.0.0.2']
-        # 手动解析（与 download_to_plcsim.py 实际的解析逻辑一致）
-        args = sys.argv[1:]
-        target_ip = ''
-        i = 0
-        while i < len(args):
-            if args[i] == '--ip' and i + 1 < len(args):
-                target_ip = args[i + 1]
-                i += 2
-            else:
-                i += 1
-        assert target_ip == '10.0.0.2'
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker", fake_tiaworker)
+        monkeypatch.setattr(sys, "argv", ['download_to_plcsim.py', '--compile-first'])
+        assert dl_main() == 1  # 策略失败 → 手动指引
+        assert captured.get('compile_first') is True
+
+    def test_ui_flag(self, fake_main_env, monkeypatch):
+        """--ui 应强制走 UI Automation 路径"""
+        dl_main = fake_main_env
+        captured = {}
+
+        def fake_ui(compile_first=False):
+            captured['compile_first'] = compile_first
+            return 1
+
+        monkeypatch.setattr("download_to_plcsim.download_via_ui", fake_ui)
+        monkeypatch.setattr(sys, "argv", ['download_to_plcsim.py', '--ui'])
+        assert dl_main() == 1
+        assert captured.get('compile_first') is False
+
+    def test_ip_argument(self, fake_main_env, monkeypatch):
+        """--ip 参数应由 main() 实际解析并传给下载策略"""
+        dl_main = fake_main_env
+        captured = {}
+
+        def fake_tiaworker(compile_first=False, target_ip=""):
+            captured['target_ip'] = target_ip
+            return 1
+
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker", fake_tiaworker)
+        monkeypatch.setattr(sys, "argv", ['download_to_plcsim.py', '--ip', '10.0.0.2'])
+        assert dl_main() == 1
+        assert captured.get('target_ip') == '10.0.0.2'
+
+    def test_unknown_arg_rejected(self, fake_main_env, monkeypatch):
+        """未知参数应被 main() 拒绝（fail-closed），不触发任何下载策略"""
+        dl_main = fake_main_env
+        invoked = []
+
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker",
+                            lambda *a, **k: invoked.append('tiaworker') or 1)
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker_gui",
+                            lambda *a, **k: invoked.append('tiaworker-gui') or 1)
+        monkeypatch.setattr("download_to_plcsim._try_download_via_python",
+                            lambda *a, **k: invoked.append('python') or 1)
+        monkeypatch.setattr("download_to_plcsim.download_via_ui",
+                            lambda *a, **k: invoked.append('ui') or 1)
+        monkeypatch.setattr(sys, "argv", ['download_to_plcsim.py', '--bogus-flag'])
+        assert dl_main() == 1
+        assert invoked == []
 
 
 class TestFallbackLogic:
-    """三级降级策略逻辑测试"""
+    """三级降级策略逻辑测试（通过 main() 真实驱动）"""
 
-    def test_python_api_fallback_to_ui(self):
-        """Python API 返回 -1 应触发 UI Automation 降级"""
-        # 模拟 _try_download_via_python 返回 -1
-        simulated_rc = -1
-        assert simulated_rc != 0  # 不是成功
-        # 在 download_to_plcsim.py 的逻辑中，rc == -1 触发 UI Automation
-        # 这是预期的降级行为
+    def test_python_api_fallback_to_ui(self, fake_main_env, monkeypatch):
+        """Python API 返回 -1 应触发 UI Automation 降级并成功"""
+        dl_main = fake_main_env
+        ui_calls = []
 
-    def test_ui_fallback_to_manual(self):
-        """UI Automation 返回 !=0 应输出手动指引"""
-        simulated_rc = 1
-        assert simulated_rc != 0
-        # 在 download_to_plcsim.py 中，这会导致打印手动下载指引
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker", lambda *a, **k: -1)
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker_gui", lambda *a, **k: -1)
+        monkeypatch.setattr("download_to_plcsim._try_download_via_python", lambda *a, **k: -1)
+        monkeypatch.setattr("download_to_plcsim.download_via_ui",
+                            lambda *a, **k: ui_calls.append(a) or 0)
+        monkeypatch.setattr(sys, "argv", ['download_to_plcsim.py'])
+
+        assert dl_main() == 0
+        assert len(ui_calls) == 1  # UI Automation 确实被调用
+
+    def test_ui_fallback_to_manual(self, fake_main_env, monkeypatch):
+        """UI Automation 返回 !=0 时应落入手动指引并返回 1"""
+        dl_main = fake_main_env
+
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker", lambda *a, **k: -1)
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker_gui", lambda *a, **k: -1)
+        monkeypatch.setattr("download_to_plcsim._try_download_via_python", lambda *a, **k: -1)
+        monkeypatch.setattr("download_to_plcsim.download_via_ui", lambda *a, **k: 1)
+        monkeypatch.setattr(sys, "argv", ['download_to_plcsim.py'])
+
+        assert dl_main() == 1  # 全部降级失败 → 手动指引
 
 
 class TestPlcsimApi:
@@ -242,19 +361,33 @@ class TestAdminCheckConsistency:
 class TestDownloadStrategyFlags:
     """新下载策略标志测试"""
 
-    def test_tiaworker_gui_flag(self):
-        """--tiaworker-gui 标志可识别"""
-        assert '--tiaworker-gui' in [
-            '--compile-first', '--tiaworker', '--tiaworker-gui',
-            '--python', '--ui', '--golden-restore',
-        ]
+    def test_tiaworker_gui_flag(self, fake_main_env, monkeypatch):
+        """--tiaworker-gui 应强制走 TiaWorker GUI 策略"""
+        dl_main = fake_main_env
+        captured = {}
 
-    def test_golden_restore_flag(self):
-        """--golden-restore 标志可识别"""
-        assert '--golden-restore' in [
-            '--compile-first', '--tiaworker', '--tiaworker-gui',
-            '--python', '--ui', '--golden-restore',
-        ]
+        def fake_tiaworker_gui(target_ip=""):
+            captured['target_ip'] = target_ip
+            return 0
+
+        monkeypatch.setattr("download_to_plcsim._try_download_via_tiaworker_gui", fake_tiaworker_gui)
+        monkeypatch.setattr(sys, "argv", ['download_to_plcsim.py', '--tiaworker-gui'])
+        assert dl_main() == 0
+        assert captured.get('target_ip') == ''
+
+    def test_golden_restore_flag(self, fake_main_env, monkeypatch):
+        """--golden-restore 应直接进入 golden restore 模式（不执行下载）"""
+        dl_main = fake_main_env
+        captured = {}
+
+        def fake_golden_restore(target_ip=""):
+            captured['target_ip'] = target_ip
+            return 0
+
+        monkeypatch.setattr("download_to_plcsim._golden_restore", fake_golden_restore)
+        monkeypatch.setattr(sys, "argv", ['download_to_plcsim.py', '--golden-restore'])
+        assert dl_main() == 0
+        assert captured.get('target_ip') == ''
 
     def test_five_level_fallback_chain(self):
         """验证 5 级降级链的定义"""
@@ -279,18 +412,24 @@ class TestDownloadStrategyFlags:
 class TestGoldenRestore:
     """--golden-restore 逻辑测试"""
 
-    def test_golden_restore_no_golden(self):
-        """golden 文件不存在时返回 1"""
+    def test_golden_restore_no_golden(self, monkeypatch):
+        """golden 文件不存在时返回 1（fail-closed，不调用真实恢复）"""
+        import types
         from download_to_plcsim import _golden_restore
-        import os
 
-        # 模拟 golden 不存在的情况 — 函数应处理文件不存在
-        # 直接测试逻辑：如果文件不存在应返回 1
-        def mock_check(path):
-            return False
+        # 放行目标校验，避免依赖真实 PLCSIM/配置
+        monkeypatch.setattr("download_to_plcsim._verified_plcsim_target",
+                            lambda target_ip="": "192.168.0.1")
+        # 隔离真实 plcsim_api：记录 restore_instance 调用
+        restore_calls = []
+        fake_plcsim = types.ModuleType("plcsim_api")
+        fake_plcsim.restore_instance = lambda *a, **k: restore_calls.append((a, k))
+        monkeypatch.setitem(sys.modules, "plcsim_api", fake_plcsim)
+        # golden 备份文件恒不存在
+        monkeypatch.setattr(os.path, "exists", lambda path: False)
 
-        # 验证函数签名正确
-        assert _golden_restore.__code__.co_argcount == 1
+        assert _golden_restore() == 1
+        assert restore_calls == []  # 未触发任何恢复动作
 
 
 class TestP3Flow:

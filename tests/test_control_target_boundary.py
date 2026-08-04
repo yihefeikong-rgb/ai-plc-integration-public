@@ -59,8 +59,5 @@ def test_runtime_control_entrypoints_delegate_target_selection_to_the_contract()
     for path in source_files:
         content = path.read_text(encoding="utf-8")
         assert '"192.168.0.110"' not in content, path
-
-    for path in source_files:
-        content = path.read_text(encoding="utf-8")
         if path.name not in {"plcsim_backup.py", "deploy_pnp.py", "verify_pick_and_place.py"}:
             assert "mcp_common.control_target" in content, path

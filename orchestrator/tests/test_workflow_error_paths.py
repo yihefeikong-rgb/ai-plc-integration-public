@@ -59,7 +59,9 @@ class TestDynamicWorkflows:
         engine = OrchestratorEngine()
         engine.save_dynamic_workflow("empty_steps", [])
         result = engine.run("empty_steps")
-        assert result.ok is True
+        # 空步骤没有任何执行证据：fail-closed 拒绝，不得报成功
+        assert result.ok is False
+        assert "拒绝" in result.error
         assert result.steps == []
 
 
@@ -121,7 +123,9 @@ class TestAdhocWorkflow:
     async def test_run_adhoc_empty_steps(self):
         engine = OrchestratorEngine()
         result = await engine.run_adhoc([])
-        assert result.ok is True
+        # 空步骤没有执行证据：fail-closed 拒绝，不得报成功
+        assert result.ok is False
+        assert "拒绝" in result.error
         assert result.steps == []
 
     @pytest.mark.asyncio

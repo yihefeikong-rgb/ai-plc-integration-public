@@ -46,7 +46,11 @@ import tools_hardware    # noqa: F401
 if __name__ == "__main__":
     if "--debug" in sys.argv:
         import asyncio
-        cmd = sys.argv[sys.argv.index("--debug") + 1]
+        dbg_idx = sys.argv.index("--debug") + 1
+        if dbg_idx >= len(sys.argv):
+            print("用法: python server.py --debug <命令>")
+            sys.exit(1)
+        cmd = sys.argv[dbg_idx]
         tool_map = {
             "list-instances": tools_plcsim.list_instances,
             "get-state": tools_plcsim.get_instance_state,

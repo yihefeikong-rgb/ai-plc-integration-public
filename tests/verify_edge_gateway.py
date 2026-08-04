@@ -78,7 +78,11 @@ async def run_all_checks():
     # 3. EdgeGateway 初始化
     print("\n[3/6] EdgeGateway 初始化")
     gw = EdgeGateway()
-    check("默认标签加载", len(gw.tag_config) == 4, f"got {len(gw.tag_config)}")
+    loaded_tags = [t["tag"] for t in gw.tag_config]
+    check("默认标签加载（含 M0.0/M0.1/MW10/MW12）",
+          len(gw.tag_config) >= 4
+          and all(t in loaded_tags for t in ("M0.0", "M0.1", "MW10", "MW12")),
+          f"got {len(gw.tag_config)} tags")
     check("扫描间隔默认 30s", gw.scan_interval == 30)
     check("初始未运行", gw.running is False)
     check("初始未熔断", gw._ai_fused is False)
@@ -88,12 +92,15 @@ async def run_all_checks():
     async def mock_read(tag: str) -> dict:
         vals = {"M0.0": {"value": True}, "M0.1": {"value": False},
                 "MW10": {"value": 75}, "MW12": {"value": 1500}}
-        return vals.get(tag, {"value": None})
+        # 配置内其余标签也返回 ok 占位值，确保全量扫描被真实执行
+        return vals.get(tag, {"value": 0, "status": "ok"})
 
     results = await gw.scan_once(mock_read)
-    check("扫描返回 4 个结果", len(results) == 4, f"got {len(results)}")
-    check("M0.0 值为 True", results[0]["value"] is True)
-    check("MW10 值为 75", results[2]["value"] == 75)
+    check("扫描结果与标签配置数量一致", len(results) == len(gw.tag_config),
+          f"got {len(results)}")
+    by_tag = {r["tag"]: r for r in results}
+    check("M0.0 值为 True", by_tag["M0.0"]["value"] is True)
+    check("MW10 值为 75", by_tag["MW10"]["value"] == 75)
     all_ok = all(r["status"] == "ok" for r in results)
     check("全部状态 ok", all_ok)
 
@@ -107,7 +114,9 @@ async def run_all_checks():
         except Exception as e:
             check("AI 聊天成功", False, str(e)[:100])
     else:
-        print("  ⏭️  跳过 AI 测试（未设置 DEEPSEEK_API_KEY）")
+        # 未设置密钥则 AI 链路未验证：fail-closed，记为失败而非静默跳过
+        check("AI 聊天成功（未设置 DEEPSEEK_API_KEY）", False,
+              "未设置 DEEPSEEK_API_KEY，AI 链路未验证")
 
     # 6. Docker/InfluxDB/Grafana 环境
     print("\n[6/6] 基础设施")

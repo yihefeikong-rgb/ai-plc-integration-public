@@ -1,5 +1,7 @@
 """PLC 工程搜索 API 路由 — 受控项目根内的索引与搜索。"""
 
+import asyncio
+import sqlite3
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -95,9 +97,21 @@ async def search(
         return SearchResponse(query=q, results=[], total=0)
 
     if type_filter:
-        result = engine.search_by_type(q, type_filter, limit=limit)
+        try:
+            result = engine.search_by_type(q, type_filter, limit=limit)
+        except sqlite3.OperationalError as exc:
+            # FTS5 MATCH 对特殊字符敏感（引号/冒号/星号/括号未转义会触发语法错误）。
+            # 转为明确的 400，避免把数据库内部错误泄露给调用方。
+            raise HTTPException(
+                status_code=400, detail="搜索语法错误：关键词含不支持的字符，请简化搜索词"
+            ) from exc
     else:
-        result = engine.search(q, limit=limit, offset=offset)
+        try:
+            result = engine.search(q, limit=limit, offset=offset)
+        except sqlite3.OperationalError as exc:
+            raise HTTPException(
+                status_code=400, detail="搜索语法错误：关键词含不支持的字符，请简化搜索词"
+            ) from exc
 
     root = _project_root()
     return SearchResponse(
@@ -118,7 +132,9 @@ async def index_projects(
 
     root = _project_root()
     target = _directory_within_root(directory, root) if directory else root
-    result = engine.index_projects([str(target)], allowed_root=str(root))
+    # index_projects 内部是阻塞式 os.walk 扫描 + 逐文件解析 + 逐条 SQLite 插入，
+    # 放回线程池执行，避免大工程索引长时间阻塞后端事件循环。
+    result = await asyncio.to_thread(engine.index_projects, [str(target)], allowed_root=str(root))
     return {
         "status": "success",
         "files_scanned": result["files_scanned"],

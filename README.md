@@ -134,8 +134,9 @@ flowchart LR
 2. **唯一隔离目标。** `mcp_common/control_target.py` 只接受配置中的受控目标；S7 IP 与 OPC UA 端点漂移会被拒绝。
 3. **写入默认拒绝。** 原始 S7 地址必须在 `safety/interlock-rules.yml` 中映射到安全语义与类型；S7、OPC UA、Modbus 与三菱的最终写入工具还必须拥有已登记的目标/值参数契约。未登记工具、缺少目标、类型不符、越界、互锁失败或静态预检失败都会拒绝。
 4. **一次性人工确认。** 需要确认的写入和熔断复位必须使用签名、短时、绑定操作人/确认人/目标/值/设备身份的令牌；令牌消费后不可重用。当前 Modbus、三菱和 OPC UA 写入端点的审计主体从已验证凭据派生，不信任调用方自报身份。
-5. **审计先于副作用。** 控制意图会先写入审计链。生产环境缺少持久 `AUDIT_HMAC_KEY` 或可信操作者身份时应失败关闭；日志会脱敏常见密钥字段，审计追加通过跨进程锁串行化以避免并发写入分叉。
-6. **软件护栏不是认证。** 影子预检不模拟真实 PLC 扫描周期、现场接线、机械惯性或安全等级，不能替代隔离仿真、风险评估和人工签核。
+5. **工作流级人工确认（AI 危险操作链）。** 编排层危险工作流（`nl_to_plcsim_pipeline`、`tia_multi_block_pipeline`）执行编译/下载/启动等工程操作前，必须在入口真实消费一次性工作流级确认令牌（绑定 `_wf.<工作流名>`）。AI 工作流缺令牌时自动创建人工审批请求；人工在「人工审批」面板批准后签发 5 分钟一次性令牌，用户凭 `request_id` 重试即可执行。仅非空占位串不再有效。
+6. **审计先于副作用。** 控制意图会先写入审计链。生产环境缺少持久 `AUDIT_HMAC_KEY` 或可信操作者身份时应失败关闭；日志会脱敏常见密钥字段，审计追加通过跨进程锁串行化以避免并发写入分叉。
+7. **软件护栏不是认证。** 影子预检不模拟真实 PLC 扫描周期、现场接线、机械惯性或安全等级，不能替代隔离仿真、风险评估和人工签核。
 
 ### 本地控制 API
 
@@ -167,6 +168,11 @@ LOCAL_API_TOKEN=long-random-local-token
 SAFETY_CONFIRMATION_SECRET=long-random-confirmation-secret
 # 生产控制环境还必须单独配置：
 AUDIT_HMAC_KEY=long-random-audit-key
+# 工作流级人工确认相关（后端与编排层共享）：
+SAFETY_CONFIRMATION_STORE=...          # 确认令牌消费记录 sqlite 路径（可选，默认临时目录）
+CONFIRMATION_REQUESTS_FILE=...         # 人工审批请求队列 JSON 路径（可选，默认 data/confirmation_requests.json）
+# 确认点统一在编排层（工作流入口真实消费令牌）时，工具层显式信任编排层授权：
+TIA_MCP_ALLOW_UNCONFIRMED_ENGINEERING=1
 ```
 
 ## 本地启动与离线验证

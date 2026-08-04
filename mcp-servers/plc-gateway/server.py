@@ -96,9 +96,18 @@ def gateway_list_capabilities() -> dict:
     return get_context().list_capabilities()
 
 
+# 目标身份校验：只读工具调用前必须确认“TIA 实际打开的项目 == 唯一受控目标”。
+# 校验结果不做 TTL 缓存：身份校验是控制互锁的一部分，缓存窗口内若 TIA 切换到
+# 其他项目，旧缓存会让错误项目的数据放行。保持 fail-closed，每次只读工具调用
+# 都执行真实校验（TiaWorker 每次冷启动一次 get-project-info 子进程换取确定性）。
+
+
 def _verify_target_identity(provider: Any) -> dict | None:
+    """校验 Provider 实际项目身份；返回错误 dict，None 表示已通过。"""
     result = provider.verify_target_identity()
-    return None if result.ok else result.to_dict()
+    if result.ok:
+        return None
+    return result.to_dict()
 
 
 # ── TIA 项目工具 ──
@@ -155,8 +164,9 @@ def tia_block_get_xml(block_name: str) -> dict:
     provider, err = _get_read_provider()
     if err:
         return err
-    if identity_error := _verify_target_identity(provider):
-        return identity_error
+    # tia.block.get_xml 在唯一可达的只读 Provider（tiaworker）上硬编码为不可用，
+    # 该操作不会执行任何 TIA 读取；直接返回 fail-closed 的不可用结果，跳过身份
+    # 校验子进程。若未来 Provider 真正实现 XML 导出，必须在此恢复身份校验。
     return provider.get_block_xml(block_name).to_dict()
 
 

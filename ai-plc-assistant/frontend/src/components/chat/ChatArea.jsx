@@ -27,6 +27,8 @@ export default function ChatArea({
   const endRef = useRef(null)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
+  // 记录用户是否停留在底部附近；自动跟随滚动只在该状态下生效，不打断向上回看
+  const nearBottomRef = useRef(true)
 
   useEffect(() => {
     if (initialInput) {
@@ -36,13 +38,17 @@ export default function ChatArea({
   }, [initialInput])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!nearBottomRef.current) return
+    const lastMsg = messages[messages.length - 1]
+    // 流式生成期间 messages 高频更新：用 auto 即时定位，避免每个 token 触发平滑滚动动画与布局抖动
+    endRef.current?.scrollIntoView({ behavior: lastMsg?.streaming ? 'auto' : 'smooth' })
   }, [messages])
 
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el) return
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    nearBottomRef.current = atBottom
     setShowScrollBtn(!atBottom)
   }
 
@@ -54,6 +60,8 @@ export default function ChatArea({
     e.preventDefault()
     const text = input.trim()
     if (!text || sending) return
+    // 发送新消息时恢复底部跟随，让新消息与回复可见
+    nearBottomRef.current = true
     onSend(text)
     setInput('')
   }

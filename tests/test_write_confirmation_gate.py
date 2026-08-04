@@ -27,6 +27,14 @@ def _confirmation_api():
     return ConfirmationError, ConfirmationService
 
 
+def _audit_logged(audit_mock, action: str, success: bool) -> bool:
+    """是否存在指定 action 的审计日志（action 为调用首参，success 需匹配）。"""
+    return any(
+        call.args and call.args[0] == action and call.kwargs.get("success") == success
+        for call in audit_mock.log.call_args_list
+    )
+
+
 def test_confirmation_token_binds_write_and_can_only_be_consumed_once(tmp_path: Path):
     ConfirmationError, ConfirmationService = _confirmation_api()
     assert ConfirmationService is not None, "缺少一次性确认令牌服务"
@@ -135,7 +143,8 @@ async def test_modbus_write_accepts_an_exact_confirmation_token_once(tmp_path: P
     ))
     monkeypatch.setattr(module, "shadow_sim", MagicMock(simulate_write=AsyncMock(return_value=MagicMock(safe=True))))
     monkeypatch.setattr(module, "get_client", MagicMock(return_value=client))
-    monkeypatch.setattr(module, "audit", MagicMock())
+    audit_mock = MagicMock()
+    monkeypatch.setattr(module, "audit", audit_mock)
 
     from mcp_common.audit import authenticated_actor
     writer_actor = authenticated_actor("test-token", "modbus")
@@ -150,11 +159,16 @@ async def test_modbus_write_accepts_an_exact_confirmation_token_once(tmp_path: P
     first = await module.write_coil(1, True, auth_token="test-token", confirmation_token=token)
     assert first["status"] == "ok"
     assert client.write_coil.call_count == 1
+    assert audit_mock.begin_control_operation.call_count == 1
+    assert _audit_logged(audit_mock, "write", success=True), "成功写入必须记录 write 审计"
 
     second = await module.write_coil(1, True, auth_token="test-token", confirmation_token=token)
     assert second["status"] == "blocked"
     assert "已使用" in second["reason"]
     assert client.write_coil.call_count == 1
+    # 令牌复用被拒绝：不得开启新的控制操作，且必须记录失败审计（fail-closed）
+    assert audit_mock.begin_control_operation.call_count == 1
+    assert _audit_logged(audit_mock, "write_blocked", success=False), "令牌复用被拒绝必须记录 write_blocked 审计"
 
 
 @pytest.mark.asyncio
@@ -173,7 +187,8 @@ async def test_modbus_register_rejects_a_token_for_a_different_target(tmp_path: 
     ))
     monkeypatch.setattr(module, "shadow_sim", MagicMock(simulate_write=AsyncMock(return_value=MagicMock(safe=True))))
     monkeypatch.setattr(module, "get_client", MagicMock(return_value=client))
-    monkeypatch.setattr(module, "audit", MagicMock())
+    audit_mock = MagicMock()
+    monkeypatch.setattr(module, "audit", audit_mock)
     from mcp_common.audit import authenticated_actor
     token = service.issue(
         operator=authenticated_actor("test-token", "modbus"),
@@ -186,6 +201,9 @@ async def test_modbus_register_rejects_a_token_for_a_different_target(tmp_path: 
     assert result["status"] == "blocked"
     assert "目标" in result["reason"]
     client.write_register.assert_not_called()
+    # 令牌目标不匹配被拒绝：不得开启控制操作，且必须记录失败审计（fail-closed）
+    assert audit_mock.begin_control_operation.call_count == 0
+    assert _audit_logged(audit_mock, "write_blocked", success=False), "令牌目标不匹配被拒绝必须记录 write_blocked 审计"
 
 
 @pytest.mark.asyncio
@@ -208,7 +226,8 @@ async def test_mitsubishi_write_accepts_an_exact_confirmation_token_once(tmp_pat
     monkeypatch.setattr(module, "get_connection", AsyncMock(return_value=(reader, writer)))
     monkeypatch.setattr(module, "build_write_request", MagicMock(return_value=b"request"))
     monkeypatch.setattr(module, "parse_write_response", MagicMock())
-    monkeypatch.setattr(module, "audit", MagicMock())
+    audit_mock = MagicMock()
+    monkeypatch.setattr(module, "audit", audit_mock)
     from mcp_common.audit import authenticated_actor
     token = service.issue(
         operator=authenticated_actor("test-token", "melsec"),
@@ -219,11 +238,21 @@ async def test_mitsubishi_write_accepts_an_exact_confirmation_token_once(tmp_pat
     first = await module.write_device("M100", 1, auth_token="test-token", confirmation_token=token)
     assert first["status"] == "ok"
     assert writer.write.call_count == 1
+    # 确认令牌消费必须记录 write_confirmed 闭环审计（approver/audit_id 落入审计链）
+    assert audit_mock.log_operation.call_count == 1
+    confirmed = audit_mock.log_operation.call_args
+    assert confirmed.args and confirmed.args[0] == "write_confirmed"
+    assert confirmed.kwargs.get("audit_id") == "audit-123"
+    assert audit_mock.begin_control_operation.call_count == 1
+    assert _audit_logged(audit_mock, "write", success=True), "成功写入必须记录 write 审计"
 
     second = await module.write_device("M100", 1, auth_token="test-token", confirmation_token=token)
     assert second["status"] == "blocked"
     assert "已使用" in second["reason"]
     assert writer.write.call_count == 1
+    # 令牌复用被拒绝：不得开启新的控制操作，且必须记录失败审计（fail-closed）
+    assert audit_mock.begin_control_operation.call_count == 1
+    assert _audit_logged(audit_mock, "write_blocked", success=False), "令牌复用被拒绝必须记录 write_blocked 审计"
 
 
 @pytest.mark.asyncio
@@ -249,7 +278,8 @@ async def test_opcua_write_accepts_an_exact_confirmation_token_once(tmp_path: Pa
         check_interlock=AsyncMock(return_value=(True, "ok")),
         check_value_range=MagicMock(return_value=(True, "ok")),
     ))
-    monkeypatch.setattr(module, "_audit", MagicMock())
+    audit_mock = MagicMock()
+    monkeypatch.setattr(module, "_audit", audit_mock)
     from mcp_common.audit import authenticated_actor
     token = service.issue(
         operator=authenticated_actor("test-token", "opcua"),
@@ -262,12 +292,17 @@ async def test_opcua_write_accepts_an_exact_confirmation_token_once(tmp_path: Pa
     )
     assert "已写入" in first
     assert node.write_value.await_count == 1
+    assert audit_mock.begin_control_operation.call_count == 1
+    assert _audit_logged(audit_mock, "write", success=True), "成功写入必须记录 write 审计"
 
     second = await module.write_node(
         "ns=2;s=MOTOR_1", "1", data_type="bool", auth_token="test-token", confirmation_token=token,
     )
     assert "已使用" in second
     assert node.write_value.await_count == 1
+    # 令牌复用被拒绝：不得开启新的控制操作，且必须记录失败审计（fail-closed）
+    assert audit_mock.begin_control_operation.call_count == 1
+    assert _audit_logged(audit_mock, "write_blocked", success=False), "令牌复用被拒绝必须记录 write_blocked 审计"
 
 
 def test_s7_write_accepts_an_exact_confirmation_token_once(tmp_path: Path, monkeypatch):
@@ -293,20 +328,32 @@ def test_s7_write_accepts_an_exact_confirmation_token_once(tmp_path: Path, monke
         validate=MagicMock(return_value=MagicMock(allowed=True, needs_confirmation=True, reason="确认")),
     ))
     monkeypatch.setattr(module, "shadow_sim", MagicMock(simulate_write=AsyncMock(return_value=MagicMock(safe=True))))
-    monkeypatch.setattr(module, "_audit", MagicMock())
+    audit_mock = MagicMock()
+    monkeypatch.setattr(module, "_audit", audit_mock)
+    # 确认令牌必须绑定服务器实际消费的绑定项：s7_write 按语义目标消费
+    # （resolve_s7_write_address 的 target）且操作者由 MCP_AUTH_TOKEN 派生；
+    # 绑定错误会导致 fail-closed 拒绝，令牌无法被消费。
     token = service.issue(
-        operator="ai-agent", approver="local-human", target="M0.1", value=True,
+        operator=module._authenticated_actor() or "ai-agent",
+        approver="local-human", target="DB1.MOTOR_RUN", value=True,
         device_id="s7:test-host:0:1", audit_id="audit-123",
     )
 
     first = __import__("asyncio").run(module.s7_write(
         "M0.1", "true", operator="ai-agent", confirmation_token=token,
+        auth_token="pytest-mcp-auth-token",
     ))
     assert "写入成功" in first
     assert adapter.write_address.call_count == 1
+    assert audit_mock.begin_control_operation.call_count == 1
+    assert _audit_logged(audit_mock, "write", success=True), "成功写入必须记录 write 审计"
 
     second = __import__("asyncio").run(module.s7_write(
         "M0.1", "true", operator="ai-agent", confirmation_token=token,
+        auth_token="pytest-mcp-auth-token",
     ))
     assert "已使用" in second
     assert adapter.write_address.call_count == 1
+    # 令牌复用被拒绝：不得开启新的控制操作，且必须记录失败审计（fail-closed）
+    assert audit_mock.begin_control_operation.call_count == 1
+    assert _audit_logged(audit_mock, "write_rejected", success=False), "令牌复用被拒绝必须记录 write_rejected 审计"

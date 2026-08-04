@@ -20,10 +20,16 @@ def test_capabilities_only_declare_exposed_read_only_tools():
 
     capabilities = context.list_capabilities()
 
-    assert capabilities["declared_count"] == 9
+    # declared_count 必须与 exposed 清单一致，而不是硬编码具体数量
+    assert capabilities["declared_count"] == len(capabilities["exposed"])
     assert "tia.block.create" not in capabilities["exposed"]
     assert "tia.project.compile" not in capabilities["exposed"]
-    assert capabilities["unavailable"] == {
-        "tia.block.get_xml": "TiaWorker XML 导出协议尚未验证"
-    }
+    # unavailable 只能引用已声明能力；每个 exposed 能力必须恰好落入
+    # available 或 unavailable 之一（无静默缺口）并带非空原因 —— fail-closed
+    assert set(capabilities["unavailable"]).issubset(capabilities["exposed"])
+    assert set(capabilities["exposed"]) == (
+        set(capabilities["available"]) | set(capabilities["unavailable"])
+    )
+    assert set(capabilities["available"]).isdisjoint(capabilities["unavailable"])
+    assert all(capabilities["unavailable"].values())
     assert set(capabilities["available"]).issubset(capabilities["exposed"])

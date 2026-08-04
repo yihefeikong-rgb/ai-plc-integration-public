@@ -45,6 +45,14 @@ BEGIN
         RETURN;
     END_IF;
 
+    // ── 急停释放：回到停止态（fail-closed），输出清零，需重新 bStart ──
+    IF iState = 5 THEN
+        bRed1 := FALSE; bYellow1 := FALSE; bGreen1 := FALSE;
+        bRed2 := FALSE; bYellow2 := FALSE; bGreen2 := FALSE;
+        iState := 0;
+        RETURN;
+    END_IF;
+
     // ── 停止 ──
     IF bStop THEN
         bRed1 := FALSE; bYellow1 := FALSE; bGreen1 := FALSE;

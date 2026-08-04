@@ -43,20 +43,26 @@ export default function OrchestratorPanel({ showTutorial = false, onCloseTutoria
   const fetchAll = useCallback(async () => {
     setLoading(true)
     setError(null)
-    try {
-      const [wf, dyn, tl, sv, mn] = await Promise.all([
-        apiGet('/orchestrator/workflows').catch(() => ({ workflows: [] })),
-        apiGet('/orchestrator/workflows/dynamic').catch(() => ({ workflows: [] })),
-        apiGet('/orchestrator/tools').catch(() => ({ tools: [] })),
-        apiGet('/orchestrator/servers').catch(() => ({ servers: [] })),
-        apiGet('/orchestrator/monitor').catch(() => null),
-      ])
-      setWorkflows(wf.workflows || [])
-      setDynamicWfs(dyn.workflows || [])
-      setTools(tl.tools || [])
-      setServers(sv.servers || [])
-      setMonitor(mn)
-    } catch (e) { setError(e.message) }
+    const failures = []
+    const onFail = (label) => (e) => {
+      failures.push(`${label}(${e.message})`)
+      return null
+    }
+    const [wf, dyn, tl, sv, mn] = await Promise.all([
+      apiGet('/orchestrator/workflows').catch(onFail('工作流')),
+      apiGet('/orchestrator/workflows/dynamic').catch(onFail('动态工作流')),
+      apiGet('/orchestrator/tools').catch(onFail('工具')),
+      apiGet('/orchestrator/servers').catch(onFail('服务器')),
+      apiGet('/orchestrator/monitor').catch(onFail('运行监控')),
+    ])
+    setWorkflows((wf && wf.workflows) || [])
+    setDynamicWfs((dyn && dyn.workflows) || [])
+    setTools((tl && tl.tools) || [])
+    setServers((sv && sv.servers) || [])
+    setMonitor(mn)
+    if (failures.length > 0) {
+      setError(`编排服务加载失败（${failures.length}/5）：${failures.join('；')}`)
+    }
     setLoading(false)
   }, [])
 

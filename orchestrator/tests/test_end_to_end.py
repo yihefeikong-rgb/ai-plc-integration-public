@@ -13,6 +13,7 @@
     pytest orchestrator/tests/test_end_to_end.py -v -m integration        # 仅集成
 """
 import asyncio
+import ipaddress
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -342,17 +343,17 @@ class TestRobotWorkflowEndToEnd:
     """机器人工作流端到端测试（mock 模式）"""
 
     def test_full_pick_place_normal(self):
-        """正常执行：全部 6 步骤成功"""
+        """正常执行：6 个物理动作 + 5 次急停复检，共 10 步骤成功"""
         engine = _make_robot_engine(estop=False)
         result = asyncio.run(
             engine.run_async("robot_pick_place", input={})
         )
         assert result.ok is True
-        assert len(result.steps) == 6
+        assert len(result.steps) == 10
         assert result.error == ""
 
     def test_full_pick_place_step_order(self):
-        """步骤执行顺序验证"""
+        """步骤执行顺序（每个物理动作前复检急停）"""
         engine = _make_robot_engine(estop=False)
         result = asyncio.run(
             engine.run_async("robot_pick_place", input={})
@@ -360,9 +361,13 @@ class TestRobotWorkflowEndToEnd:
         expected = [
             "robot-mcp.get_status",
             "robot-mcp.go_home",
+            "robot-mcp.get_status",
             "robot-mcp.control_conveyor",
+            "robot-mcp.get_status",
             "robot-mcp.pick_item",
+            "robot-mcp.get_status",
             "robot-mcp.control_conveyor",
+            "robot-mcp.get_status",
             "robot-mcp.place_item",
         ]
         actual = [s.tool for s in result.steps]
@@ -760,7 +765,7 @@ class TestOrchestratorApiIntegration:
                 "/api/orchestrator/workflows/adhoc",
                 json={
                     "steps": [
-                        {"server": "plc-mcp-bridge", "tool": "s7_read", "params": {"tag": "DB1.Test"}},
+                        {"server": "plc-mcp-bridge", "tool": "s7_read", "params": {"address": "DB1.Test"}},
                     ],
                     "input": {},
                 },
@@ -789,22 +794,63 @@ _PLCSIM_PORT = int(_tia_cfg.simulation.advanced.port)
 
 
 def _try_connect_plcsim():
-    """尝试连接 PLCSIM，返回 (client, error_msg)"""
+    """尝试连接 PLCSIM，返回 (client, error_msg)。
+
+    失败语义（fail-closed，禁止把配置错误伪装成"PLCSIM 不可用"）：
+      - snap7 未安装：返回 (None, msg)，由调用方 skip（依赖缺失可跳过）；
+      - 连接类异常（snap7 Snap7Exception / OSError，即 PLCSIM 未运行或不可达）：
+        返回 (None, msg)，消息含完整目标参数，便于核对是否发生目标漂移；
+      - 其余异常（配置损坏、rack/slot/port 越界、编程错误）：直接抛出，
+        让测试显式失败而不是静默 skip，防止控制目标漂移被掩盖。
+    """
     try:
         import snap7
     except ImportError as exc:
         return None, f"snap7 not installed: {exc}"
 
+    # 前置校验：连接参数非法属于配置/目标漂移，必须在任何网络连接前 fail-closed。
+    # 目标 IP 已由 get_control_target() 在导入期校验，这里兜底防御未来配置源变更；
+    # rack/slot/port 不在 validate_control_target 的校验范围，漂移只能在此拦截。
+    try:
+        ipaddress.ip_address(_PLCSIM_IP)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"控制目标漂移或配置错误：PLCSIM IP 非法 {_PLCSIM_IP!r}"
+        ) from exc
+    for name, value, lo, hi in (
+        ("rack", _PLCSIM_RACK, 0, 7),
+        ("slot", _PLCSIM_SLOT, 0, 31),
+        ("port", _PLCSIM_PORT, 1, 65535),
+    ):
+        if not lo <= value <= hi:
+            raise RuntimeError(
+                f"控制目标漂移或配置错误：PLCSIM {name}={value} 超出允许范围 {lo}..{hi}"
+            )
+
+    # 仅连接类异常视为"PLCSIM 不可用"；其余异常直接抛出（fail-closed）。
+    connect_errors = (OSError,)
+    snap7_error = getattr(snap7, "Snap7Exception", None)
+    if snap7_error is None:
+        snap7_error = getattr(
+            getattr(snap7, "exceptions", None), "Snap7Exception", None
+        )
+    if snap7_error is not None:
+        connect_errors += (snap7_error,)
+
     client = snap7.client.Client()
     try:
         client.connect(_PLCSIM_IP, _PLCSIM_RACK, _PLCSIM_SLOT, _PLCSIM_PORT)
         return client, None
-    except Exception as exc:
+    except connect_errors as exc:
         try:
             client.destroy()
         except Exception:
             pass
-        return None, f"{type(exc).__name__}: {exc}"
+        return (
+            None,
+            f"{type(exc).__name__}: {exc} "
+            f"(target={_PLCSIM_IP}:{_PLCSIM_PORT}, rack={_PLCSIM_RACK}, slot={_PLCSIM_SLOT})",
+        )
 
 
 def _disconnect_plcsim(client):

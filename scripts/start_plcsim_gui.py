@@ -28,6 +28,55 @@ def _add_unique(path):
         _POTENTIAL_PATHS.append(path)
 
 
+def _resolve_lnk_target(lnk_path: str) -> str:
+    """从 .lnk 文件直接解析目标路径，避免为每个快捷方式拉起 PowerShell 子进程。
+
+    按 MS-SHLLINK（Shell Link Binary File Format）解析最小必要字段：
+    头部 LinkFlags 之后依次为 LinkTargetIDList 与 LinkInfo，
+    目标路径存放在 LinkInfo 的 LocalBasePath（ANSI 或 UTF-16LE）。
+    """
+    try:
+        with open(lnk_path, 'rb') as f:
+            data = f.read()
+        if len(data) < 0x4C or data[0:4] != b'\x4c\x00\x00\x00':
+            return ""
+        link_flags = int.from_bytes(data[20:24], 'little')
+        pos = 0x4C
+        if link_flags & 0x01:  # HasLinkTargetIDList
+            id_list_size = int.from_bytes(data[pos:pos + 2], 'little')
+            pos += 2 + id_list_size
+        if link_flags & 0x02:  # HasLinkInfo
+            link_info_size = int.from_bytes(data[pos:pos + 4], 'little')
+            link_info = data[pos:pos + link_info_size]
+            if len(link_info) >= 20:
+                header_size = int.from_bytes(link_info[4:8], 'little')
+                base_offset = int.from_bytes(link_info[16:20], 'little')
+                uni_offset = 0
+                # LocalBasePathOffsetUnicode 位于 LinkInfo 偏移 28，header_size>=0x1C 才有效
+                if header_size >= 0x1C and len(link_info) >= 32:
+                    uni_offset = int.from_bytes(link_info[28:32], 'little')
+                raw = b""
+                # IsUnicode 是 LinkFlags 的 bit7(0x80)，而非 LinkInfoFlags 的 bit0
+                is_unicode = bool(link_flags & 0x80)
+                if is_unicode and uni_offset and 0 < uni_offset < len(link_info):
+                    raw = link_info[uni_offset:]
+                elif base_offset and 0 < base_offset < len(link_info):
+                    raw = link_info[base_offset:]
+                    is_unicode = False
+                if raw:
+                    if is_unicode:
+                        end = raw.find(b'\x00\x00')
+                        target = raw[:end].decode('utf-16-le', errors='ignore')
+                    else:
+                        end = raw.find(b'\x00')
+                        target = raw[:end].decode('mbcs', errors='ignore')
+                    if target:
+                        return target
+    except Exception:
+        pass
+    return ""
+
+
 def _find_ui_exe() -> str:
     """查找 PLCSIM Advanced UserInterface.exe"""
     # 1. 从 config.yaml 读取
@@ -39,7 +88,7 @@ def _find_ui_exe() -> str:
     except Exception:
         pass
 
-    # 2. 扫描 Start Menu 快捷方式
+    # 2. 扫描 Start Menu 快捷方式（直接解析 .lnk，不拉起子进程）
     shortcut_paths = [
         os.path.join(os.environ.get("ALLUSERSPROFILE", r"C:\ProgramData"),
                      "Microsoft", "Windows", "Start Menu", "Programs",
@@ -49,20 +98,9 @@ def _find_ui_exe() -> str:
                      "Siemens Automation", "S7-PLCSIM Advanced V5.0.lnk"),
     ]
     for sp in shortcut_paths:
-        if os.path.exists(sp):
-            try:
-                r = subprocess.run(
-                    ['powershell', '-Command',
-                     f'$shell = New-Object -ComObject WScript.Shell; '
-                     f'$link = $shell.CreateShortcut("{sp}"); '
-                     f'echo $link.TargetPath'],
-                    capture_output=True, text=True, timeout=5,
-                )
-                target = r.stdout.strip()
-                if target and os.path.exists(target):
-                    _add_unique(target)
-            except Exception:
-                pass
+        target = _resolve_lnk_target(sp)
+        if target and os.path.exists(target):
+            _add_unique(target)
 
     # 3. 扫描 Common Files 下的 bin/
     fallback_dirs = [
@@ -81,7 +119,7 @@ def is_gui_running() -> bool:
     """检查 PLCSIM Advanced GUI 是否已在运行"""
     try:
         r = subprocess.run(
-            ['cmd.exe', '/c', 'tasklist', '/fi',
+            ['tasklist', '/fi',
              'IMAGENAME eq Siemens.Simatic.PlcSim.Advanced.UserInterface.exe',
              '/fo', 'csv', '/nh'],
             capture_output=True, text=True, timeout=5,
@@ -117,18 +155,17 @@ def launch(timeout_sec: int = 60) -> bool:
             print(f"[PLCSIM] FAIL: UAC elevation failed (ret={ret})")
             return False
 
-    # 等待 GUI 启动
+    # 等待 GUI 启动（轮询间隔 5s，避免高频拉起 tasklist 子进程）
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         if is_gui_running():
             print(f"[PLCSIM] GUI started successfully")
-            time.sleep(3)  # 等 GUI 完全加载
             return True
-        time.sleep(2)
+        time.sleep(5)
 
-    print(f"[PLCSIM] WARN: GUI not detected within {timeout_sec}s")
-    print(f"[PLCSIM]   (may still be starting, continue anyway)")
-    return True
+    print(f"[PLCSIM] FAIL: GUI not detected within {timeout_sec}s")
+    print(f"[PLCSIM]   Start it manually (S7-PLCSIM Advanced V8.0) and re-run")
+    return False
 
 
 def main():

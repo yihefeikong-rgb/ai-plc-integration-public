@@ -86,8 +86,11 @@ class SafetyGate:
         warnings: list[str] = []
         warnings.extend(self._shadow._check_value_bounds(value))
 
-        # 3. 变化率检查
-        warnings.extend(self._shadow._check_change_rate(tag_name, value))
+        # 3. 变化率检查（值范围检查未通过时禁止记录历史基线，
+        #    与 simulate_write 的 record_history=not warnings 保持一致）
+        warnings.extend(
+            self._shadow._check_change_rate(tag_name, value, record_history=not warnings)
+        )
 
         if warnings:
             return ShadowResult(

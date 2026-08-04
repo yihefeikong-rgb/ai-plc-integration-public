@@ -150,9 +150,15 @@ BEGIN
     // 线性补偿：outdoor越冷，供水越热
     // supply_target = offset + slope * (indoor_sp - outdoor) / (indoor_sp - outdoor_design) * (max_supply - offset)
     IF rOutdoorTemp < rIndoorSetpoint THEN
-        rSupplyTempTarget := rCompOffset
-            + rCompKp * (rIndoorSetpoint - rOutdoorTemp) / (rIndoorSetpoint - rOutdoorTempDesign)
-              * (80.0 - rCompOffset);
+        // 分母保护：室内设定与设计室外温度相等/接近（或倒挂）时曲线无定义，
+        // 回退最低供水，防止除零产生无效浮点值（NaN/Inf）传播进供水目标与负荷计算
+        IF (rIndoorSetpoint - rOutdoorTempDesign) <= 0.5 THEN
+            rSupplyTempTarget := rCompOffset;
+        ELSE
+            rSupplyTempTarget := rCompOffset
+                + rCompKp * (rIndoorSetpoint - rOutdoorTemp) / (rIndoorSetpoint - rOutdoorTempDesign)
+                  * (80.0 - rCompOffset);
+        END_IF;
     ELSE
         rSupplyTempTarget := rCompOffset;  // 室外温度高于室内设定则最低供水
     END_IF;

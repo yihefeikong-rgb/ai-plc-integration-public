@@ -107,9 +107,27 @@ class McpConnectionPool:
             adapters = list(self._adapters.values())
             self._adapters.clear()
 
-            # 并行断开所有连接
-            await asyncio.gather(
+            # 并行断开所有连接；单个适配器断开失败不应影响其他适配器，
+            # 但失败（含适配器内 re-raise 的 CancelledError，其是 BaseException 子类）
+            # 必须被记录，否则残留的 MCP 子进程将无法被发现。
+            results = await asyncio.gather(
                 *(adapter.disconnect() for adapter in adapters),
                 return_exceptions=True,
             )
-            _logger.info("所有连接已断开")
+
+            failures = []
+            for adapter, result in zip(adapters, results):
+                if isinstance(result, BaseException):
+                    failures.append(adapter.server_name)
+                    _logger.warning(
+                        f"断开服务器 {adapter.server_name} 失败: "
+                        f"{type(result).__name__}: {result!r}"
+                    )
+
+            if failures:
+                _logger.error(
+                    f"有 {len(failures)} 个连接断开失败，可能残留 MCP 子进程: "
+                    f"{', '.join(failures)}"
+                )
+            else:
+                _logger.info("所有连接已断开")

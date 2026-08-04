@@ -4,7 +4,7 @@ import {
   BookOpen, FileText, LayoutTemplate, Code as CodeIcon,
   Zap, AlertTriangle, Table2, Variable,
   Settings, Trash2, MessageSquare, PlusCircle, Cpu,
-  Home, Bot, ScrollText, FileSearch,
+  Home, Bot, ScrollText, FileSearch, ShieldCheck,
 } from 'lucide-react'
 import { listProjects, uploadDocument, listDocuments, deleteDocument, importProject } from '../api'
 
@@ -116,6 +116,7 @@ const WORKSPACE_ITEMS = [
 const SYSTEM_ITEMS = [
   { id: 'orchestrator', label: '编排管理', icon: Cpu },
   { id: 'robot', label: '机器人', icon: Cpu },
+  { id: 'confirmations', label: '人工审批', icon: ShieldCheck },
   { id: 'settings', label: '设置', icon: Settings },
 ]
 
@@ -146,7 +147,19 @@ export default function PrimarySidebar({
     listProjects(20)
       .then((d) => setProjects(d.projects || []))
       .catch((e) => console.warn('[PrimarySidebar] listProjects 失败:', e?.message))
-  }, [currentProject])
+    // 最近工程列表不依赖当前项目：仅 mount 时加载一次，
+    // 避免每次切换/创建/导入项目后重复触发 listProjects(20) 请求
+  }, [])
+
+  const refreshProjects = async () => {
+    try {
+      const d = await listProjects(20)
+      setProjects(d.projects || [])
+    } catch (e) {
+      // 与 refreshDocs 一致：刷新失败时保留旧列表并记录警告，不静默吞错
+      console.warn('[PrimarySidebar] listProjects 刷新失败:', e?.message)
+    }
+  }
 
   useEffect(() => {
     listDocuments()
@@ -198,6 +211,8 @@ export default function PrimarySidebar({
       const d = await importProject(file)
       onOpenTab?.('project', d.project)
       addLog?.('info', `[导入] 完成: ${d.project.name}`)
+      // 导入新增了服务端项目，主动刷新最近工程列表（原 [currentProject] 依赖已移除）
+      refreshProjects()
     } catch (err) {
       addLog?.('error', `[导入] 失败: ${err.message}`)
     }

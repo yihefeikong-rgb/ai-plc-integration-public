@@ -149,8 +149,15 @@ async def lifespan(app: FastAPI):
         _logger.info("编排层 HTTP API 启动完成")
     except Exception as e:
         _logger.error(f"编排层启动失败: {e}")
-        _pool = None
-        owner_lock.release()
+        # 启动失败也必须断开已连接的 MCP 子进程，避免孤儿化
+        try:
+            await shutdown(pool=_pool)
+            _logger.info("编排层启动失败后已清理已连接子进程")
+        except Exception as cleanup_exc:
+            _logger.error(f"编排层启动失败后的清理也失败: {cleanup_exc}")
+        finally:
+            _pool = None
+            owner_lock.release()
         raise
     try:
         yield
@@ -177,7 +184,7 @@ app = FastAPI(
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
+async def health(_: None = Depends(require_local_session)) -> HealthResponse:
     """健康检查"""
     registry = get_registry()
     engine = get_engine()
@@ -190,7 +197,7 @@ async def health() -> HealthResponse:
 
 
 @app.get("/workflows", response_model=WorkflowListResponse)
-async def list_workflows() -> WorkflowListResponse:
+async def list_workflows(_: None = Depends(require_local_session)) -> WorkflowListResponse:
     """列出所有已注册工作流"""
     engine = get_engine()
     return WorkflowListResponse(workflows=engine.list_workflows())
@@ -204,7 +211,8 @@ async def run_workflow(
 ) -> WorkflowResultResponse:
     """执行指定工作流"""
     engine = get_engine()
-    if name not in engine.list_workflows():
+    # O(1) 成员判断：get_workflow 覆盖内置，get_dynamic_workflow 覆盖动态，二者均不重建列表
+    if engine.get_workflow(name) is None and engine.get_dynamic_workflow(name) is None:
         raise HTTPException(status_code=404, detail=f"未找到工作流: {name}")
 
     input_data = dict(body.input)
@@ -215,7 +223,7 @@ async def run_workflow(
 
 
 @app.get("/tools", response_model=ToolListResponse)
-async def list_tools() -> ToolListResponse:
+async def list_tools(_: None = Depends(require_local_session)) -> ToolListResponse:
     """列出所有可用工具"""
     registry = get_registry()
     tools = registry.list_tools()
@@ -232,7 +240,7 @@ async def list_tools() -> ToolListResponse:
 
 
 @app.get("/servers", response_model=ServerListResponse)
-async def list_servers() -> ServerListResponse:
+async def list_servers(_: None = Depends(require_local_session)) -> ServerListResponse:
     """列出所有已连接服务器"""
     registry = get_registry()
     server_names = registry.list_servers()
