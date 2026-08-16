@@ -3,7 +3,7 @@
 import sqlite3
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from security import require_local_session
@@ -36,7 +36,7 @@ class UpdateTitle(BaseModel):
 
 
 @router.get("")
-async def list_conversations(limit: int = 50, _actor: str = Depends(require_local_session)):
+async def list_conversations(limit: int = Query(50, ge=1, le=200), _actor: str = Depends(require_local_session)):
     if store is None:
         raise HTTPException(status_code=503, detail="存储未初始化")
     return {"conversations": store.list_conversations(limit)}

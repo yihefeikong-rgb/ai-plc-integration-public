@@ -40,3 +40,8 @@ class TestSettings:
             "deepseek_api_key": "sk-2***62f",  # 带 * 号的遮盖值
         })
         assert res.status_code == 200
+
+    def test_provider_unknown_rejected(self, client):
+        """provider 路径参数必须在已知供应商白名单内，不落入 f-string 键拼接。"""
+        res = client.post("/api/settings/test/evil-provider")
+        assert res.status_code == 404

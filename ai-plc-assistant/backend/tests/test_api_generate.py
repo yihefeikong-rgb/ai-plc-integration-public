@@ -18,6 +18,12 @@ class TestGenerateLadder:
         res = client.post("/api/generate/ladder", json={"input": ""})
         assert res.status_code == 400
 
+    def test_generate_rejects_unknown_model_id(self, client):
+        """model_id 必须在 chat.py 同一白名单内，拒绝任意 provider 标识。"""
+        for path in ("/api/generate/ladder", "/api/generate/ladder/scl", "/api/generate/ladder/xml"):
+            res = client.post(path, json={"input": "电机控制", "model_id": "evil-model"})
+            assert res.status_code == 400
+
     def test_generate_scl(self, client):
         res = client.post("/api/generate/ladder/scl", json={
             "input": "电机控制",

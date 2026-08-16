@@ -132,6 +132,8 @@ async def get_providers(_: None = Depends(require_local_session)):
 
 @router.post("/test/{provider}")
 async def test_provider(provider: str, _: None = Depends(require_local_session)):
+    if provider not in PROVIDER_MODELS:
+        raise HTTPException(status_code=404, detail=f"未知的模型供应商 {provider}")
     store = get_settings_store()
     if store is None:
         raise HTTPException(status_code=503, detail="设置存储未初始化")

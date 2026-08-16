@@ -1,6 +1,8 @@
 """模型管理路由"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from security import require_local_session
 
 router = APIRouter()
 
@@ -23,13 +25,13 @@ def _get_available_models():
 
 
 @router.get("")
-async def list_models():
+async def list_models(_actor: str = Depends(require_local_session)):
     """获取可用模型列表（根据 API Key 是否配置判断启用状态）"""
     return {"models": _get_available_models()}
 
 
 @router.get("/{model_id}")
-async def get_model(model_id: str):
+async def get_model(model_id: str, _actor: str = Depends(require_local_session)):
     for m in _get_available_models():
         if m["id"] == model_id:
             return {"model": m}

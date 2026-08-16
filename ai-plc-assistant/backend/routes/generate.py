@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from generator.workflow import GenerationError, generate_ladder, build_prompt
 from generator import LadderProgram, Variable, Network
+from routes.chat import ALLOWED_MODEL_IDS
 from security import require_local_session
 
 router = APIRouter()
@@ -30,6 +31,12 @@ def _check_generate_rate(actor: str) -> None:
         if len(history) >= GENERATE_MAX_PER_MINUTE:
             raise HTTPException(status_code=429, detail="生成请求过于频繁，请稍后重试")
         history.append(now)
+
+
+def _validate_model_id(model_id: str) -> None:
+    """与 chat.py 一致：只接受白名单内的模型标识。"""
+    if model_id not in ALLOWED_MODEL_IDS:
+        raise HTTPException(status_code=400, detail="不支持的模型标识")
 
 
 class GenerateRequest(BaseModel):
@@ -66,6 +73,7 @@ class GenerateResponse(BaseModel):
 async def generate_ladder_code(req: GenerateRequest, actor: str = Depends(require_local_session)):
     """自然语言 → 梯形图程序（结构化输出）"""
     _check_generate_rate(actor)
+    _validate_model_id(req.model_id)
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 
@@ -87,6 +95,7 @@ async def generate_ladder_code(req: GenerateRequest, actor: str = Depends(requir
 async def generate_scl_code(req: GenerateRequest, actor: str = Depends(require_local_session)):
     """自然语言 → SCL 源代码（可直接粘贴到 TIA Portal）"""
     _check_generate_rate(actor)
+    _validate_model_id(req.model_id)
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 
@@ -112,6 +121,7 @@ async def generate_scl_code(req: GenerateRequest, actor: str = Depends(require_l
 async def generate_xml_code(req: GenerateRequest, actor: str = Depends(require_local_session)):
     """自然语言 → PLCopen XML（可导入 TIA Portal）"""
     _check_generate_rate(actor)
+    _validate_model_id(req.model_id)
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="请输入程序描述")
 

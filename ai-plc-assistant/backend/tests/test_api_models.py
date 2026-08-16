@@ -21,3 +21,10 @@ class TestModels:
     def test_get_model_not_found(self, client):
         res = client.get("/api/models/nonexistent")
         assert res.status_code == 404
+
+    def test_list_and_get_require_local_session(self, client):
+        """模型列表泄露已配置哪些 LLM 供应商，必须有会话令牌。"""
+        res = client.get("/api/models", headers={"X-Local-Api-Token": "wrong-token"})
+        assert res.status_code == 401
+        res = client.get("/api/models/deepseek", headers={"X-Local-Api-Token": "wrong-token"})
+        assert res.status_code == 401

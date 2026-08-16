@@ -59,6 +59,11 @@ class TestConversations:
         res = client.get("/api/conversations/nonexistent")
         assert res.status_code == 404
 
+    def test_list_limit_upper_bound(self, client):
+        """limit 有上界，防止任意大的分页查询拖垮本地 SQLite。"""
+        assert client.get("/api/conversations?limit=201").status_code == 422
+        assert client.get("/api/conversations?limit=200").status_code == 200
+
     def test_multiple_messages(self, client):
         res = client.post("/api/conversations", json={"title": "Multi"})
         cid = res.json()["conversation"]["id"]

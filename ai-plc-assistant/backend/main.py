@@ -1,6 +1,7 @@
 """AI PLC Assistant — FastAPI 后端服务"""
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -153,4 +154,7 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host=app_config.host, port=app_config.port, reload=True)
+    # 热重载仅限显式开发请求（AI_PLC_DEV_RELOAD=1）；默认关闭，
+    # 避免直跑入口意外启用 reload 监视子进程。
+    dev_reload = os.environ.get("AI_PLC_DEV_RELOAD") == "1"
+    uvicorn.run("main:app", host=app_config.host, port=app_config.port, reload=dev_reload)

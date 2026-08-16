@@ -69,3 +69,10 @@ class TestPrompts:
         assert res.status_code == 200
         for t in res.json()["templates"]:
             assert t["category"] == "顺序控制"
+
+    def test_read_endpoints_require_local_session(self, client):
+        """模板全文可能包含用户自定义内容，读端点必须有会话令牌。"""
+        wrong = {"X-Local-Api-Token": "wrong-token"}
+        assert client.get("/api/prompts", headers=wrong).status_code == 401
+        assert client.get("/api/prompts/categories", headers=wrong).status_code == 401
+        assert client.get("/api/prompts/traffic-light", headers=wrong).status_code == 401

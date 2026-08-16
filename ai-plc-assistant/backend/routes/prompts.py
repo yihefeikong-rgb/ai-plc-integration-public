@@ -343,7 +343,7 @@ def _default_templates() -> list[dict]:
 # ---- API 路由 ----
 
 @router.get("")
-async def list_templates(category: str = ""):
+async def list_templates(category: str = "", _actor: str = Depends(require_local_session)):
     """获取所有Prompt模板，可按分类筛选"""
     templates = _load_all()
     if category:
@@ -352,7 +352,7 @@ async def list_templates(category: str = ""):
 
 
 @router.get("/categories")
-async def list_categories():
+async def list_categories(_actor: str = Depends(require_local_session)):
     """获取所有模板分类"""
     templates = _load_all()
     cats = {}
@@ -365,7 +365,7 @@ async def list_categories():
 
 
 @router.get("/{template_id}")
-async def get_template(template_id: str):
+async def get_template(template_id: str, _actor: str = Depends(require_local_session)):
     """获取单个模板详情（含完整内容）"""
     templates = _load_all()
     for t in templates:
