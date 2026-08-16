@@ -48,7 +48,7 @@ As of **2026-07-22**, the repository has the following evidence boundary:
 
 | Area | Confirmed fact | What must not be inferred |
 | --- | --- | --- |
-| Source and offline regression | The most recent default offline regression reported **817 passed, 81 deselected**. `pytest.ini` collects `tests` and `orchestrator/tests`, while excluding `integration`, `hardware`, `desktop`, and `network` markers. | This does not validate TIA, PLCSIM, Factory I/O, a real PLC, or a network protocol dynamically. |
+| Source and offline regression | The most recent default offline regression reported **921 passed, 82 deselected**. `pytest.ini` collects `tests` and `orchestrator/tests`, while excluding `integration`, `hardware`, `desktop`, `network`, `plcsim`, `real`, `tia`, and `tiacommander` markers. | This does not validate TIA, PLCSIM, Factory I/O, a real PLC, or a network protocol dynamically. |
 | Desktop and backend | FastAPI, React/Vite, Electron configuration, routes, and workflow code are present. The root `start.bat` launches the local backend only. Frontend Vitest reports **136 passing tests** (11 files, 72% critical-path coverage); P0-P5 batches fixed 6 HIGH issues (no-fabrication principle: removed hardcoded fake data in Inspector/Dashboard, redacted testResult.reply, added localControlHeaders to fallback fetch), and delivered F-019 robot 4-mode control + L3 safety level + 9-field high-risk confirmation, F-037 useTabs single-state-object root fix, ToolStatusBar 10-state machine across 5 tool pages, real attachment-upload API, CSP `script-src 'self'` tightening with env-var `connect-src`, ErrorBoundary redaction, and logging for 9+ silent `catch {}` blocks. | This does not prove Electron packaging, every external model, or every UI path on every machine. E2E, Lighthouse, responsive 4-size screenshot regression, and OrchestratorPanel/ChatArea/InspectorPanel file splits (P6/P7) remain pending. |
 | TIA/PLCSIM path | A controlled V21 target, TIA Worker, CartGen, download path, and snap7 readback path exist in source. | The corrected revision has not completed end-to-end dynamic acceptance for TIA V21 → PLCSIM Advanced V8 → snap7 → Factory I/O. A valid local PLCSIM Advanced license, loaded project, successful download, and readable CPU are separate prerequisites. |
 | Real field equipment | Code contains target, write-parameter, authenticated-actor, one-time-confirmation, and cross-process-audit guards. | It does not authorize connection to real PLCs, F-CPUs, safety circuits, or production environments. |
@@ -77,11 +77,15 @@ flowchart LR
     UI["Electron + React workbench"] --> API["FastAPI local backend"]
     API --> ORCH["Orchestrator\nMCP lifecycle owner"]
     API --> DATA["SQLite / ChromaDB\nsettings, conversations, projects, retrieval"]
+    ORCH --> GW["PLC Engineering Gateway\nread-only shadow mode during migration"]
     ORCH --> TIA["TIA MCP\nTiaWorker + CartGen"]
     ORCH --> PLC["PLC MCP Bridge\nS7 / engineering / PLCSIM"]
     ORCH --> PROTO["OPC UA / Modbus / Mitsubishi / Robot MCP"]
+    GW --> TW["TiaWorker Provider\nsubprocess invocation"]
+    GW --> TC["TiaCommander Provider\nMCP stdio client (optional read-only)"]
+    GW --> SAFE["Safety chain\nHMAC + audit + confirmation"]
     TIA --> SIM["Isolated PLCSIM / Factory I/O\nonly during human acceptance"]
-    PLC --> SAFE["Target contract, interlocks, confirmation, audit"]
+    PLC --> SAFE
     SAFE --> SIM
 ```
 
