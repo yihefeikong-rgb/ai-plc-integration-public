@@ -339,7 +339,7 @@ class TestMcpClientAdapter:
     @pytest.mark.asyncio
     async def test_call_tool_plain_text_result(self, test_server_info):
         """测试纯文本返回（非 JSON）"""
-        result = _make_mock_call_result(text="操作成功完成")
+        result = _make_mock_call_result(text="✅ 操作成功完成")
         session = _make_mock_session(call_result=result)
 
         with patch(
@@ -355,7 +355,7 @@ class TestMcpClientAdapter:
 
             assert resp.ok is True
             assert resp.kind == "text_success"
-            assert resp.data == "操作成功完成"
+            assert resp.data == "✅ 操作成功完成"
 
 
 # ============================================================================
@@ -463,3 +463,32 @@ class TestExtractResult:
         extracted = adapter._extract_result(result)
         assert extracted.ok is False
         assert extracted.kind == "invalid_response"
+
+    def test_from_text_success_marker_at_line_start(self):
+        """成功标记在行首才判为成功"""
+        adapter = McpClientAdapter.__new__(McpClientAdapter)
+        resp = adapter._from_text("✅ 写入完成")
+        assert resp.ok is True
+        assert resp.kind == "text_success"
+
+    def test_from_text_success_marker_at_second_line_start(self):
+        """多行文本中某一行以标记开头也视为成功"""
+        adapter = McpClientAdapter.__new__(McpClientAdapter)
+        resp = adapter._from_text("读取详情:\n📍 MW10 = 42")
+        assert resp.ok is True
+        assert resp.kind == "text_success"
+
+    def test_from_text_negated_marker_not_success(self):
+        """否定文本（"未成功""无法成功写入"）不得判为成功"""
+        adapter = McpClientAdapter.__new__(McpClientAdapter)
+        for text in ("未成功", "无法成功写入: DB1.MW10", "连接未成功，已重试"):
+            resp = adapter._from_text(text)
+            assert resp.ok is False, text
+            assert resp.kind == "invalid_response"
+
+    def test_from_text_marker_mid_line_not_success(self):
+        """标记出现在行中间而非行首时不判为成功"""
+        adapter = McpClientAdapter.__new__(McpClientAdapter)
+        resp = adapter._from_text("上一步已连接失败，本次未执行")
+        assert resp.ok is False
+        assert resp.kind == "invalid_response"

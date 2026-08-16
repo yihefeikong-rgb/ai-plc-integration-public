@@ -257,10 +257,18 @@ def run_demo(
             _log("无法读取 backend 配置", "warn")
 
     _progress_bar(2, 4, "依赖检查")
+    # 包名 → 导入名映射与 scripts/preflight.py check_python_dependencies 一致
+    required = {
+        "fastapi": "fastapi",
+        "uvicorn": "uvicorn",
+        "requests": "requests",
+        "python-snap7": "snap7",
+        "pyyaml": "yaml",
+    }
     missing = []
-    for pkg in ["fastapi", "uvicorn", "requests", "python-snap7", "pyyaml"]:
+    for pkg, import_name in required.items():
         try:
-            __import__(pkg.replace("-", "_"))
+            __import__(import_name)
         except ImportError:
             missing.append(pkg)
     if missing:

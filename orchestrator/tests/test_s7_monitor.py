@@ -132,13 +132,16 @@ class TestWorkflowExecution:
         engine = OrchestratorEngine()
         register_s7_monitor_workflow(engine)
 
+        # mock 签名与真实工具契约一致：s7_read(address) / s7_write(address, value)
+        # 工作流若回退为 tag= 等错误参数名，这里会立即 TypeError 而非静默通过
         engine.register_mock(
             "plc-mcp-bridge.s7_read",
-            lambda tag, **kw: {"value": read_value, "tag": tag},
+            lambda address, **kw: {"value": read_value, "address": address},
         )
         engine.register_mock(
             "plc-mcp-bridge.s7_write",
-            lambda tag, value, **kw: write_result or {"ok": True, "tag": tag, "value": value},
+            lambda address, value, **kw: write_result
+            or {"ok": True, "address": address, "value": value},
         )
         return engine
 
@@ -174,6 +177,9 @@ class TestWorkflowExecution:
         write_steps = [s for s in result.steps if "s7_write" in s.tool]
         assert len(write_steps) == 1
         assert write_steps[0].ok is True
+        # 写入步骤收到真实工具契约的 address 参数（而非 tag）
+        assert write_steps[0].data["address"] == "DB1.Temp"
+        assert write_steps[0].data["value"] == 100.0
 
     def test_change_but_hold_no_write(self):
         """变化显著但 AI 建议 hold 时不写入"""

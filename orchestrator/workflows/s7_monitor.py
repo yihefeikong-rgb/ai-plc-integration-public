@@ -105,7 +105,7 @@ def register_s7_monitor_workflow(engine: OrchestratorEngine) -> None:
 
         # 步骤 1: 读取当前值
         read_result = await ctx.call_async(
-            "plc-mcp-bridge.s7_read", tag=tag_name
+            "plc-mcp-bridge.s7_read", address=tag_name
         )
         current_value: float = float(read_result.get("value", 0))
 
@@ -124,7 +124,7 @@ def register_s7_monitor_workflow(engine: OrchestratorEngine) -> None:
         if ai_result and ai_result["action"] == "write":
             write_result = await ctx.call_async(
                 "plc-mcp-bridge.s7_write",
-                tag=tag_name,
+                address=tag_name,
                 value=ai_result["value"],
             )
 

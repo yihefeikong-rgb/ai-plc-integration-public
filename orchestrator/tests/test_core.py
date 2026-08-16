@@ -702,9 +702,7 @@ class TestCallMcpSyncEventLoop:
     """测试 _call_mcp_sync 在已有事件循环时的行为"""
 
     def test_call_mcp_sync_without_event_loop(self):
-        """无事件循环时使用 asyncio.run() — 需要 mock pool"""
-        # 验证代码路径存在，不实际调用 MCP
-        # 在无事件循环环境下，_call_mcp_sync 应走 asyncio.run 分支
+        """无事件循环时经共享 sync-loop 执行 MCP 调用并返回结果"""
         from unittest.mock import AsyncMock, MagicMock
 
         mock_pool = MagicMock()
@@ -721,8 +719,11 @@ class TestCallMcpSyncEventLoop:
             # 没有事件循环，这正是我们需要的
             pass
 
-        # 实际调用需要 mock 服务器存在，这里只验证方法不抛异常
-        # 完整集成测试需要真实 MCP 服务器
+        result = ctx._call_mcp_sync("test_server", "test_tool", {})
+        assert result == {"result": "ok"}
+        mock_pool.call_tool.assert_awaited_once_with(
+            "test_server", "test_tool", {}
+        )
 
     @pytest.mark.asyncio
     async def test_call_mcp_sync_with_event_loop_raises(self):

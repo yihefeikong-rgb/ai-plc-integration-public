@@ -143,7 +143,8 @@ def main():
                     c = item.GetService[SoftwareContainer]()
                     if c and c.Software and 'PlcSoftware' in c.Software.GetType().FullName:
                         plc_sw = c.Software; break
-                except: pass
+                except Exception:
+                    continue
             if plc_sw: break
 
         if not plc_sw:

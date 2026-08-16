@@ -28,87 +28,8 @@ os.environ.setdefault("MCP_AUTH_TOKEN", "pytest-mcp-auth-token")
 os.environ.setdefault("AI_PLC_OFFLINE_TESTING", "1")
 
 
-# ── 直接测试 _make_result 逻辑（纯函数，不依赖模块导入） ──
-
-def _make_result(
-    ok: bool = True,
-    *,
-    operation: str = "",
-    result=None,
-    warnings=None,
-    error: str | None = None,
-    reconcile_required: bool = False,
-    operation_id: str = "",
-    extra: dict | None = None,
-) -> dict:
-    """内联复现 server.py 的 _make_result 逻辑"""
-    import uuid
-    if not operation_id:
-        operation_id = uuid.uuid4().hex
-    ret = {
-        "ok": ok,
-        "status": "success" if ok else "error",
-        "operation": operation,
-        "operation_id": operation_id,
-        "result": result if result is not None else {},
-        "warnings": warnings or [],
-        "error": error if not ok else None,
-        "reconcile_required": reconcile_required,
-    }
-    if extra:
-        ret.update(extra)
-    return ret
-
-
-class TestMakeResult:
-    """测试统一返回格式（验证 server.py 中 _make_result 的行为契约）"""
-
-    def test_success_default(self):
-        r = _make_result(ok=True, operation="test.op")
-        assert r["ok"] is True
-        assert r["status"] == "success"
-        assert r["operation"] == "test.op"
-        assert "operation_id" in r
-        assert r["result"] == {}
-        assert r["warnings"] == []
-        assert r["error"] is None
-        assert r["reconcile_required"] is False
-
-    def test_error(self):
-        r = _make_result(ok=False, operation="test.op", error="something went wrong")
-        assert r["ok"] is False
-        assert r["status"] == "error"
-        assert r["error"] == "something went wrong"
-        assert r["reconcile_required"] is False
-
-    def test_with_result_data(self):
-        r = _make_result(ok=True, operation="test.op", result={"key": "value"})
-        assert r["result"]["key"] == "value"
-
-    def test_with_warnings(self):
-        r = _make_result(ok=True, operation="test.op", warnings=["warn1"])
-        assert r["warnings"] == ["warn1"]
-
-    def test_reconcile_required(self):
-        r = _make_result(ok=False, operation="test.op", error="timeout", reconcile_required=True)
-        assert r["reconcile_required"] is True
-        assert r["ok"] is False
-
-    def test_extra_fields(self):
-        r = _make_result(ok=True, operation="test.op", extra={"extra_field": "extra"})
-        assert r["extra_field"] == "extra"
-
-    def test_operation_id_unique(self):
-        r1 = _make_result(ok=True, operation="test.op")
-        r2 = _make_result(ok=True, operation="test.op")
-        assert r1["operation_id"] != r2["operation_id"]
-
-    def test_operation_id_custom(self):
-        r = _make_result(ok=True, operation="test.op", operation_id="custom-id")
-        assert r["operation_id"] == "custom-id"
-
-
-# ── 模块级测试：server.py 的 _resolve_path 和 _make_result ──
+# ── B1.3: 测试 server.py 的真实 _make_result（经下方 _server_module fixture
+#    导入真实模块；不再内联复制实现，避免副本与真实行为漂移） ──
 
 
 @pytest.fixture(scope="module")
@@ -174,6 +95,57 @@ def _server_module():
 def sv(_server_module):
     """返回已导入的 server 模块"""
     return _server_module
+
+
+# ── B1.3: 直接测试 server.py 的真实 _make_result（经 sv fixture 导入）──
+
+
+class TestMakeResult:
+    """测试统一返回格式（验证 server.py 中 _make_result 的行为契约）"""
+
+    def test_success_default(self, sv):
+        r = sv._make_result(ok=True, operation="test.op")
+        assert r["ok"] is True
+        assert r["status"] == "success"
+        assert r["operation"] == "test.op"
+        assert "operation_id" in r
+        assert r["result"] == {}
+        assert r["warnings"] == []
+        assert r["error"] is None
+        assert r["reconcile_required"] is False
+
+    def test_error(self, sv):
+        r = sv._make_result(ok=False, operation="test.op", error="something went wrong")
+        assert r["ok"] is False
+        assert r["status"] == "error"
+        assert r["error"] == "something went wrong"
+        assert r["reconcile_required"] is False
+
+    def test_with_result_data(self, sv):
+        r = sv._make_result(ok=True, operation="test.op", result={"key": "value"})
+        assert r["result"]["key"] == "value"
+
+    def test_with_warnings(self, sv):
+        r = sv._make_result(ok=True, operation="test.op", warnings=["warn1"])
+        assert r["warnings"] == ["warn1"]
+
+    def test_reconcile_required(self, sv):
+        r = sv._make_result(ok=False, operation="test.op", error="timeout", reconcile_required=True)
+        assert r["reconcile_required"] is True
+        assert r["ok"] is False
+
+    def test_extra_fields(self, sv):
+        r = sv._make_result(ok=True, operation="test.op", extra={"extra_field": "extra"})
+        assert r["extra_field"] == "extra"
+
+    def test_operation_id_unique(self, sv):
+        r1 = sv._make_result(ok=True, operation="test.op")
+        r2 = sv._make_result(ok=True, operation="test.op")
+        assert r1["operation_id"] != r2["operation_id"]
+
+    def test_operation_id_custom(self, sv):
+        r = sv._make_result(ok=True, operation="test.op", operation_id="custom-id")
+        assert r["operation_id"] == "custom-id"
 
 
 # ── B1.3: 验证 server.py 中存在 _make_result ──

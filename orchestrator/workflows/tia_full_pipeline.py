@@ -221,15 +221,19 @@ def register_tia_full_pipeline_workflow(engine: OrchestratorEngine) -> None:
 
             if attempt == max_retries:
                 # 最后一次也失败了
+                # message 携带失败详情：core._unwrap_tool_result 对显式失败
+                # 载荷只取 message/reason/status，缺 message 时最终 error 退化为 "error"
+                final_error = f"编译在 {max_retries} 次重试后仍然失败"
                 return {
                     "status": "error",
+                    "message": final_error,
                     "project_id": project_id,
                     "project_path": project_path,
                     "scl_code": scl_code,
                     "block_name": block_name,
                     "attempts": max_retries,
                     "all_errors": compile_errors_history,
-                    "final_error": f"编译在 {max_retries} 次重试后仍然失败",
+                    "final_error": final_error,
                 }
 
         # 步骤 6: 下载到 PLCSIM

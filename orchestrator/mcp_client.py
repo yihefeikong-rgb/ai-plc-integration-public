@@ -53,6 +53,8 @@ _ERROR_STATUSES = {
 # 只有符号标记才算显式前缀；"错误"/"失败" 等字样同样可能出现在正常诊断
 # 的开头（如"错误码: 0，无错误"），按 startswith 判定会误伤。
 _TEXT_ERROR_PREFIXES = ("!", "❌", "🚫")
+# 成功标记与错误标记对称：只在行首生效。"未成功""无法成功写入"等否定
+# 文本包含成功子串，但不能据此判为成功（fail-closed）。
 _TEXT_SUCCESS_MARKERS = ("✅", "成功", "已连接", "已断开", "📍")
 
 
@@ -181,7 +183,8 @@ class McpClientAdapter:
             arguments: 工具参数字典
 
         Returns:
-            统一的 ToolResult。业务错误、超时、取消和无法判定的文本均为 ok=False。
+            统一的 ToolResult。业务错误、超时和无法判定的文本均为 ok=False；
+            CancelledError 不吞——原样向上传播，由最外层调用方处理。
         """
         call_arguments = dict(arguments) if arguments is not None else {}
 
@@ -216,7 +219,10 @@ class McpClientAdapter:
                     arguments=call_arguments,
                 )
             except asyncio.CancelledError:
-                return ToolResult.failure("cancelled", "MCP 工具调用已取消")
+                # 取消必须继续传播：吞成失败结果会破坏外层
+                # asyncio.wait_for / task.cancel 的取消语义
+                # （_call_mcp_sync 的超时兜底依赖取消沿调用链收尾）。
+                raise
             except asyncio.TimeoutError:
                 return ToolResult.failure("timeout", "MCP 工具调用超时")
             except Exception as exc:
@@ -313,7 +319,10 @@ class McpClientAdapter:
     def _from_text(text: str) -> ToolResult:
         if text.strip().startswith(_TEXT_ERROR_PREFIXES):
             return ToolResult.failure("tool_error", text)
-        if any(marker in text for marker in _TEXT_SUCCESS_MARKERS):
+        if any(
+            line.startswith(_TEXT_SUCCESS_MARKERS)
+            for line in (part.strip() for part in text.splitlines())
+        ):
             return ToolResult.success(text, kind="text_success")
         return ToolResult.failure("invalid_response", "MCP 工具返回未标记的非 JSON 文本")
 

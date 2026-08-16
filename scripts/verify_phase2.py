@@ -101,7 +101,11 @@ def test_s7(need_real: bool = False):
 
     if not need_real:
         check("S7Adapter 实例化", True)
-        check("snap7 可用", adapter._connected is False)  # 只是检查不报错
+        try:
+            import snap7  # noqa: F401 — 导入成功即证明 snap7 模块可用
+            check("snap7 模块可用（未连接）", True)
+        except ImportError as e:
+            check("snap7 模块可用（未连接）", False, str(e))
         return
 
     # 需要真实 PLCSIM
@@ -216,7 +220,13 @@ def test_mcp_tools():
         # 验证 tools_s7 模块可导入
         import tools_s7
         check("tools_s7 模块加载", True)
-        check("S7 工具有: s7_connect/s7_read/s7_write/s7_status", True)
+        required_tools = ("s7_connect", "s7_read", "s7_write", "s7_status")
+        missing = [name for name in required_tools if not hasattr(tools_s7, name)]
+        check(
+            "S7 工具有: s7_connect/s7_read/s7_write/s7_status",
+            not missing,
+            f"缺少: {missing}",
+        )
     except Exception as e:
         check("MCP 模块检查", False, str(e))
 

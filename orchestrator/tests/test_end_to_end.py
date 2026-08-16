@@ -47,11 +47,11 @@ def _make_s7_engine(read_value: float = MOCK_READ_VALUE) -> OrchestratorEngine:
     register_s7_monitor_workflow(engine)
     engine.register_mock(
         "plc-mcp-bridge.s7_read",
-        lambda tag, **kw: {"value": read_value, "tag": tag},
+        lambda address, **kw: {"value": read_value, "address": address},
     )
     engine.register_mock(
         "plc-mcp-bridge.s7_write",
-        lambda tag, value, **kw: {"ok": True, "tag": tag, "value": value},
+        lambda address, value, **kw: {"ok": True, "address": address, "value": value},
     )
     return engine
 
@@ -167,12 +167,12 @@ class TestS7WorkflowEndToEnd:
         register_s7_monitor_workflow(engine)
         engine.register_mock(
             "plc-mcp-bridge.s7_read",
-            lambda tag, **kw: {"value": 120.0, "tag": tag},
+            lambda address, **kw: {"value": 120.0, "address": address},
         )
 
-        def capture_write(tag, value, **kw):
+        def capture_write(address, value, **kw):
             captured_write_values.append(value)
-            return {"ok": True, "tag": tag, "value": value}
+            return {"ok": True, "address": address, "value": value}
 
         engine.register_mock("plc-mcp-bridge.s7_write", capture_write)
 
@@ -212,13 +212,13 @@ class TestS7WorkflowEndToEnd:
         register_s7_monitor_workflow(engine)
         engine.register_mock(
             "plc-mcp-bridge.s7_read",
-            lambda tag, **kw: (_ for _ in ()).throw(
+            lambda address, **kw: (_ for _ in ()).throw(
                 RuntimeError("PLCSIM connection lost")
             ),
         )
         engine.register_mock(
             "plc-mcp-bridge.s7_write",
-            lambda tag, value, **kw: {"ok": True},
+            lambda address, value, **kw: {"ok": True},
         )
 
         result = asyncio.run(
@@ -239,11 +239,11 @@ class TestS7WorkflowEndToEnd:
         register_s7_monitor_workflow(engine)
         engine.register_mock(
             "plc-mcp-bridge.s7_read",
-            lambda tag, **kw: {"value": 120.0, "tag": tag},
+            lambda address, **kw: {"value": 120.0, "address": address},
         )
         engine.register_mock(
             "plc-mcp-bridge.s7_write",
-            lambda tag, value, **kw: (_ for _ in ()).throw(
+            lambda address, value, **kw: (_ for _ in ()).throw(
                 RuntimeError("SafetyGate rejected write")
             ),
         )

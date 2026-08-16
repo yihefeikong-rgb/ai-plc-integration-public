@@ -69,23 +69,30 @@ def test_empty_result_is_an_invalid_response_not_a_success():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("exception", "kind"),
-    [
-        (asyncio.TimeoutError(), "timeout"),
-        (asyncio.CancelledError(), "cancelled"),
-    ],
-)
-async def test_call_tool_normalizes_timeout_and_cancellation(exception, kind):
+async def test_call_tool_normalizes_timeout_to_failure():
     adapter = _adapter()
     adapter._connected = True
     adapter._server = SimpleNamespace(name="test-mcp")
-    adapter._session = SimpleNamespace(call_tool=AsyncMock(side_effect=exception))
+    adapter._session = SimpleNamespace(call_tool=AsyncMock(side_effect=asyncio.TimeoutError()))
 
     result = await adapter.call_tool("test", {})
 
     assert result.ok is False
-    assert result.kind == kind
+    assert result.kind == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_call_tool_propagates_cancellation():
+    """取消不得被吞成失败结果：CancelledError 必须原样传播，保持取消语义。"""
+    adapter = _adapter()
+    adapter._connected = True
+    adapter._server = SimpleNamespace(name="test-mcp")
+    adapter._session = SimpleNamespace(
+        call_tool=AsyncMock(side_effect=asyncio.CancelledError())
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await adapter.call_tool("test", {})
 
 
 @pytest.mark.asyncio
