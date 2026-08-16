@@ -16,6 +16,19 @@
 - `mcp-servers/tia-mcp/config.yaml` 的 `target` 节是 V21、工程路径、PLCSIM 实例和 PLC IP 的唯一控制目标来源。目标漂移必须拒绝，不得从旧文档、环境猜测或用户输入旁路覆盖。
 - 默认离线测试只覆盖软件行为。它不证明 TIA 项目已加载、下载已完成、CPU 处于 RUN、PLC 可读，或 Factory I/O 已联动。
 
+## 知识路由
+
+每个实质任务开始时按全局「知识路由」规则查一次路由表（候选最多 Top-1，未命中返回 `no-extra-route`）：
+
+- 项目状态/决策/失败/安全约束 → `.plans/ai-plc-integration/`（handoff、task_plan、progress、findings、decisions）+ `.plans/ai-plc-integration/docs/invariants.md`
+- 项目文档正文/报告 → 项目 `docs/` 与个人知识库文档检索
+- 跨项目通用知识（API、协议、TIA Openness 官方用法等）→ 个人知识库（`ge ren zhi shi ku`）
+- 需要最新外部事实 → 公开搜索（搜索桥 `sou suo qiao`，8 源按分工：秘塔中文 / tavily 通用兜底 / exa 语义检索 / youcom 大额度备用 / parallel Agent 片段 / firecrawl 抓全文 / serpapi 交叉验证 / perplexity 深度研究）
+- 能力/Skill/Agent/MCP → 全局路由表 `D:\claude code xiangmu\AI-Capability-Registry\router\level1-router.md`
+- 普通问答/明确小改动/执行已有计划 → 不查询（`no-extra-route`）
+
+写回：PLC 相关决策与安全约束写回 `.plans/ai-plc-integration/`；通用方法写回个人知识库；同一内容不重复写入多处。
+
 ## 变更原则
 
 开始任何改动前，先明确：目标、已知事实、必要假设、影响范围和可验证的成功标准。多步骤任务使用简短计划，例如：
@@ -75,6 +88,6 @@
 2. `.plans/ai-plc-integration/handoff.md`
 3. `.plans/ai-plc-integration/task_plan.md`、`progress.md`、`findings.md`
 4. `decisions.md`、`tech_debt.md`、`risks.md`
-5. 任务直接相关的代码、配置、测试和 `docs/invariants.md`
+5. 任务直接相关的代码、配置、测试和 `.plans/ai-plc-integration/docs/invariants.md`
 
 交接或完成报告至少写清：改了什么、验证了什么、哪些结论仍只是离线证据、下一步是否需要用户授权。只有任务明确要求时才更新项目计划或 handoff 文件。

@@ -17,6 +17,17 @@
 
 开始前先用简短文字说明：目标、假设、范围、风险和成功标准。若存在会改变控制目标、权限、生产影响或数据安全的歧义，暂停并提问；其余低风险细节应作最小合理假设继续推进。
 
+## 知识路由
+
+按 `AGENTS.md` 的「知识路由」执行：每个实质任务开始时查一次路由表（候选最多 Top-1，未命中返回 `no-extra-route`）。
+
+- 项目状态/决策/失败/安全约束 → `.plans/ai-plc-integration/` 与 `.plans/ai-plc-integration/docs/invariants.md`
+- 项目文档正文/报告 → 项目 `docs/` 与个人知识库文档检索
+- 跨项目通用知识（API、协议、TIA Openness 官方用法）→ 个人知识库（`ge ren zhi shi ku`）
+- 需要最新外部事实 → 公开搜索（搜索桥 `sou suo qiao`）
+- 能力/Skill/Agent/MCP → 全局路由表 `D:\claude code xiangmu\AI-Capability-Registry\router\level1-router.md`
+- 普通问答/明确小改动 → 不查询（`no-extra-route`）
+
 ## 执行方式
 
 1. 先定位事实或复现问题，再修改。

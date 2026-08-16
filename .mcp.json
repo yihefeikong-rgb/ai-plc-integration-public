@@ -11,6 +11,17 @@
       "args": [
         "mcp-servers/plc-mcp-bridge/server.py"
       ]
+    },
+    "xiang mu ji yi": {
+      "type": "stdio",
+      "command": "D:\\Python3\\python.exe",
+      "args": [
+        "-m",
+        "backend.v2.mcp"
+      ],
+      "env": {
+        "PYTHONPATH": "D:\\claude code xiangmu\\个人数据库"
+      }
     }
   }
 }
