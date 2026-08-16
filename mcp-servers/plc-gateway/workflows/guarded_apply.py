@@ -33,6 +33,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from plc_gateway.contracts.preview_apply import ApplyFailureState, get_preview_manager
 from plc_gateway.providers.base import ProviderResult, TiaProvider, ErrorInfo
 
 _logger = logging.getLogger(__name__)
@@ -307,9 +308,10 @@ async def guarded_apply_execute(
     provider: TiaProvider,
     block_name: str,
     patch: dict,
-    confirmed: bool = False,
-    compile_after: bool = True,
-    snapshot: BlockSnapshot | None = None,
+        confirmation_token: str = "",
+        compile_after: bool = True,
+        snapshot: BlockSnapshot | None = None,
+        project_path: str = "",
 ) -> dict:
     """执行受控 Apply（步骤 5-11）
 
@@ -317,19 +319,23 @@ async def guarded_apply_execute(
         provider: TiaCommanderProvider 实例
         block_name: 块名称
         patch: 结构化 Patch
-        confirmed: 是否已确认
+        confirmation_token: 人工确认后由 PreviewManager 签发的一次性确认令牌
+            （布尔 confirmed 不构成确认证据，不再接受布尔放行——
+            与 safety_chain.check_confirmation 的 fail-closed 语义一致）
         compile_after: 是否在修改后编译
         snapshot: guarded_apply_preview 生成的块快照（必填，用于 TOCTOU 防护）
+        project_path: 当前项目路径（确认令牌绑定项；令牌绑定了项目路径
+            而执行方未提供当前值时按 fail-closed 拒绝）
 
     Returns:
         执行结果
     """
-    # 步骤 5: 人工确认
-    if not confirmed:
+    # 步骤 5: 人工确认（fail-closed：必须提供一次性确认令牌）
+    if not confirmation_token:
         return GuardedApplyResult(
             success=False, operation="guarded_apply.execute",
             block_name=block_name,
-            errors=["需要人工确认后才能执行"],
+            errors=["操作必须人工确认（缺少确认令牌）"],
         ).to_dict()
 
     # 前置验证：执行阶段必须重新校验受保护块与允许操作白名单
@@ -405,25 +411,50 @@ async def guarded_apply_execute(
                 reconcile_required=True,
             ).to_dict()
 
-    # 步骤 7: 调用 TiaCommander apply_patch
+    # 步骤 6.5: 一次性消费确认令牌（全部只读检查——前置验证 / 快照 /
+    # TOCTOU / expected_network_hash——通过之后才消费，顺序对照
+    # network_patch.apply_block_patch；消费失败或未签名一律拒绝）
+    mgr = get_preview_manager()
+    token = mgr.consume_token(confirmation_token, project_path)
+    if token is None:
+        return GuardedApplyResult(
+            success=False, operation="guarded_apply.execute",
+            block_name=block_name,
+            errors=["确认令牌无效、已使用、已过期或与项目/目标/设备绑定不符"],
+            reconcile_required=True,
+        ).to_dict()
+    if not token.signature:
+        return GuardedApplyResult(
+            success=False, operation="guarded_apply.execute",
+            block_name=block_name,
+            errors=["确认令牌未签名（HMAC 认证未生效），拒绝应用"],
+            reconcile_required=True,
+        ).to_dict()
+
+    # 步骤 7: 调用 TiaCommander apply_patch（记录审计链）
+    mgr.apply_started(token)
     try:
         apply_result = provider.apply_patch(patch)
         if not apply_result.ok:
             # 失败时返回预修改 XML 以便恢复
+            error = apply_result.error.message if isinstance(apply_result.error, ErrorInfo) \
+                else str(apply_result.error)
+            mgr.apply_failed(token, error)
             return GuardedApplyResult(
                 success=False, operation="guarded_apply.execute",
                 block_name=block_name,
-                errors=[apply_result.error.message if isinstance(apply_result.error, ErrorInfo)
-                        else str(apply_result.error)],
+                errors=[error],
                 reconcile_required=True,
             ).to_dict()
     except NotImplementedError:
+        mgr.apply_failed(token, f"Provider '{provider.name}' 不支持 apply_patch")
         return GuardedApplyResult(
             success=False, operation="guarded_apply.execute",
             block_name=block_name,
             errors=[f"Provider '{provider.name}' 不支持 apply_patch"],
         ).to_dict()
     except Exception as e:
+        mgr.apply_failed(token, f"执行异常: {e}")
         return GuardedApplyResult(
             success=False, operation="guarded_apply.execute",
             block_name=block_name,
@@ -434,6 +465,8 @@ async def guarded_apply_execute(
     # 步骤 8: 重新读取 XML
     re_read = provider.get_block_xml(block_name)
     if not re_read.ok:
+        mgr.apply_failed(token, "修改后重新读取 XML 失败",
+                         ApplyFailureState.RECONCILE_REQUIRED)
         return GuardedApplyResult(
             success=False, operation="guarded_apply.execute",
             block_name=block_name,
@@ -445,6 +478,8 @@ async def guarded_apply_execute(
     if isinstance(re_read.result, dict):
         post_xml = re_read.result.get("xml", "") or re_read.result.get("content", "")
     if not post_xml:
+        mgr.apply_failed(token, "修改后 XML 为空",
+                         ApplyFailureState.RECONCILE_REQUIRED)
         return GuardedApplyResult(
             success=False, operation="guarded_apply.execute",
             block_name=block_name,
@@ -476,6 +511,8 @@ async def guarded_apply_execute(
     allowed_matches = [m for m in network_matches if m["operation"] in _ALLOWED_OPERATIONS]
     all_modified = len(allowed_matches) > 0 and all(m["modified"] for m in allowed_matches)
     if not all_modified:
+        mgr.apply_failed(token, "部分网络修改未生效",
+                         ApplyFailureState.RECONCILE_REQUIRED)
         return GuardedApplyResult(
             success=False, operation="guarded_apply.execute",
             block_name=block_name,
@@ -496,6 +533,8 @@ async def guarded_apply_execute(
     # 编译失败视为整体失败（fail-closed），不得以 success=True 返回
     if compile_result is not None and not compile_result.get("ok"):
         compile_err = compile_result.get("error", "")
+        mgr.apply_failed(token, f"编译验证失败: {compile_err}" if compile_err else "编译验证失败",
+                         ApplyFailureState.RECONCILE_REQUIRED)
         return GuardedApplyResult(
             success=False, operation="guarded_apply.execute",
             block_name=block_name,
@@ -505,6 +544,7 @@ async def guarded_apply_execute(
             reconcile_required=True,
         ).to_dict()
 
+    mgr.apply_succeeded(token, f"已应用 {len(patch.get('operations', []))} 个网络操作")
     return GuardedApplyResult(
         success=True,
         operation="guarded_apply.execute",

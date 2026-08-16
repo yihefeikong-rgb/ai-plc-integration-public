@@ -68,14 +68,24 @@ class TestParseDevice:
         assert offset == 0
 
     def test_x_input(self):
+        # FX 系列 X/Y 为八进制编号（与 server.py 声明的 FX3U/FX5U 一致）：
+        # X10 = 0o10 = 8（X0-X7 为第一组 8 点，X10 是下一组首点）
         code, offset = _parse_device("X10")
         assert code == 0x9C
-        assert offset == 10
+        assert offset == 0o10
 
     def test_y_output(self):
+        # FX 八进制：Y20 = 0o20 = 16
         code, offset = _parse_device("Y20")
         assert code == 0x9D
-        assert offset == 20
+        assert offset == 0o20
+
+    def test_xy_octal_digits_rejected_on_fx(self):
+        # FX 八进制编号不含 8/9，X8/Y9 是非法编号（fail-closed）
+        with pytest.raises(MCFrameError, match="八进制"):
+            _parse_device("X8")
+        with pytest.raises(MCFrameError, match="八进制"):
+            _parse_device("Y9")
 
     def test_large_address(self):
         code, offset = _parse_device("D65535")

@@ -123,8 +123,9 @@ class TestS7AdapterWithMockClient:
         assert "M0.0" in r
 
     def test_write_unknown_address(self, adapter):
-        r = adapter.write_address("X0", 1)
-        assert "不支持" in r
+        # 不支持的地址统一抛异常（与 read_address 对称），不再返回 ❌ 字符串
+        with pytest.raises(ValueError, match="不支持的地址格式"):
+            adapter.write_address("X0", 1)
 
     def test_read_checks_connection(self):
         from s7_adapter import S7Adapter

@@ -178,7 +178,7 @@ class EdgeGateway:
             # 当前值快照：parse_decision 的 >50% 跳变保护依赖它（代码强制）
             current_values = {d["tag"]: d.get("value") for d in data}
             try:
-                raw_response = await ai.decide_control(analysis, available)
+                raw_response = await ai.decide_control(analysis, available, current_values)
                 decision = parse_decision(raw_response, available, current_values)
                 # decide_control 会把未通过硬校验的输出转成固定 alert JSON
                 # （ai_client.py 兜底），识别该签名让『连续失败熔断』真正生效
@@ -301,8 +301,8 @@ class EdgeGateway:
             result = write_func(target, value)
             if inspect.isawaitable(result):
                 result = await result
-            if isinstance(result, str) and ("❌" in result or "🚫" in result):
-                raise RuntimeError(result)
+            # 失败由 write_func 抛异常表达（s7_adapter.write_address 对
+            # 不支持的地址/连接失败统一抛异常），不做返回字符串嗅探
             write_success = True
             print(f"[写入] {result}")
         except Exception as e:
@@ -462,10 +462,9 @@ async def main(protocol: str = "s7"):
                 return {"status": "error", "error": f"读取失败 {tag}"}
 
         async def s7_write(address: str, value) -> str:
-            result = await asyncio.to_thread(s7.write_address, address, value)
-            if isinstance(result, str) and ("❌" in result or "🚫" in result):
-                raise RuntimeError(result)
-            return result
+            # 失败路径由 s7_adapter.write_address 抛异常表达（含不支持的
+            # 地址格式），不再对返回字符串做 emoji 嗅探
+            return await asyncio.to_thread(s7.write_address, address, value)
 
         try:
             await gw.run(s7_read, write_func=s7_write)

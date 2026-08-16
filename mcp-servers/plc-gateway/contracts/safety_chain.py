@@ -133,13 +133,19 @@ class SafetyChain:
                   confirmation_token: str = "",
                   target_hash: str = "",
                   device_id: str = "") -> SafetyGateResult:
-        """执行所有安全检查"""
+        """执行所有安全检查
+
+        顺序要求（对照 workflows/network_patch.apply_block_patch）：
+        目标/风险/预览令牌等全部只读检查通过之后，才一次性消费确认
+        令牌——否则任一只读检查失败都会白白烧毁人工确认（一次性令牌
+        不可逆），失败路径还留下缺 APPLY_STARTED 的 TOKEN_CONSUMED 审计。
+        """
         checks = [
             ("目标检查", self.check_target(project_path, configured_project)),
             ("风险等级", self.check_risk_level(risk_level)),
         ]
 
-        # 需要 Preview 的操作必须提供预览令牌
+        # 需要 Preview 的操作必须提供预览令牌（validate 只读，不消费）
         if requires_preview(risk_level):
             if not preview_token:
                 return SafetyGateResult.block(
@@ -147,20 +153,20 @@ class SafetyChain:
             checks.append(("预览令牌", self.check_preview_token(
                 preview_token, project_path, target_hash, device_id)))
 
-        # 需要确认的操作必须确认（fail-closed：确认令牌一次性消费）
+        # 全部只读检查先评估：任何失败都在消费确认令牌之前返回
+        for name, result in checks:
+            if not result.allowed:
+                return result
+
+        # 需要确认的操作最后确认（fail-closed：确认令牌一次性消费）
         if requires_confirmation(risk_level):
             if confirmation_token and confirmation_token == preview_token:
                 return SafetyGateResult.block(
                     "确认令牌不能与预览令牌相同（同一令牌不能同时充当预览与确认）")
-            result = self.check_confirmation(
+            return self.check_confirmation(
                 confirmed, confirmation_token,
                 project_path, target_hash, device_id)
-            if not result.allowed:
-                return result
 
-        for name, result in checks:
-            if not result.allowed:
-                return result
         return SafetyGateResult.allow()
 
     def atomic_apply(self, token: PreviewToken,

@@ -308,6 +308,11 @@ class TestAiLoop:
             {"tag": "MW10", "name": "T", "value": 200, "status": "ok"}
         ])
         _ai_mock.analyze_data.assert_awaited_once()
+        # decide_control 必须携带当前值基线（第三参数），否则真实
+        # parse_decision 会因无法校验 50% 跳变而拒绝一切合法 write 决策
+        args = _ai_mock.decide_control.await_args.args
+        assert len(args) == 3
+        assert args[2] == {"MW10": 200}
 
 
 # ===== 停止 =====

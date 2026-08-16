@@ -419,12 +419,13 @@ class S7Adapter:
             value: 要写入的值
 
         Returns:
-            写入结果消息
+            写入结果消息（成功）；失败一律抛异常（含不支持的地址格式），
+            调用方不得对返回字符串做前缀嗅探判定成败
         """
         address = self.canonicalize_address(address)
         typ, db, start, extra = self._parse_addr(address)
         if typ == "UNKNOWN":
-            return f"❌ 不支持的地址格式: {address}"
+            raise ValueError(f"不支持的地址格式: {address}")
         # 值校验由各 write_* 方法执行一次；这里不再重复 parse_write_value
         if typ == "M":
             if db:
@@ -442,7 +443,7 @@ class S7Adapter:
             if db:
                 return self.write_real(db, start, value)
             return self.write_md(start, value)
-        return f"❌ 不支持的地址格式: {address}"
+        raise ValueError(f"不支持的地址格式: {address}")
 
 
 # 全局单例
