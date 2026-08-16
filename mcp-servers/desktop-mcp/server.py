@@ -19,6 +19,7 @@ import time
 import json
 import sys
 import traceback
+from pathlib import Path
 from typing import Optional
 
 # ─── 认证 ────────────────────────────────────────────
@@ -61,6 +62,8 @@ HOTKEY_BLACKLIST = {
     ("ctrl", "shift", "delete"),
     # 关机类
     ("alt", "shift", "f4"),
+    # 提权类：Windows Shell 以管理员身份运行程序的组合
+    ("ctrl", "shift", "enter"),
 }
 
 # pyautogui 按键别名 → 规范键名
@@ -105,17 +108,27 @@ def _is_blacklisted_hotkey(keys) -> bool:
 
 
 # ─── 危险单键黑名单 ──────────────────────────────────
+# 注意：黑名单只是浅防御（已知危险键的封堵），不是完备的输入沙箱；
+# 焦点窗口内的快捷键行为取决于目标应用，无法在服务端穷举。
 PRESS_KEY_BLACKLIST = {
     "delete", "del",          # 删除文件/内容
     "f2",                     # 重命名（桌面上下文可误操作）
+    # win 键：单独按下即打开开始菜单，配合后续 type_text("cmd")+enter
+    # 可等效执行任意系统命令，因此 win（及 winleft/winright 等别名，
+    # 经 HOTKEY_KEY_ALIASES 归一化）单键也必须拦截。
+    "win",
 }
 
 
 def _is_blacklisted_press_key(key) -> bool:
-    """检查单键是否在危险黑名单中；非字符串输入一律视为危险"""
+    """检查单键是否在危险黑名单中；非字符串输入一律视为危险。
+
+    与 hotkey 路径一致先做别名归一化（winleft/cmd/super 等都映射为 win），
+    防止用别名绕过单键黑名单。
+    """
     if not isinstance(key, str):
         return True
-    return key.lower().strip() in PRESS_KEY_BLACKLIST
+    return _normalize_hotkey_key(key) in PRESS_KEY_BLACKLIST
 
 
 # ─── 安全策略拒绝异常 ──────────────────────────────
@@ -386,9 +399,13 @@ def tool_click(args: dict) -> dict:
     clicks = _to_int(args.get("clicks"), "clicks", 1)
     if clicks < 1:
         raise ValueError("参数 clicks 必须 >= 1")
+    if clicks > 100:
+        raise ValueError("参数 clicks 超过上限 100")
     interval = _to_float(args.get("interval"), "interval", 0.1)
     if interval < 0:
         raise ValueError("参数 interval 必须 >= 0")
+    if interval > 5:
+        raise ValueError("参数 interval 超过上限 5 秒")
 
     if x is None or y is None:
         # 点击当前位置
@@ -439,9 +456,13 @@ def tool_type_text(args: dict) -> dict:
     text = args.get("text")
     if not isinstance(text, str) or not text:
         raise ValueError("参数 text 必须是非空字符串")
+    if len(text) > 10000:
+        raise ValueError("参数 text 长度超过上限 10000 字符")
     interval = _to_float(args.get("interval"), "interval", 0.05)
     if interval < 0:
         raise ValueError("参数 interval 必须 >= 0")
+    if interval > 5:
+        raise ValueError("参数 interval 超过上限 5 秒")
     pyautogui.write(text, interval=interval)
     return {"success": True, "text_len": len(text)}
 
@@ -484,13 +505,38 @@ def tool_drag(args: dict) -> dict:
     return {"success": True, "from": [x1, y1], "to": [x2, y2]}
 
 
+# ─── locate_on_screen 模板目录（白名单根）─────────────
+# 只允许读取本目录内的模板图片，拒绝任意本地文件路径交给图像解析库
+# （防止把任意本地文件交给 pyautogui/OpenCV 解析，或泄露文件存在性）。
+TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+
+
+def _validate_image_path(image_path: str) -> Path:
+    """校验 locate_on_screen 的模板路径必须位于 templates 目录内。
+
+    相对路径统一相对模板目录解析；resolve + relative_to 双重校验，
+    绝对路径逃逸与 .. 穿越在 resolve 后都不再位于 TEMPLATE_DIR 之下，
+    一律拒绝（fail-closed）。
+    """
+    if "\x00" in image_path:
+        raise ValueError("参数 image_path 非法")
+    candidate = Path(image_path)
+    if not candidate.is_absolute():
+        candidate = TEMPLATE_DIR / candidate
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(TEMPLATE_DIR)
+    except ValueError:
+        raise ValueError("image_path 必须位于 desktop-mcp/templates 模板目录内")
+    return resolved
+
+
 def tool_locate_on_screen(args: dict) -> dict:
     """在屏幕上查找图片（返回坐标）"""
     image_path = args.get("image_path")
     if not isinstance(image_path, str) or not image_path:
         raise ValueError("参数 image_path 必须是非空字符串")
-    if "\x00" in image_path:
-        raise ValueError("参数 image_path 非法")
+    template_file = _validate_image_path(image_path)
     confidence = _to_float(args.get("confidence"), "confidence", 0.8)
     if not (0 < confidence <= 1):
         raise ValueError("参数 confidence 必须在 (0, 1] 范围内")
@@ -501,9 +547,9 @@ def tool_locate_on_screen(args: dict) -> dict:
         region = tuple(_to_int(v, "region 元素", required=True) for v in region)
     try:
         if region:
-            pos = pyautogui.locateOnScreen(image_path, confidence=confidence, region=region)
+            pos = pyautogui.locateOnScreen(str(template_file), confidence=confidence, region=region)
         else:
-            pos = pyautogui.locateOnScreen(image_path, confidence=confidence)
+            pos = pyautogui.locateOnScreen(str(template_file), confidence=confidence)
         if pos:
             return {
                 "found": True,
@@ -539,6 +585,8 @@ def tool_press_key(args: dict) -> dict:
     presses = _to_int(args.get("presses"), "presses", 1)
     if presses < 1:
         raise ValueError("参数 presses 必须 >= 1")
+    if presses > 100:
+        raise ValueError("参数 presses 超过上限 100")
     if _is_blacklisted_press_key(key):
         raise ToolRejectedError(f"按键 '{key}' 在危险黑名单中，禁止执行（可能导致数据丢失）")
     pyautogui.press(key, presses=presses)
@@ -697,11 +745,11 @@ async def main():
         },
         {
             "name": "locate_on_screen",
-            "description": "在屏幕上查找图片。需要提前保存目标按钮的截图文件。可指定 region=[x,y,w,h] 只搜索局部区域",
+            "description": "在屏幕上查找图片。模板图片必须预先放入 desktop-mcp/templates 目录（只允许该目录内的相对路径）。可指定 region=[x,y,w,h] 只搜索局部区域",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "image_path": {"type": "string", "description": "模板图片路径"},
+                    "image_path": {"type": "string", "description": "模板图片路径（必须位于 desktop-mcp/templates 目录内）"},
                     "confidence": {"type": "number", "default": 0.8},
                     "region": {
                         "type": "array",

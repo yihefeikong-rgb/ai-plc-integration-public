@@ -558,7 +558,7 @@ class TestGenerateSclCode:
         with patch.object(server, "_deepseek_chat", return_value=mock_deepseek):
             result = server.generate_scl_code(
                 description="电机正反转控制",
-                template="motor",
+                template="motor-control",
             )
         assert result["status"] == "ok"
         assert "scl_code" in result["data"]
@@ -771,6 +771,12 @@ class TestAuth:
         server._AUTH_TOKEN = "secret123"
         assert server._check_auth("wrong") is False
 
+    def test_check_auth_non_ascii_token_rejected_not_crash(self, server):
+        """非 ASCII str 令牌必须返回 False，而不是让 compare_digest 抛 TypeError"""
+        server._AUTH_TOKEN = "secret123"
+        assert server._check_auth("中文令牌") is False
+        assert server._check_auth("secret123") is True
+
     def test_require_auth_passes(self, server):
         server._AUTH_TOKEN = "secret123"
         server._real_require_auth_for_test("secret123")
@@ -950,3 +956,122 @@ class TestBomDefense:
         """写入时使用 utf-8 编码（无 BOM）"""
         source = "FUNCTION_BLOCK 中文编码 ..."
         assert self._capture_temp_scl(server, source) == source.encode("utf-8")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 安全修复回归: export_block 键名/目录限制、模板白名单、确认令牌集合
+# ═══════════════════════════════════════════════════════════════
+
+class TestExportBlock:
+    """export_block 必须用 OutputPath 键且路径限制在配置输出目录内"""
+
+    def test_payload_uses_outputpath_key_and_default_dir(self, server):
+        captured = {}
+
+        def fake_worker(_command, payload):
+            captured.update(payload)
+            return {"ok": True, "result": {"blockName": "FB501"}}
+
+        with patch.object(server, "_run_worker", side_effect=fake_worker):
+            result = server.export_block(block_name="FB501",
+                                         project_path="C:\\test\\project.ap21")
+        assert result["ok"] is True
+        # TiaWorker/Program.cs 的 DTO 读 OutputPath（不是 ExportPath）
+        assert "OutputPath" in captured and "ExportPath" not in captured
+        output_path = captured["OutputPath"].replace("/", "\\").lower()
+        assert output_path.startswith("c:\\test\\output")
+        assert output_path.endswith("fb501.scl")
+
+    def test_export_path_escape_outside_output_dir_rejected(self, server):
+        with patch.object(server, "_run_worker") as mock_worker:
+            result = server.export_block(block_name="FB501",
+                                         export_path="D:\\evil\\dump.scl",
+                                         project_path="C:\\test\\project.ap21")
+        assert result["status"] == "error"
+        assert "输出目录" in result["error"]
+        mock_worker.assert_not_called()
+
+    def test_export_path_dotdot_escape_rejected(self, server):
+        with patch.object(server, "_run_worker") as mock_worker:
+            result = server.export_block(block_name="FB501",
+                                         export_path="..\\..\\evil.scl",
+                                         project_path="C:\\test\\project.ap21")
+        assert result["status"] == "error"
+        assert "输出目录" in result["error"]
+        mock_worker.assert_not_called()
+
+    def test_export_path_inside_output_dir_allowed(self, server):
+        captured = {}
+
+        def fake_worker(_command, payload):
+            captured.update(payload)
+            return {"ok": True, "result": {"blockName": "FB501"}}
+
+        with patch.object(server, "_run_worker", side_effect=fake_worker):
+            result = server.export_block(
+                block_name="FB501",
+                export_path="C:\\test\\output\\sub\\fb.scl",
+                project_path="C:\\test\\project.ap21",
+            )
+        assert result["ok"] is True
+        assert captured["OutputPath"].replace("/", "\\").startswith("c:\\test\\output")
+
+
+class TestSclTemplateWhitelist:
+    """generate_scl_code 模板名必须在 plc-code-templates 白名单内"""
+
+    def test_traversal_template_rejected_without_deepseek_call(self, server):
+        with patch.object(server, "_deepseek_chat") as mock_chat:
+            result = server.generate_scl_code(description="测试", template="../README")
+        assert result["status"] == "error"
+        assert "白名单" in result["error"] or "未知模板" in result["error"]
+        mock_chat.assert_not_called()
+
+    def test_absolute_path_template_rejected(self, server):
+        with patch.object(server, "_deepseek_chat") as mock_chat:
+            result = server.generate_scl_code(
+                description="测试",
+                template=str(_PROJECT / "README.md").replace(".md", ""),
+            )
+        assert result["status"] == "error"
+        mock_chat.assert_not_called()
+
+    def test_nonexistent_template_name_rejected(self, server):
+        with patch.object(server, "_deepseek_chat") as mock_chat:
+            result = server.generate_scl_code(description="测试", template="no-such-tpl")
+        assert result["status"] == "error"
+        mock_chat.assert_not_called()
+
+
+class TestConfirmationRequiredOps:
+    """工程改写/在线状态操作未提供确认令牌时必须 fail-closed（无环境降级时）"""
+
+    OPS = ("create_block", "create_plc_tags", "call_fb_in_ob1", "go_online", "go_offline")
+
+    def test_all_engineering_write_ops_in_confirmation_set(self, server):
+        for op in self.OPS:
+            assert op in server._CONFIRMATION_REQUIRED_OPS, f"{op} 未加入确认集合"
+
+    def test_create_plc_tags_without_token_is_blocked_when_no_optin(self, server, monkeypatch):
+        monkeypatch.delenv("TIA_MCP_ALLOW_UNCONFIRMED_ENGINEERING", raising=False)
+        with patch.object(server, "_run_worker") as mock_worker:
+            result = server.create_plc_tags(tags_json='[{"name":"I0_8"}]',
+                                            project_path="C:\\test\\project.ap21")
+        assert result.get("ok") is False or result.get("status") == "error"
+        mock_worker.assert_not_called()
+
+    def test_create_block_without_token_is_blocked_when_no_optin(self, server, monkeypatch):
+        monkeypatch.delenv("TIA_MCP_ALLOW_UNCONFIRMED_ENGINEERING", raising=False)
+        with patch.object(server, "_run_worker") as mock_worker:
+            result = server.create_block(block_name="MyFB",
+                                         project_path="C:\\test\\project.ap21")
+        assert result.get("ok") is False or result.get("status") == "error"
+        mock_worker.assert_not_called()
+
+    def test_go_online_without_token_is_blocked_when_no_optin(self, server, monkeypatch):
+        monkeypatch.delenv("TIA_MCP_ALLOW_UNCONFIRMED_ENGINEERING", raising=False)
+        with patch.object(server, "_run_worker") as mock_worker:
+            result = server.go_online(device_name="PLC_1",
+                                      project_path="C:\\test\\project.ap21")
+        assert result.get("ok") is False or result.get("status") == "error"
+        mock_worker.assert_not_called()

@@ -334,6 +334,15 @@ class RobotBackend:
         try:
             if not await self.ensure_connected():
                 return {"status": "error", "error": "未连接到 PLC"}
+            if self._backend_type != "simulated":
+                # 审计前置门（fail-closed）：真实执行器（opcua/snap7）写入前必须
+                # 先成功写入 begin_control_operation 控制意图审计；审计链不可用时
+                # 拒绝执行写入（对齐 opcua/modbus 兄弟服务器）。模拟后端为离线
+                # 测试兼容路径，不设此门。
+                gate_reason = _begin_write_audit(name, value)
+                if gate_reason:
+                    logger.error("写入 %s=%s 被审计前置门阻断", name, value)
+                    return {"status": "error", "error": gate_reason}
             if self._backend_type == "simulated":
                 # 模拟模式下急停闩锁置位后禁止直接把急停置健康，防止自愈绕过
                 if name == "sensor_estop" and value and self._estop_reset_required:
@@ -512,9 +521,10 @@ def _default_auth_token() -> str:
 def _require_auth(token: str = "") -> None:
     """验证服务已配置认证令牌；未配置令牌时控制服务不可用（fail-closed）。
 
-    令牌由 MCP 进程环境（MCP_AUTH_TOKEN / --auth-token）在启动时注入，工具不再
-    把它作为参数在对话中传递（避免令牌进入工具 schema 与聊天日志）。stdio 传输的
-    信任边界是本地进程本身；若调用方仍显式传入令牌，则仍按原值校验（兼容旧调用方）。
+    令牌由 MCP 进程环境（MCP_AUTH_TOKEN）在启动时注入，工具不再把它作为
+    参数在对话中传递（避免令牌进入工具 schema 与聊天日志）。stdio 传输的
+    信任边界是本地进程本身；若调用方仍显式传入令牌，则仍按原值校验（兼容
+    旧调用方）。
     """
     if not _AUTH_TOKEN:
         raise PermissionError("MCP_AUTH_TOKEN 未配置，服务不可用")
@@ -531,6 +541,7 @@ def _audit(operation: str, **kwargs) -> None:
 
     审计失败仅记录错误日志、不阻断控制（避免审计存储异常造成控制死锁）；
     生产环境应配置 AUDIT_HMAC_KEY 使审计链持久可验证。
+    控制类写入的 fail-closed 前置门由 _begin_write_audit 单独强制。
     """
     global _robot_audit
     try:
@@ -541,6 +552,29 @@ def _audit(operation: str, **kwargs) -> None:
         )
     except Exception as exc:
         logger.error("审计日志写入失败: %s", exc)
+
+
+def _begin_write_audit(name: str, value: bool) -> str | None:
+    """write_io 的审计前置门（fail-closed）：返回 None 放行，否则返回阻断原因。
+
+    对齐 opcua-mcp/modbus-mcp 的 begin_control_operation 前置门模式：
+    真实后端（opcua/snap7）执行器写入前必须先成功写入控制意图审计；
+    审计链不可用（AuditStorageError/AuditConfigurationError 等）时拒绝
+    执行写入，不能只靠事后 _audit 补记（fail-open）。模拟后端用于离线
+    测试，不设此门（见 write_io 调用处的分支）。
+    """
+    global _robot_audit
+    try:
+        if _robot_audit is None:
+            _robot_audit = AuditLogger(str(PROJECT_ROOT / "logs" / "robot_audit.log"))
+        _robot_audit.begin_control_operation(
+            "robot.write_io", name, authenticated_actor(_AUTH_TOKEN, "robot"),
+            {"io": name, "value": bool(value)},
+        )
+        return None
+    except Exception as exc:
+        logger.error("审计前置门拒绝写入 %s=%s: %s", name, value, exc)
+        return "审计链不可用，拒绝执行写入（fail-closed）"
 
 
 # ── 人工确认（真实后端动作的一次性令牌） ───────────────
@@ -1032,9 +1066,9 @@ async def control_conveyor(direction: str = "stop", confirmation_token: str = ""
 # ═════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    # 认证令牌只从环境变量（MCP_AUTH_TOKEN）读取；不提供 --auth-token CLI
+    # 参数，避免令牌暴露在进程命令行（ps/日志可见）。
     parser = argparse.ArgumentParser(description="Robot MCP Server — 工业机器人控制")
-    parser.add_argument("--auth-token", default=_default_auth_token(),
-                        help="认证令牌（可选）")
     parser.add_argument("--endpoint", default=None,
                         help=f"OPC UA 端点 (默认: {OPCUA_ENDPOINT})")
     parser.add_argument("--ip", default=None,
@@ -1046,7 +1080,9 @@ if __name__ == "__main__":
                         choices=["Pick & Place (Basic)", "Palletizer"],
                         help="Factory I/O 场景 (默认: Pick & Place (Basic))")
     args = parser.parse_args()
-    _AUTH_TOKEN = args.auth_token
+    _AUTH_TOKEN = _default_auth_token()
+    if not _AUTH_TOKEN:
+        raise SystemExit("Robot MCP 拒绝启动：必须配置 MCP_AUTH_TOKEN 环境变量")
 
     try:
         if args.endpoint:

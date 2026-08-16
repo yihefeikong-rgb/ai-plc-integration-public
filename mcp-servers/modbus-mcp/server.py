@@ -51,8 +51,14 @@ def _require_auth(token: str):
     """验证 auth token（必须设置 MCP_AUTH_TOKEN）
 
     使用恒定时间比较，且不向未认证调用者泄露服务器认证配置状态。
+    isinstance 前置检查 + UTF-8 字节比较：非字符串直接拒绝，非 ASCII str
+    也不会让 hmac.compare_digest 抛 TypeError（与 desktop-mcp 一致）。
     """
-    if not _AUTH_TOKEN or not hmac.compare_digest(token, _AUTH_TOKEN):
+    if (
+        not _AUTH_TOKEN
+        or not isinstance(token, str)
+        or not hmac.compare_digest(token.encode("utf-8"), _AUTH_TOKEN.encode("utf-8"))
+    ):
         raise PermissionError("认证失败：无效的 auth token")
 
 

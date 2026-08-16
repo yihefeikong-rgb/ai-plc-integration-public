@@ -75,10 +75,16 @@ confirmation_service = ConfirmationService()
 
 
 def _require_auth(token: str):
-    """验证 auth token（必须设置 MCP_AUTH_TOKEN），常数时间比较防时序侧信道"""
+    """验证 auth token（必须设置 MCP_AUTH_TOKEN），常数时间比较防时序侧信道
+
+    isinstance 只挡住非字符串；非 ASCII str 会让 hmac.compare_digest 抛
+    TypeError（未捕获将导致进程崩溃），统一转 UTF-8 字节再比较。
+    """
     if not _AUTH_TOKEN:
         raise PermissionError("MCP_AUTH_TOKEN 未配置，服务不可用")
-    if not isinstance(token, str) or not hmac.compare_digest(token, _AUTH_TOKEN):
+    if not isinstance(token, str) or not hmac.compare_digest(
+        token.encode("utf-8"), _AUTH_TOKEN.encode("utf-8")
+    ):
         raise PermissionError("认证失败：无效的 auth token")
 
 

@@ -83,10 +83,16 @@ confirmation_service = ConfirmationService()
 
 
 def _require_auth(token: str = "") -> None:
-    """验证 auth token；未配置令牌时控制服务不可用。"""
+    """验证 auth token；未配置令牌时控制服务不可用。
+
+    hmac.compare_digest 对非 ASCII str 会抛 TypeError（未捕获将导致进程崩溃），
+    统一转 UTF-8 字节再比较（与 desktop-mcp 一致）。
+    """
     if not _AUTH_TOKEN:
         raise PermissionError("MCP_AUTH_TOKEN 未配置，服务不可用")
-    if not isinstance(token, str) or not hmac.compare_digest(token, _AUTH_TOKEN):
+    if not isinstance(token, str) or not hmac.compare_digest(
+        token.encode("utf-8"), _AUTH_TOKEN.encode("utf-8")
+    ):
         raise PermissionError("认证失败：无效的 auth token")
 
 

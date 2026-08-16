@@ -13,9 +13,7 @@ import logging
 import re
 import subprocess
 import sys
-import argparse
 import tempfile
-import os
 import uuid
 from pathlib import Path
 
@@ -38,14 +36,21 @@ from mcp_common.tiaworker_client import TiaWorkerClient
 from safety.validator import validator as safety_validator
 
 
-# 工程态危险操作（写工程 / 下载到设备）集合。_eng.* 标签不命中运行态
-# write_rules，require_bits 互锁不适用；除认证外还必须消费一次性人工
-# 确认令牌（fail-closed），不得静默放行。
+# 工程态危险操作（写工程 / 下载到设备 / 在线连接变更）集合。_eng.* 标签
+# 不命中运行态 write_rules，require_bits 互锁不适用；除认证外还必须消费
+# 一次性人工确认令牌（fail-closed），不得静默放行。
+# create_block / create_plc_tags / call_fb_in_ob1 直接改写工程内容；
+# go_online / go_offline 变更与 PLC 的在线连接状态，同样必须确认。
 _CONFIRMATION_REQUIRED_OPS = frozenset({
     "download_to_plcsim",
     "import_scl_file",
     "compile_project",
     "full_pipeline",
+    "create_block",
+    "create_plc_tags",
+    "call_fb_in_ob1",
+    "go_online",
+    "go_offline",
 })
 
 
@@ -125,7 +130,8 @@ def _safety_gate(
     shadow_sim 数值仿真不适用。安全链通过 validator 熔断机制保护。
 
     危险工程操作（download_to_plcsim/import_scl_file/compile_project/
-    full_pipeline）默认必须携带一次性人工确认令牌（fail-closed）：
+    full_pipeline/create_block/create_plc_tags/call_fb_in_ob1/go_online/
+    go_offline）默认必须携带一次性人工确认令牌（fail-closed）：
     未提供令牌时拒绝执行，绝不静默放行。
     仅当显式设置环境变量 TIA_MCP_ALLOW_UNCONFIRMED_ENGINEERING=1 时
     才允许未确认的工程操作（有意的 opt-in 降级，供自动化流程使用）。
@@ -159,8 +165,16 @@ _AUTH_TOKEN = os.environ.get("TIA_MCP_AUTH_TOKEN", os.environ.get("MCP_AUTH_TOKE
 
 
 def _check_auth(token: str = "") -> bool:
-    """验证认证令牌；缺少服务器端令牌必须失败关闭。"""
-    return bool(_AUTH_TOKEN) and bool(token) and hmac.compare_digest(token, _AUTH_TOKEN)
+    """验证认证令牌；缺少服务器端令牌必须失败关闭。
+
+    hmac.compare_digest 对非 ASCII str 会抛 TypeError（未捕获将导致进程崩溃），
+    统一转 UTF-8 字节再比较，保持恒定时间语义（与 desktop-mcp 一致）。
+    """
+    if not isinstance(token, str):
+        return False
+    return bool(_AUTH_TOKEN) and bool(token) and hmac.compare_digest(
+        token.encode("utf-8"), _AUTH_TOKEN.encode("utf-8")
+    )
 
 
 def _require_auth(token: str = "") -> None:
@@ -331,10 +345,30 @@ def _resolve_path(project_path: str) -> str:
     return configured_project
 
 
+def _resolve_scl_template(template) -> Path:
+    """校验 SCL 模板名：只允许 SCL_TEMPLATES 目录中实际存在的 .md 模板。
+
+    模板内容会被拼入 prompt 发往外部 DeepSeek API，任意路径（绝对路径/
+    .. 穿越）会把任意本地 .md 文件外发，因此模板名必须在目录实际文件
+    （运行时枚举的白名单）之内；_rules.md 是规则文件而非模板，排除在外。
+    不在白名单内直接抛 ValueError（参数错误），不降级为无模板生成。
+    """
+    if not isinstance(template, str) or not template.strip():
+        raise ValueError("参数 template 必须是非空字符串")
+    template = template.strip()
+    if template == "_rules" or "/" in template or "\\" in template or ".." in template:
+        raise ValueError(f"未知模板: {template}（不在 SCL 模板白名单内）")
+    root = SCL_TEMPLATES.resolve()
+    candidate = (root / f"{template}.md").resolve()
+    if candidate.parent != root or not candidate.is_file():
+        raise ValueError(f"未知模板: {template}（不在 SCL 模板白名单内）")
+    return candidate
+
+
 def _gen_scl_via_deepseek(description: str, template: str) -> dict:
     """调用 DeepSeek 生成 SCL 代码"""
     template_text = ""
-    template_file = SCL_TEMPLATES / f"{template}.md"
+    template_file = _resolve_scl_template(template)
     if template_file.exists():
         template_text = template_file.read_text(encoding="utf-8")
 
@@ -581,6 +615,7 @@ def create_plc_tags(
     tags_json: str,
     project_path: str = "",
     tag_table_name: str = "PickAndPlace_IO",
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """在 TIA Portal 项目中批量创建 PLC 标签（幂等，已存在则跳过）。
@@ -593,13 +628,15 @@ def create_plc_tags(
                    格式: '[{"name":"I0_8","dataType":"Bool","address":"%I0.8","comment":"急停"},...]'
         project_path: TIA 项目路径，留空使用默认值
         tag_table_name: 标签表名称，默认 "PickAndPlace_IO"
+        confirmation_token: 一次性人工确认令牌（直接改写工程内容，必填，fail-closed）
         auth_token: 认证令牌
 
     Returns:
         {"status": "ok", "created": N, "skipped": N, "errors": [...]}
     """
     _require_auth(auth_token)
-    gate = _safety_gate("create_plc_tags", block_name=tag_table_name)
+    gate = _safety_gate("create_plc_tags", block_name=tag_table_name,
+                        confirmation_token=confirmation_token, auth_token=auth_token)
     if gate:
         return gate
     try:
@@ -674,6 +711,7 @@ def create_block(
     block_type: str = "FB",
     template: str = "general",
     project_path: str = "",
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """在 TIA 项目中创建空程序块。
@@ -683,10 +721,12 @@ def create_block(
         block_type: 块类型 — "FB", "FC", "DB", "UDT"
         template: 模板名称（可选，预留扩展）
         project_path: TIA 项目路径，留空使用默认值
+        confirmation_token: 一次性人工确认令牌（直接改写工程内容，必填，fail-closed）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
-    gate = _safety_gate("create_block", block_name=block_name)
+    gate = _safety_gate("create_block", block_name=block_name,
+                        confirmation_token=confirmation_token, auth_token=auth_token)
     if gate:
         return gate
     try:
@@ -708,6 +748,23 @@ def create_block(
         return {"status": "error", "error": str(e)}
 
 
+def _resolve_export_path(export_path: str, block_name: str) -> str:
+    """解析并校验块导出路径：只允许配置输出目录内的绝对路径。
+
+    与 _resolve_path 的唯一目标校验模式对齐：留空时使用配置输出目录下的
+    默认文件名（TiaWorker 要求 OutputPath 非空）；提供时规范化为绝对路径
+    并要求仍位于 cfg.tia.output_dir 内，.. 穿越与目录外绝对路径一律拒绝
+    （TiaWorker 收到的是绝对路径，导出会真实写盘）。
+    """
+    output_dir = os.path.normcase(os.path.abspath(str(cfg.tia.output_dir)))
+    if not export_path:
+        return os.path.join(output_dir, f"{block_name}.scl")
+    candidate = os.path.normcase(os.path.abspath(export_path))
+    if candidate != output_dir and not candidate.startswith(output_dir + os.sep):
+        raise ValueError("拒绝输出目录之外的导出路径")
+    return candidate
+
+
 @mcp.tool()
 def export_block(
     block_name: str,
@@ -719,7 +776,7 @@ def export_block(
 
     Args:
         block_name: 块名称（如 "FB501"）
-        export_path: 导出路径（可选，留空使用默认输出目录）
+        export_path: 导出路径（可选，必须位于配置输出目录内，留空使用默认输出目录）
         project_path: TIA 项目路径，留空使用默认值
         auth_token: 认证令牌
     """
@@ -729,10 +786,12 @@ def export_block(
         return gate
     try:
         path = _resolve_path(project_path)
+        resolved_export = _resolve_export_path(export_path, block_name)
         result = _run_worker("export-block", {
             "ProjectPath": path,
             "BlockName": block_name,
-            "ExportPath": export_path,
+            # TiaWorker/Program.cs 的 ExportBlockInput DTO 读 OutputPath（不是 ExportPath）
+            "OutputPath": resolved_export,
         })
         success = result.get("ok") is True
         audit_log("export_block", block_name=block_name,
@@ -766,6 +825,7 @@ def list_udts(project_path: str = "", auth_token: str = "") -> dict:
 def go_online(
     device_name: str = "PLC_1",
     project_path: str = "",
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """建立与 PLC 的在线连接。
@@ -773,10 +833,12 @@ def go_online(
     Args:
         device_name: PLC 设备名称
         project_path: TIA 项目路径，留空使用默认值
+        confirmation_token: 一次性人工确认令牌（在线连接状态变更，必填，fail-closed）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
-    gate = _safety_gate("go_online", block_name=device_name)
+    gate = _safety_gate("go_online", block_name=device_name,
+                        confirmation_token=confirmation_token, auth_token=auth_token)
     if gate:
         return gate
     try:
@@ -798,6 +860,7 @@ def go_online(
 def go_offline(
     device_name: str = "PLC_1",
     project_path: str = "",
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """断开与 PLC 的在线连接。
@@ -805,10 +868,12 @@ def go_offline(
     Args:
         device_name: PLC 设备名称
         project_path: TIA 项目路径，留空使用默认值
+        confirmation_token: 一次性人工确认令牌（在线连接状态变更，必填，fail-closed）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
-    gate = _safety_gate("go_offline", block_name=device_name)
+    gate = _safety_gate("go_offline", block_name=device_name,
+                        confirmation_token=confirmation_token, auth_token=auth_token)
     if gate:
         return gate
     try:
@@ -947,7 +1012,8 @@ def generate_scl_code(
 
     Args:
         description: 功能描述，如 "三相异步电机正反转控制，含急停和过载保护"
-        template: 模板 — motor(电机), conveyor(传送带), pid(PID), general(通用)
+        template: 模板名 — 必须是 plc-code-templates/siemens-scl 目录下实际存在的
+                  .md 模板（白名单校验），如 general, motor-control, conveyor, pid-controller
         auth_token: 认证令牌
 
     Returns:
@@ -974,7 +1040,7 @@ def generate_and_import(
     Args:
         description: 功能描述
         block_name: 块名称，留空由 AI 自动命名
-        template: 代码模板 (motor/conveyor/pid/general)
+        template: 代码模板名（须为 plc-code-templates/siemens-scl 内实际存在的 .md 模板）
         project_path: TIA 项目路径
         confirmation_token: 一次性人工确认令牌（导入为危险工程操作，必填）
         auth_token: 认证令牌
@@ -1243,6 +1309,7 @@ def create_ladder_block(
 def call_fb_in_ob1(
     fb_names: list,
     project_path: str = "",
+    confirmation_token: str = "",
     auth_token: str = "",
 ) -> dict:
     """在 OB1 中自动调用指定的 FB（如 FB501 ConveyorControl）。
@@ -1253,10 +1320,12 @@ def call_fb_in_ob1(
     Args:
         fb_names: FB 名称列表，如 ["IO_Map_MotorControl", "FB501"]
         project_path: TIA 项目路径，留空使用默认值
+        confirmation_token: 一次性人工确认令牌（直接改写工程内容，必填，fail-closed）
         auth_token: 认证令牌
     """
     _require_auth(auth_token)
-    gate = _safety_gate("call_fb_in_ob1", block_name=str(fb_names))
+    gate = _safety_gate("call_fb_in_ob1", block_name=str(fb_names),
+                        confirmation_token=confirmation_token, auth_token=auth_token)
     if gate:
         return gate
     try:
@@ -1512,17 +1581,10 @@ _LAD_PROMPT_TEMPLATE = """你是一个西门子 PLC 梯形图 (LAD) 专家。请
 {description}"""
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="TIA MCP Server")
-    parser.add_argument(
-        "--auth-token",
-        default=os.environ.get("TIA_MCP_AUTH_TOKEN", os.environ.get("MCP_AUTH_TOKEN", "")),
-        help="认证令牌（必填；也可通过 TIA_MCP_AUTH_TOKEN 或 MCP_AUTH_TOKEN 提供）",
-    )
-    args = parser.parse_args()
-    _AUTH_TOKEN = args.auth_token
-
+    # 认证令牌只从环境变量（TIA_MCP_AUTH_TOKEN / MCP_AUTH_TOKEN）读取；
+    # 不提供 --auth-token CLI 参数，避免令牌暴露在进程命令行（ps/日志可见）。
     if not _AUTH_TOKEN:
-        raise SystemExit("TIA MCP 拒绝启动：必须配置 MCP_AUTH_TOKEN 或 --auth-token")
+        raise SystemExit("TIA MCP 拒绝启动：必须配置 TIA_MCP_AUTH_TOKEN 或 MCP_AUTH_TOKEN 环境变量")
 
     # 检查管理员权限 — TIA Portal Openness API 需要管理员权限
     import ctypes

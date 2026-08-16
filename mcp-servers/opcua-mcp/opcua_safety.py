@@ -10,6 +10,7 @@
 """
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -77,31 +78,55 @@ FUSE_STATE = {
 
 
 def _load_fuse_state() -> None:
-    """从磁盘恢复熔断器状态，防止进程重启绕过熔断。"""
+    """从磁盘恢复熔断器状态，防止进程重启绕过熔断。
+
+    文件不存在是正常的首次启动（未熔断）；文件存在但损坏/不可读时
+    按已熔断处理（fail-closed）：无法核实的历史熔断状态不能当作
+    "未熔断"放行写入，必须人工调用 reset_fuse 才能恢复。
+    """
+    if not FUSE_STATE_FILE.exists():
+        return
     try:
-        if not FUSE_STATE_FILE.exists():
-            return
         data = json.loads(FUSE_STATE_FILE.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
-            return
+            raise ValueError("熔断状态不是 JSON 对象")
         FUSE_STATE["tripped"] = bool(data.get("tripped", False))
         FUSE_STATE["consecutive_errors"] = int(data.get("consecutive_errors", 0))
         FUSE_STATE["max_errors"] = int(data.get("max_errors", FUSE_STATE["max_errors"]))
         FUSE_STATE["trip_reason"] = str(data.get("trip_reason", ""))
         FUSE_STATE["trip_time"] = data.get("trip_time")
-    except Exception:
-        # 状态文件缺失/损坏时以内存默认值启动，不阻断服务
-        pass
+    except Exception as exc:
+        # 状态文件存在但损坏/不可读：按已熔断处理并记录 error 日志
+        _diag_logger.error("熔断状态文件损坏，按已熔断处理（fail-closed）: %s", exc)
+        audit_logger.warning(json.dumps({
+            "timestamp": datetime.now().isoformat(),
+            "action": "FUSE_STATE_CORRUPTED_FAIL_CLOSED",
+            "reason": str(exc),
+        }, ensure_ascii=False))
+        FUSE_STATE["tripped"] = True
+        FUSE_STATE["trip_reason"] = "熔断状态文件损坏，按已熔断处理（fail-closed，需人工 reset_fuse）"
+        FUSE_STATE["trip_time"] = datetime.now().isoformat()
 
 
 def _save_fuse_state() -> None:
-    """持久化熔断器状态，重启后仍保留熔断事实。"""
+    """持久化熔断器状态（临时文件 + os.replace 原子写）。
+
+    直接覆盖原文件会在写入中途崩溃/断电时留下半写的损坏状态文件，
+    触发 fail-closed 误熔断；原子替换保证状态文件要么是旧完整内容、
+    要么是新完整内容。
+    """
+    tmp_path = FUSE_STATE_FILE.with_name(FUSE_STATE_FILE.name + ".tmp")
     try:
-        FUSE_STATE_FILE.write_text(
+        tmp_path.write_text(
             json.dumps(FUSE_STATE, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-    except Exception:
-        pass
+        os.replace(tmp_path, FUSE_STATE_FILE)
+    except Exception as exc:
+        _diag_logger.error("熔断状态持久化失败: %s", exc)
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 _load_fuse_state()
