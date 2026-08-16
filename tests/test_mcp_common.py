@@ -128,6 +128,41 @@ class TestAuditHMAC:
             os.unlink(tmp_path)
 
 
+class TestResolveEnv:
+    """${VAR:default} 解析优先级：进程 os.environ 非空值 > .env 非空值 > 默认值"""
+
+    def test_os_environ_nonempty_wins_over_dotenv(self, monkeypatch):
+        from mcp_common.config import _resolve_env
+        monkeypatch.setenv("PRIO_TEST_VAR", "from_os")
+        assert _resolve_env("${PRIO_TEST_VAR:fallback}", {"PRIO_TEST_VAR": "from_dotenv"}) == "from_os"
+
+    def test_dotenv_empty_value_does_not_shadow_os_environ(self, monkeypatch):
+        from mcp_common.config import _resolve_env
+        monkeypatch.setenv("PRIO_TEST_VAR", "from_os")
+        assert _resolve_env("${PRIO_TEST_VAR:fallback}", {"PRIO_TEST_VAR": ""}) == "from_os"
+
+    def test_dotenv_empty_value_falls_back_to_default(self, monkeypatch):
+        from mcp_common.config import _resolve_env
+        monkeypatch.delenv("PRIO_TEST_VAR", raising=False)
+        # .env 中的 "PLCSIM_TARGET_IP="（空值）不得让 ${PLCSIM_TARGET_IP:192.168.0.1} 解析为空串
+        assert _resolve_env("${PRIO_TEST_VAR:192.168.0.1}", {"PRIO_TEST_VAR": ""}) == "192.168.0.1"
+
+    def test_os_environ_empty_value_falls_back_to_dotenv(self, monkeypatch):
+        from mcp_common.config import _resolve_env
+        monkeypatch.setenv("PRIO_TEST_VAR", "")
+        assert _resolve_env("${PRIO_TEST_VAR:fallback}", {"PRIO_TEST_VAR": "from_dotenv"}) == "from_dotenv"
+
+    def test_dotenv_nonempty_override_still_works(self, monkeypatch):
+        from mcp_common.config import _resolve_env
+        monkeypatch.delenv("PRIO_TEST_VAR", raising=False)
+        assert _resolve_env("${PRIO_TEST_VAR:fallback}", {"PRIO_TEST_VAR": "from_dotenv"}) == "from_dotenv"
+
+    def test_both_empty_and_no_default_resolves_empty(self, monkeypatch):
+        from mcp_common.config import _resolve_env
+        monkeypatch.delenv("PRIO_TEST_VAR", raising=False)
+        assert _resolve_env("${PRIO_TEST_VAR}", {"PRIO_TEST_VAR": ""}) == ""
+
+
 class TestTiaWorkerClient:
     """TiaWorker 共享客户端测试"""
 

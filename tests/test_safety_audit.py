@@ -55,6 +55,45 @@ def test_audit_empty_log_is_valid():
         assert logger.verify()
 
 
+def test_audit_zero_byte_log_is_valid():
+    """0 字节文件等同于空链（合法零锚起点），必须验证通过。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = os.path.join(tmp, "audit.log")
+        open(log_path, "wb").close()
+        logger = AuditLogger(log_path)
+        assert logger.verify()
+
+
+def test_audit_whitespace_only_log_rejected_on_append():
+    """非空但全空白的审计文件不得静默回退零锚重起链（截断式篡改绕过）。"""
+    from mcp_common.audit import AuditStorageError
+
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = os.path.join(tmp, "audit.log")
+        logger = AuditLogger(log_path)
+        logger.log("write_1", "DB1.Motor", "100")
+
+        # 模拟"截断旧链 + 空白化"篡改：内容非空但无任何合法条目
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("   \n\n\t\n")
+
+        with pytest.raises(AuditStorageError, match="拒绝静默重锚"):
+            logger.log("write_2", "DB1.Motor", "200")
+
+
+def test_verify_rejects_whitespace_only_log():
+    """verify() 对"非空但解析不出任何合法条目"必须返回损坏，而非 True。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = os.path.join(tmp, "audit.log")
+        logger = AuditLogger(log_path)
+        logger.log("write_1", "DB1.Motor", "100")
+
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("\n  \n")
+
+        assert not logger.verify()
+
+
 def test_audit_prev_hash_chains():
     with tempfile.TemporaryDirectory() as tmp:
         log_path = os.path.join(tmp, "audit.log")

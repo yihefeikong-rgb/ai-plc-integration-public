@@ -45,8 +45,19 @@ class TestValueBounds:
         assert not result.safe
         assert "超出合理范围" in result.reason
 
+    def test_numeric_string_exceeds_max(self, sim):
+        """数字字符串（如 "2e6"）不得因 isinstance 检查绕过范围限制。"""
+        result = asyncio.run(sim.simulate_write("DB1.Motor", "2e6"))
+        assert not result.safe
+        assert "超出合理范围" in result.reason
+
     def test_value_within_range(self, sim):
         result = asyncio.run(sim.simulate_write("DB1.Motor", 999_999))
+        assert result.safe
+
+    def test_numeric_string_within_range(self, sim):
+        """合法范围内的数字字符串仍应通过（不得因收紧而误拒正常值）。"""
+        result = asyncio.run(sim.simulate_write("DB1.Motor", "999999"))
         assert result.safe
 
     def test_negative_extreme(self, sim):
@@ -62,6 +73,13 @@ class TestChangeRate:
         asyncio.run(sim.simulate_write("DB1.Speed", 100))
         # 然后跳变 > 10x
         result = asyncio.run(sim.simulate_write("DB1.Speed", 5000))
+        assert not result.safe
+        assert "跳变过大" in result.reason
+
+    def test_numeric_string_jump_rejected(self, sim):
+        """数字字符串同样参与跳变检测（与 _check_value_bounds 同根修复）。"""
+        asyncio.run(sim.simulate_write("DB1.Speed", 100))
+        result = asyncio.run(sim.simulate_write("DB1.Speed", "5000"))
         assert not result.safe
         assert "跳变过大" in result.reason
 

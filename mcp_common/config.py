@@ -59,7 +59,17 @@ def _resolve_env(value: str, env: dict) -> str:
             var, default = full.split(":", 1)
         else:
             var, default = full, ""
-        return env.get(var, os.environ.get(var, default))
+        # 优先级：进程 os.environ 非空值 > .env 非空值 > 默认值。
+        # 任一层的空值都不得压制另一层或 ${VAR:default} 的默认值，
+        # 否则 .env 里的 "PLCSIM_TARGET_IP="（空值）会让 config.yaml
+        # 的 ${PLCSIM_TARGET_IP:192.168.0.1} 解析为空串而非默认 IP。
+        os_value = os.environ.get(var, "")
+        if os_value != "":
+            return os_value
+        env_value = env.get(var, "")
+        if env_value != "":
+            return env_value
+        return default
 
     return re.sub(r"\$\{([^}]+)\}", _replacer, value)
 

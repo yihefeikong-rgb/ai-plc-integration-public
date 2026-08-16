@@ -96,11 +96,16 @@ class PreWriteChecker:
     def _check_value_bounds(self, value: Any) -> list[str]:
         """检查值是否在合理范围内"""
         warnings = []
-        if isinstance(value, (int, float)):
-            if abs(value) > 1_000_000:
-                warnings.append(f"值 {value} 超出合理范围（超过 1,000,000）")
-            if isinstance(value, float) and value != value:  # NaN
-                warnings.append("值为 NaN")
+        # float() 可解析即检查：数字字符串如 "1e9" 不得因 isinstance
+        # 检查绕过范围限制（与 safety.validator 的判定保持同根一致）
+        try:
+            numeric = float(value)
+        except (ValueError, TypeError):
+            return warnings
+        if abs(numeric) > 1_000_000:
+            warnings.append(f"值 {value} 超出合理范围（超过 1,000,000）")
+        if numeric != numeric:  # NaN
+            warnings.append("值为 NaN")
         return warnings
 
     def _check_change_rate(
@@ -116,14 +121,18 @@ class PreWriteChecker:
                 后续合法写入，或被拒值成为基线后掩盖真实跳变。
         """
         warnings = []
-        if not isinstance(value, (int, float)):
+        # 与 _check_value_bounds 同根：数字字符串按数值参与跳变检测，
+        # 历史基线统一记 float() 归一值
+        try:
+            numeric = float(value)
+        except (ValueError, TypeError):
             return warnings
 
         history = self._history.get(tag)
         if history:
             prev = history[-1]
             if prev != 0 and abs(prev) > 0.001:
-                ratio = abs(value - prev) / abs(prev)
+                ratio = abs(numeric - prev) / abs(prev)
                 if ratio > 10:
                     warnings.append(
                         f"值跳变过大: {prev} -> {value} (变化率 {ratio:.1f}x)"
@@ -139,7 +148,7 @@ class PreWriteChecker:
                 # 移动到字典末尾，使淘汰顺序接近 LRU
                 self._history[tag] = self._history.pop(tag)
             history = self._history[tag]
-            history.append(value)
+            history.append(numeric)
             if len(history) > self._max_history:
                 del history[: len(history) - self._max_history]
 

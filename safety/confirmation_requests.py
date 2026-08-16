@@ -35,17 +35,48 @@ class ConfirmationRequestStore:
         try:
             if self._path.exists():
                 data = json.loads(self._path.read_text(encoding="utf-8"))
-                self._requests = data if isinstance(data, dict) else {}
-        except (OSError, json.JSONDecodeError):
+                if not isinstance(data, dict):
+                    raise ValueError(f"顶层必须是 JSON 对象，实际为 {type(data).__name__}")
+                self._requests = data
+        except (OSError, ValueError) as exc:
+            # 存储损坏不能拖垮服务，但静默清空会让审批记录无痕丢失：
+            # 先把损坏文件改名保留现场（.corrupt-<时间戳>），留明确
+            # 错误日志后再从空队列恢复。json.JSONDecodeError 是
+            # ValueError 子类，与"结构非法"共用同一条 fail-可见路径。
             self._requests = {}
+            corrupt_path = self._path.with_name(
+                f"{self._path.name}.corrupt-{int(time.time())}"
+            )
+            try:
+                self._path.replace(corrupt_path)
+                _logger.error(
+                    "确认请求存储损坏，已改名保留为 %s 并从空队列恢复: %s",
+                    corrupt_path, exc,
+                )
+            except OSError as rename_exc:
+                _logger.error(
+                    "确认请求存储损坏且改名保留失败（%s），已从空队列恢复: %s",
+                    rename_exc, exc,
+                )
 
     def _save(self) -> None:
+        # 临时文件 + os.replace 原子替换：写入中途崩溃/断电不会留下
+        # 半截 JSON 把整个队列永久破坏（下次 _load 只会读到旧完整版）。
+        tmp_path = self._path.with_name(f"{self._path.name}.tmp-{os.getpid()}")
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(
+            tmp_path.write_text(
                 json.dumps(self._requests, ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(tmp_path, self._path)
         except OSError as exc:
             _logger.error("确认请求存储写入失败: %s", exc)
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            # 上抛而非仅记录：调用方（审批路由/编排层）必须知道持久化
+            # 失败，不能把"未落盘的 approve/create"当成已生效返回成功
+            raise
 
     def create(self, workflow_name: str, description: str = "", operator: str = "ai-agent") -> dict[str, Any]:
         """AI 工作流创建审批请求，返回待人工批准的记录（不含令牌）。"""

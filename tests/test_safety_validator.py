@@ -97,3 +97,31 @@ def test_needs_confirmation_for_robot(v):
 def test_no_confirmation_for_sensor(v):
     r = v.validate("DB1.SENSOR_TEMP", 25.0)
     assert not r.needs_confirmation
+
+
+def test_blocks_numeric_string_out_of_range(v):
+    """数字字符串（如 "1e9"）不得因 isinstance 检查绕过全局范围限制。"""
+    r = v.validate("DB1.NormalTag", "1e9")
+    assert not r.allowed
+    assert "超出合理范围" in r.reason
+
+
+def test_blocks_numeric_string_value_jump(v):
+    """数字字符串同样参与跳变检测。"""
+    r = v.validate("DB1.NormalTag", "2500", current_value=100)
+    assert not r.allowed
+    assert "跳变过大" in r.reason
+
+
+def test_allows_normal_numeric_string(v):
+    """合法范围内的数字字符串仍应通过（不得因收紧而误拒正常值）。"""
+    r = v.validate("DB1.NormalTag", "150")
+    assert r.allowed
+
+
+def test_bool_value_still_allowed_with_numeric_current(v):
+    """bool 是 int 子类：True/False 参与数值路径后不得被误拒。"""
+    r = v.validate("DB1.NormalTag", True, current_value=100)
+    assert r.allowed
+    r = v.validate("DB1.NormalTag", False)
+    assert r.allowed

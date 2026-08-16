@@ -116,3 +116,66 @@ class TestFuseTriggeredByOverrange:
         result = v.validate("DB1.NormalTag", 50)
         assert not result.allowed
         assert "熔断" in result.reason
+
+
+class TestInterlockNumericFieldTypeValidation:
+    """互锁规则数值字段（max/min/cooldown）配置成字符串时必须加载失败（fail-closed），
+    而不是让运行期 float < str 抛 TypeError 击穿 validate()。"""
+
+    def _write_rules_and_validate(self, tmp_path, rules_body):
+        import safety.validator as validator_module
+        rules_file = tmp_path / "interlock-rules.yml"
+        rules_file.write_text(rules_body, encoding="utf-8")
+        original = validator_module.RULES_FILE
+        validator_module.RULES_FILE = rules_file
+        try:
+            v = validator_module.WriteValidator()
+            v.set_bit_reader(lambda addr: True)
+            return v, v.validate("DB1.MotorSpeed", 1500)
+        finally:
+            validator_module.RULES_FILE = original
+
+    def test_string_max_value_fails_closed(self, tmp_path):
+        v, result = self._write_rules_and_validate(
+            tmp_path,
+            "write_rules:\n"
+            "  - target: \"DB1.MotorSpeed\"\n"
+            "    max_value: \"3000\"\n"
+            "    min_value: 0\n",
+        )
+        assert not v._interlock_loaded
+        assert not result.allowed
+        assert "互锁规则加载失败" in result.reason
+
+    def test_string_cooldown_fails_closed(self, tmp_path):
+        v, result = self._write_rules_and_validate(
+            tmp_path,
+            "write_rules:\n"
+            "  - target: \"DB1.MotorSpeed\"\n"
+            "    max_value: 3000\n"
+            "    cooldown_seconds: \"5\"\n",
+        )
+        assert not v._interlock_loaded
+        assert not result.allowed
+
+    def test_bool_min_value_fails_closed(self, tmp_path):
+        v, result = self._write_rules_and_validate(
+            tmp_path,
+            "write_rules:\n"
+            "  - target: \"DB1.MotorSpeed\"\n"
+            "    min_value: true\n",
+        )
+        assert not v._interlock_loaded
+        assert not result.allowed
+
+    def test_numeric_rules_still_load(self, tmp_path):
+        v, result = self._write_rules_and_validate(
+            tmp_path,
+            "write_rules:\n"
+            "  - target: \"DB1.MotorSpeed\"\n"
+            "    max_value: 3000\n"
+            "    min_value: 0\n"
+            "    cooldown_seconds: 5\n",
+        )
+        assert v._interlock_loaded
+        assert result.allowed

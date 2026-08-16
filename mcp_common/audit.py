@@ -256,7 +256,13 @@ class AuditLogger:
                 lines = [l for l in tail.splitlines() if l.strip()]
                 if not lines:
                     if read_from == 0:
-                        return "0" * 64
+                        # 非空文件但整个文件内无任何非空行：链尾已损坏
+                        # （如日志被截断成空白/纯换行）。此时静默回退零锚
+                        # 会让"截断旧链 + 重锚追加"的篡改逃过 verify()，
+                        # 必须 fail-closed。
+                        raise AuditStorageError(
+                            f"审计日志链尾缺少任何合法条目，拒绝静默重锚: {self.path}"
+                        )
                     window *= 4
                     continue
                 try:
@@ -352,9 +358,18 @@ class AuditLogger:
             return True
         try:
             with open(self.path, "r", encoding="utf-8") as f:
-                lines = [l.strip() for l in f if l.strip()]
+                raw = f.read()
+            lines = [l.strip() for l in raw.splitlines() if l.strip()]
         except OSError as exc:
             raise AuditStorageError(f"verify(): 审计日志不可读 {self.path}: {exc}") from exc
+        if raw and not lines:
+            # 文件非空但解析不出任何合法条目（如只剩空白/纯换行）：
+            # 按链损坏处理，不得当作"空链验证通过"放过截断式篡改。
+            print(
+                f"[audit] verify(): 审计日志非空但无任何合法条目（疑似被截断/空白化），数据损坏: {self.path}",
+                file=sys.stderr,
+            )
+            return False
         for i, line in enumerate(lines):
             try:
                 entry = json.loads(line)

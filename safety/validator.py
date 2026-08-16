@@ -113,6 +113,18 @@ class WriteValidator:
             for rule in self._rules:
                 if not isinstance(rule, dict):
                     raise ValueError(f"互锁规则格式无效: {rule!r}")
+                # 数值约束字段必须是真数值（int/float，不含 bool）：
+                # 配置成字符串会让运行期 float < str 抛 TypeError 击穿
+                # validate()，在加载期即拒绝并走 fail-closed 路径
+                for numeric_field in ("max_value", "min_value", "cooldown_seconds"):
+                    raw = rule.get(numeric_field)
+                    if raw is None:
+                        continue
+                    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                        raise ValueError(
+                            f"互锁规则字段 {numeric_field} 必须为数值: "
+                            f"{rule.get('target')!r} -> {raw!r}"
+                        )
                 target = rule.get("target")
                 if isinstance(target, str) and target:
                     self._rules_by_target.setdefault(target.upper(), []).append(rule)
@@ -318,9 +330,10 @@ class WriteValidator:
         if rule_result is not None:
             return rule_result
 
-        # 4. 全局合理范围检查（仅数值标量）
-        is_numeric_scalar = isinstance(value, (int, float)) and not isinstance(value, bool)
-        if is_numeric_scalar:
+        # 4. 全局合理范围检查（float() 可解析即检查：数字字符串如 "1e9"
+        #    不得因 isinstance 检查绕过范围限制；bool 经 float() 解析为
+        #    0/1，天然在合理范围内，行为不变）
+        if numeric_value is not None:
             if not math.isfinite(numeric_value):
                 self.consecutive_errors += 1
                 return ValidationResult(False, f"值必须是有限数值: {value}")
@@ -328,16 +341,17 @@ class WriteValidator:
                 self.consecutive_errors += 1
                 return ValidationResult(False, f"值 {value} 超出合理范围")
 
-        # 5. 值跳变检测
-        if (current_value is not None
-                and is_numeric_scalar
-                and isinstance(current_value, (int, float))
-                and not isinstance(current_value, bool)):
-            current_numeric = float(current_value)
-            if abs(current_numeric) > 0.001:
-                if abs(numeric_value - current_numeric) > abs(current_numeric) * 10:
-                    self.consecutive_errors += 1
-                    return ValidationResult(False, f"值跳变过大: {current_value} -> {value}")
+        # 5. 值跳变检测（当前值同样以 float() 可解析为准，防止字符串化绕过）
+        try:
+            current_numeric = None if current_value is None else float(current_value)
+        except (ValueError, TypeError):
+            current_numeric = None
+        if (current_numeric is not None
+                and numeric_value is not None
+                and abs(current_numeric) > 0.001):
+            if abs(numeric_value - current_numeric) > abs(current_numeric) * 10:
+                self.consecutive_errors += 1
+                return ValidationResult(False, f"值跳变过大: {current_value} -> {value}")
 
         # 通过所有检查，重置连续错误计数
         needs = _WRITE_CONFIRM and any(
